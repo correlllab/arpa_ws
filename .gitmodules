@@ -1,0 +1,21 @@
+[submodule "src/arpa_ethernet_motor"]
+	path = src/arpa_ethernet_motor
+	url = https://github.com/correlllab/arpa_ethernet_motor.git
+[submodule "src/cl_realsense"]
+	path = src/cl_realsense
+	url = https://github.com/correlllab/cl_realsense.git
+[submodule "src/custom_ros_messages"]
+	path = src/custom_ros_messages
+	url = https://github.com/correlllab/custom_ros_messages.git
+[submodule "src/Universal_Robots_ROS2_Description"]
+	path = src/Universal_Robots_ROS2_Description
+	url = https://github.com/UniversalRobots/Universal_Robots_ROS2_Description.git
+[submodule "src/Universal_Robots_ROS2_Driver"]
+	path = src/Universal_Robots_ROS2_Driver
+	url = https://github.com/UniversalRobots/Universal_Robots_ROS2_Driver.git
+[submodule "src/Universal_Robots_ROS2_Gazebo_Simulation"]
+	path = src/Universal_Robots_ROS2_Gazebo_Simulation
+	url = https://github.com/UniversalRobots/Universal_Robots_ROS2_Gazebo_Simulation.git
+[submodule "src/ur16e_rest"]
+	path = src/ur16e_rest
+	url = https://github.com/correlllab/ur16e_rest.git
