@@ -1,0 +1,88 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="arpa_system">
+
+    <!-- General / system -->
+    <xacro:arg name="arpa_model" default="ur16e"/>
+    <xacro:arg name="tf_prefix" default=""/>
+    <xacro:arg name="use_fake_hardware" default="false"/>
+    <xacro:arg name="fake_sensor_commands" default="false"/>
+
+    <!-- UR driver essentials -->
+    <xacro:arg name="robot_ip" default="128.138.224.247"/>
+    <xacro:arg name="script_filename" default="$(find ur_client_library)/resources/external_control.urscript"/>
+    <xacro:arg name="input_recipe_filename" default="$(find ur_robot_driver)/resources/rtde_input_recipe.txt"/>
+    <xacro:arg name="output_recipe_filename" default="$(find ur_robot_driver)/resources/rtde_output_recipe.txt"/>
+
+    <xacro:arg name="joint_limit_params"
+            default="$(find ur_description)/config/$(arg arpa_model)/joint_limits.yaml"/>
+    <xacro:arg name="kinematics_params"
+            default="$(find ur_description)/config/$(arg arpa_model)/default_kinematics.yaml"/>
+    <xacro:arg name="physical_params"
+            default="$(find ur_description)/config/$(arg arpa_model)/physical_parameters.yaml"/>
+    <xacro:arg name="visual_params"
+            default="$(find ur_description)/config/$(arg arpa_model)/visual_parameters.yaml"/>
+
+    <!-- Safety -->
+    <xacro:arg name="safety_limits" default="true"/>
+    <xacro:arg name="safety_pos_margin" default="0.15"/>
+    <xacro:arg name="safety_k_position" default="20"/>
+
+    <!-- Tool comm (optional) -->
+    <xacro:arg name="headless_mode" default="true"/>
+    <xacro:arg name="use_tool_communication" default="false"/>
+    <xacro:arg name="tool_parity" default="0"/>
+    <xacro:arg name="tool_baud_rate" default="115200"/>
+    <xacro:arg name="tool_stop_bits" default="1"/>
+    <xacro:arg name="tool_rx_idle_chars" default="1.5"/>
+    <xacro:arg name="tool_tx_idle_chars" default="3.5"/>
+    <xacro:arg name="tool_device_name" default="/tmp/ttyUR"/>
+    <xacro:arg name="tool_tcp_port" default="54321"/>
+    <xacro:arg name="tool_voltage" default="0"/>
+
+    <!-- Reverse/script ports -->
+    <xacro:arg name="reverse_ip" default="0.0.0.0"/>
+    <xacro:arg name="script_command_port" default="50004"/>
+    <xacro:arg name="reverse_port" default="50001"/>
+    <xacro:arg name="script_sender_port" default="50002"/>
+    <xacro:arg name="trajectory_port" default="50003"/>
+
+    <xacro:arg name="initial_positions_file_path" default="$(find arpa_moveit_config)/config/initial_positions.yaml" />
+
+    <xacro:include filename="$(find arpa_description)/urdf/arpa_system_macro.urdf.xacro" />
+    <xacro:arpa_system_macro
+        ur_name="$(arg arpa_model)"
+        tf_prefix="$(arg tf_prefix)"
+        robot_ip="$(arg robot_ip)"
+        reverse_ip="$(arg reverse_ip)"
+
+        joint_limits_parameters_file="$(arg joint_limit_params)"
+        kinematics_parameters_file="$(arg kinematics_params)"
+        physical_parameters_file="$(arg physical_params)"
+        visual_parameters_file="$(arg visual_params)"
+
+        script_filename="$(arg script_filename)"
+        input_recipe_filename="$(arg input_recipe_filename)"
+        output_recipe_filename="$(arg output_recipe_filename)"
+
+        generate_ros2_control_tag="true"
+        use_fake_hardware="$(arg use_fake_hardware)"
+        fake_sensor_commands="$(arg fake_sensor_commands)"
+
+        safety_limits="$(arg safety_limits)"
+        safety_pos_margin="$(arg safety_pos_margin)"
+        safety_k_position="$(arg safety_k_position)"
+
+        headless_mode="$(arg headless_mode)"
+        use_tool_communication="$(arg use_tool_communication)"
+        tool_voltage="$(arg tool_voltage)"
+        tool_parity="$(arg tool_parity)"
+        tool_baud_rate="$(arg tool_baud_rate)"
+        tool_stop_bits="$(arg tool_stop_bits)"
+        tool_rx_idle_chars="$(arg tool_rx_idle_chars)"
+        tool_tx_idle_chars="$(arg tool_tx_idle_chars)"
+
+        sim_gazebo="false"
+        sim_ignition="false"
+    />
+
+</robot>

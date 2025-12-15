@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>arpa_gui</name>
+  <version>0.1.0</version>
+  <description>
+    Standalone Qt5-based GUI for controlling the ARPA robotic manipulation system.
+  </description>
+
+  <maintainer email="you@todo.com">Your Name</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- Build tools -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Core build + exec dependencies -->
+  <depend>rclcpp</depend>
+  <depend>ur_manipulation</depend>
+  <depend>tf2_ros</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+
+  <!-- Qt5 depends -->
+  <build_depend>qtbase5-dev</build_depend>
+  <exec_depend>qtbase5-dev</exec_depend>
+
+  <!-- Include directory exports -->
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+
+</package>

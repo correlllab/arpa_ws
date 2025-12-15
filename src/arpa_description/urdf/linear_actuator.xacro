@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- <xacro:include filename="$(find arpa_description)/urdf/materials.xacro" /> -->
+  <!-- <gazebo>
+    <joint name="slider_joint">
+      <plugin name="prismatic_controller" filename="libgazebo_ros_joint_pose_trajectory.so" />
+    </joint>
+  </gazebo> -->
+
+  <xacro:macro name="linear_actuator">
+    <link name="linear_actuator_link">
+      <visual>
+        <geometry>
+          <box size="2.58 0.15 0.0675"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="actuator_gray">
+          <color rgba="0.75 0.75 0.75 1"/>
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="2.58 0.15 0.0675"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <link name="linear_actuator_plate_link">
+      <visual>
+        <geometry>
+          <box size="0.26 0.15 0.02"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="actuator_plate">
+          <color rgba="0.0 0.0 0.5 1"/>
+        </material>
+
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.26 0.15 0.02"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Fixed joints (pillars attach to beam) -->
+    <!-- <joint name="linear_actuator_to_linear_actuator_plate_joint" type="prismatic">
+      <parent link="linear_actuator_link"/>
+      <child link="linear_actuator_plate_link"/>
+      <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-1.845" upper="0.0" effort="100.0" velocity="0.5"/>
+    </joint> -->
+
+    <joint name="linear_actuator_to_linear_actuator_plate_joint" type="fixed">
+      <parent link="linear_actuator_link"/>
+      <child link="linear_actuator_plate_link"/>
+      <!-- <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/> -->
+      <origin xyz="0.3556 0 -0.04375" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+</robot>

@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  ur_arm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arpa_system
+    image: arpa_system:latest
+    network_mode: "host"
+    privileged: true
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+      - /dev:/dev
+      - /dev/dri                  # GPU
+    device_cgroup_rules:
+      - 'c 189:* rmw'
+
+    # Proper NVIDIA GPU activation
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+
+      # X11 display
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=/tmp/.docker.xauth
+
+      # ROS
+      - ROS_DISTRO=humble
+      - RCUTILS_COLORIZED_OUTPUT=1
+      - ROS_DOMAIN_ID=21
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - TZ=America/Denver
+
+    # Mount X11 and GPU devices
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - .:/root/ros2_ws:rw
+      - /dev/dri:/dev/dri         # GPU (Intel/AMD) support
+      - /tmp/.gazebo:/tmp/.gazebo
+      - /dev/shm:/dev/shm
+      # - /etc/ntp.conf:/etc/ntp.conf:ro
+      # - /etc/hosts:/etc/hosts:ro
+
+    # Allocate sufficient resources
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 32G
+        reservations:
+          cpus: '4'
+          memory: 2G
+
+    cap_add:
+      - SYS_NICE
+      - SYS_TIME
+
+    stdin_open: true
+    tty: true
+    command: ["/bin/bash"]

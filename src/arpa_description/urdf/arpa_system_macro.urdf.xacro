@@ -1,0 +1,208 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- Sub-components -->
+  <xacro:include filename="$(find arpa_description)/urdf/gantry.xacro"/>
+  <xacro:include filename="$(find arpa_description)/urdf/linear_actuator.xacro"/>
+  <xacro:include filename="$(find arpa_description)/urdf/tool_holder.xacro"/>
+  <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+
+
+  <!-- <xacro:arg name="tf_prefix" default="" />
+  <xacro:arg name="joint_limit_params" default="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"/>
+  <xacro:arg name="kinematics_params" default="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"/>
+  <xacro:arg name="physical_params" default="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"/>
+  <xacro:arg name="visual_params" default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
+  <xacro:arg name="transmission_hw_interface" default=""/>
+  <xacro:arg name="safety_limits" default="false"/>
+  <xacro:arg name="safety_pos_margin" default="0.15"/>
+  <xacro:arg name="safety_k_position" default="20"/>
+  <xacro:arg name="mock_sensor_commands" default="false" /> -->
+
+  <!--When using gazebo simulations absolute paths are necessary.-->
+  <!-- <xacro:arg name="force_abs_paths" default="false" /> -->
+
+  <!-- initial position for simulations (Mock Hardware, Gazebo, Ignition) -->
+  <!-- <xacro:arg name="initial_positions_file" default="$(find ur_description)/config/initial_positions.yaml"/> -->
+
+  <!-- convert to property to use substitution in function -->
+  <!-- <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/> -->
+
+
+  <!--
+    ARPA system macro
+    Exposes UR parameters so your wrapper/launch can pass:
+      - robot_ip
+      - script/recipes (indirectly via generate_ros2_control_tag path)
+      - use_fake_hardware
+      - safety settings
+      - *and* which UR model config files to use
+  -->
+  <xacro:macro name="arpa_system_macro" params="
+      ur_name:=''
+      tf_prefix:=''
+      sim_gazebo:=false
+      sim_ignition:=false
+
+      robot_ip:=''
+      reverse_ip:='0.0.0.0'
+
+      joint_limits_parameters_file:=''
+      kinematics_parameters_file:=''
+      physical_parameters_file:=''
+      visual_parameters_file:=''
+
+      script_filename:='to_be_filled_by_ur_robot_driver'
+      input_recipe_filename:='to_be_filled_by_ur_robot_driver'
+      output_recipe_filename:='to_be_filled_by_ur_robot_driver'
+
+      generate_ros2_control_tag:=true
+      transmission_hw_interface:='hardware_interface/PositionJointInterface'
+
+      use_fake_hardware:=false
+      fake_sensor_commands:=false
+
+      safety_limits:=false
+      safety_pos_margin:=0.15
+      safety_k_position:=20
+
+      headless_mode:=false
+
+      use_tool_communication:=false
+      tool_voltage:=0
+      tool_parity:=0
+      tool_baud_rate:=115200
+      tool_stop_bits:=1
+      tool_rx_idle_chars:=1.5
+      tool_tx_idle_chars:=3.5
+    ">
+
+    <!-- Map link -->
+    <link name="floor_link"/>
+
+    <!-- The gantry structure -->
+    <xacro:gantry/>
+
+    <!-- Fixed transform from floor_link to gantry_link -->
+    <joint name="floor_to_gantry" type="fixed">
+      <parent link="floor_link"/>
+      <child link="gantry_link"/>
+      <origin xyz="0 0 1.9419" rpy="0 0 0"/>
+    </joint>
+
+    <xacro:linear_actuator/>
+
+    <!-- Fixed transform from gantry_link to linear_actuator_link -->
+    <joint name="gantry_to_linear_actuator" type="fixed">
+      <parent link="gantry_link"/>
+      <child link="linear_actuator_link"/>
+      <origin xyz="0 0 -0.11375" rpy="0 0 0"/>
+    </joint>
+
+    <link name="arm_mount_plate">
+      <visual>
+        <geometry>
+          <box size="0.2 0.42 0.008"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="arm_mount_plate_material">
+          <color rgba="0.75 0.75 0.75 1"/>
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.2 0.42 0.008"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.001"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Fixed transform from linear_actuator to arm_mount_plate -->
+    <joint name="linear_actuator_plate_to_arm_mount_plate" type="fixed">
+      <parent link="linear_actuator_plate_link"/>
+      <child link="arm_mount_plate"/>
+      <origin xyz="0 0 -0.014" rpy="0 0 0${pi}"/>
+    </joint>
+
+    <link name="ur_base_link">
+      <inertial>
+        <mass value="0.001"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <joint name="ur_base_to_gantry" type="fixed">
+      <parent link="arm_mount_plate"/>
+      <child link="ur_base_link"/>
+      <origin xyz="0 0 -0.01" rpy="0 ${pi} 0"/>
+    </joint>
+
+    <!-- UR robot -->
+    <xacro:ur_robot
+      name="${ur_name}"
+      tf_prefix="${tf_prefix}"
+      parent="ur_base_link"
+
+      joint_limits_parameters_file="${joint_limits_parameters_file}"
+      kinematics_parameters_file="${kinematics_parameters_file}"
+      physical_parameters_file="${physical_parameters_file}"
+      visual_parameters_file="${visual_parameters_file}"
+
+      script_filename="${script_filename}"
+      input_recipe_filename="${input_recipe_filename}"
+      output_recipe_filename="${output_recipe_filename}"
+
+      generate_ros2_control_tag="${generate_ros2_control_tag}"
+      transmission_hw_interface="${transmission_hw_interface}"
+
+      use_fake_hardware="${use_fake_hardware}"
+      fake_sensor_commands="${fake_sensor_commands}"
+
+      safety_limits="${safety_limits}"
+      safety_pos_margin="${safety_pos_margin}"
+      safety_k_position="${safety_k_position}"
+
+      sim_gazebo="${sim_gazebo}"
+      sim_ignition="${sim_ignition}"
+
+      headless_mode="${headless_mode}"
+
+      use_tool_communication="${use_tool_communication}"
+      tool_voltage="${tool_voltage}"
+      tool_parity="${tool_parity}"
+      tool_baud_rate="${tool_baud_rate}"
+      tool_stop_bits="${tool_stop_bits}"
+      tool_rx_idle_chars="${tool_rx_idle_chars}"
+      tool_tx_idle_chars="${tool_tx_idle_chars}"
+
+      robot_ip="${robot_ip}"
+      reverse_ip="${reverse_ip}"
+    >
+      <origin xyz="0 0.0 0" rpy="0 0 0"/>
+    </xacro:ur_robot>
+    <!-- UR robot -->
+    <!-- <xacro:ur_robot
+      name="${ur_name}"
+      tf_prefix="$(arg tf_prefix)"
+      parent="ur_base_link"
+      joint_limits_parameters_file="$(arg joint_limit_params)"
+      kinematics_parameters_file="$(arg kinematics_params)"
+      physical_parameters_file="$(arg physical_params)"
+      visual_parameters_file="$(arg visual_params)"
+      safety_limits="$(arg safety_limits)"
+      safety_pos_margin="$(arg safety_pos_margin)"
+      safety_k_position="$(arg safety_k_position)"
+      force_abs_paths="$(arg force_abs_paths)"
+      >
+      <origin xyz="0 0 0" rpy="0 0 0" />  
+    </xacro:ur_robot> -->
+
+    <!-- Tool holder on tool0 -->
+    <xacro:tool_holder parent_link="tool0"/>
+
+  </xacro:macro>
+
+</robot>

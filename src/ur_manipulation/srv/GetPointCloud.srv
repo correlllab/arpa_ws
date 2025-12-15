@@ -1,0 +1,4 @@
+# Request contains nothing (or you can add fields)
+---
+
+sensor_msgs/PointCloud2 cloud

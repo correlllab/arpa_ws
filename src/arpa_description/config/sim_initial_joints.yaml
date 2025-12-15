@@ -1,0 +1,16 @@
+joint_state_publisher:
+  ros__parameters:
+    rate: 30
+    use_mimic_tags: true
+    publish_default_positions: true
+    publish_default_velocities: false
+    publish_default_efforts: false
+    source_list: []
+    # initial joint positions (radians)
+    default_positions:
+      shoulder_pan_joint: 0.0
+      shoulder_lift_joint: -1.57
+      elbow_joint: 1.57
+      wrist_1_joint: -1.57
+      wrist_2_joint: 0.0
+      wrist_3_joint: 0.0

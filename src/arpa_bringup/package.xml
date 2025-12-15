@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>arpa_bringup</name>
+  <version>0.0.1</version>
+  <description>Bringup package for ARPA system with UR16e + linear actuator + Gazebo Classic</description>
+
+  <maintainer email="zach@example.com">Zach</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Launch -->
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <!-- Gazebo Classic integration -->
+  <!-- <exec_depend>gazebo_ros</exec_depend>
+  <exec_depend>gazebo_ros_pkgs</exec_depend>
+  <exec_depend>gazebo_plugins</exec_depend>
+  <exec_depend>gazebo_ros_control</exec_depend>-->
+
+  <!-- ros2_control -->
+  <exec_depend>ros2_control</exec_depend>
+  <exec_depend>ros2_controllers</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+
+  <!-- UR packages -->
+  <exec_depend>ur_description</exec_depend>
+  <exec_depend>ur_controllers</exec_depend>
+  <exec_depend>ur_simulation_gazebo</exec_depend>
+
+  <!-- MoveIt -->
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>moveit_ros_planning</exec_depend>
+  <exec_depend>moveit_ros_visualization</exec_depend>
+
+  <!-- Your packages -->
+  <exec_depend>arpa_description</exec_depend>
+  <exec_depend>arpa_behavior_trees</exec_depend>
+  <exec_depend>ur_manipulation</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+
+</package>

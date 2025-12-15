@@ -1,0 +1,132 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="$(find arpa_description)/urdf/materials.xacro" />
+  <xacro:default_materials/>
+
+  <xacro:macro name="gantry" params="">
+    <!-- Crossbeam (root link) -->
+    <link name="gantry_link">
+      <visual>
+        <geometry>
+          <box size="3.0988 0.15 0.15"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="gantry_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="3.0988 0.15 0.15"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Left pillar -->
+    <link name="pillar_left_link">
+      <visual>
+        <geometry>
+          <box size="0.15 0.15 1.867"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="pillar_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.15 0.15 1.867"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Right pillar -->
+    <link name="pillar_right_link">
+      <visual>
+        <geometry>
+          <box size="0.15 0.15 1.867"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="pillar_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.15 0.15 1.867"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Left leg -->
+    <link name="left_leg_link">
+      <visual>
+        <geometry>
+          <box size="1.0 1.0 0.05"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="pillar_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="1.0 1.0 0.05"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="100.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Right leg -->
+    <link name="right_leg_link">
+      <visual>
+        <geometry>
+          <box size="1.0 1.0 0.05"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="pillar_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="1.0 1.0 0.05"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="100.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Fixed joints (pillars attach to beam) -->
+    <joint name="beam_to_pillar_left" type="fixed">
+      <parent link="gantry_link"/>
+      <child link="pillar_left_link"/>
+      <origin xyz="1.4744 0 -1.00845" rpy="0 0 0"/>
+    </joint>
+
+    <joint name="beam_to_pillar_right" type="fixed">
+      <parent link="gantry_link"/>
+      <child link="pillar_right_link"/>
+      <origin xyz="-1.4744 0 -1.00845" rpy="0 0 0"/>
+    </joint>
+
+    <joint name="pillar_left_to_leg_left" type="fixed">
+      <parent link="pillar_left_link"/>
+      <child link="left_leg_link"/>
+      <origin xyz="0 0 -0.925" rpy="0 0 0"/>
+    </joint>
+    
+    <joint name="pillar_right_to_leg_right" type="fixed">
+      <parent link="pillar_right_link"/>
+      <child link="right_leg_link"/>
+      <origin xyz="0 0 -0.925" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+</robot>

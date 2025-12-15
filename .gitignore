@@ -1,4 +1,6 @@
 build/
 install/
-log/src/.vscode/
+log/
+src/.vscode/
 src/.github/
+src/arpa_behavior_trees/

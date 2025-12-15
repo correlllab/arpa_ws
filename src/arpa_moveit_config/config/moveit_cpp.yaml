@@ -1,0 +1,232 @@
+planning_scene_monitor_options:
+  publish_planning_scene: True
+  publish_geometry_updates: True
+  publish_state_updates: True
+  publish_transforms_updates: True
+  publish_planning_scene_hz: 50.0
+  # name: "planning_scene_monitor"
+  # robot_description: "robot_description"
+  # joint_state_topic: "/joint_states"
+  # attached_collision_object_topic: "/moveit_cpp/planning_scene_monitor"
+  # publish_planning_scene_topic: "/moveit_cpp/publish_planning_scene"
+  # monitored_planning_scene_topic: "/moveit_cpp/monitored_planning_scene"
+  # wait_for_initial_state_timeout: 10.0
+
+publish_planning_scene: True
+publish_robot_description_semantic: True
+
+planning_pipelines:
+  #namespace: "moveit_cpp"  # optional, default is ~
+  pipeline_names: ["ompl"]
+  moveit_controller_manager: 'moveit_simple_controller_manager/MoveItSimpleControllerManager'
+
+# plan_request_params:
+#   planning_attempts: 100
+#   planning_time: 10.0
+#   planning_pipeline: ompl
+#   max_velocity_scaling_factor: 1.0
+#   max_acceleration_scaling_factor: 1.0
+
+plan_execution:
+  record_trajectory_state_frequency: 10.0
+
+ompl:
+  planning_attempts: 50
+  planning_time: 15.0
+  planning_pipeline: ompl
+  max_velocity_scaling_factor: 1.0
+  max_acceleration_scaling_factor: 1.0
+  # enforce_constrained_planning: True
+  planning_plugins: 'ompl_interface/OMPLPlanner'
+  request_adapters: default_planner_request_adapters/AddTimeOptimalParameterization
+    default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds
+    default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints
+  start_state_max_bounds_error: 0.1
+  default_planning_pipeline: 'ompl'
+  xarm7:
+    default_planner_config: PRMstar
+    enforce_constrained_state_space: True
+    projection_evaluator: joints(joint1, joint2)
+    planner_configs:
+    - SBL
+    - EST
+    - LBKPIECE
+    - BKPIECE
+    - KPIECE
+    - RRT
+    - RRTConnect
+    - RRTstar
+    - TRRT
+    - PRM
+    - PRMstar
+    - FMT
+    - BFMT
+    - PDST
+    - STRIDE
+    - BiTRRT
+    - LBTRRT
+    - BiEST
+    - ProjEST
+    - LazyPRM
+    - LazyPRMstar
+    - SPARS
+    - SPARStwo
+  xarm_gripper:
+    default_planner_config: PRMstar
+    enforce_constrained_state_space: True
+    projection_evaluator: joints(joint1,joint2)
+    planner_configs:
+      - SBL
+      - EST
+      - LBKPIECE
+      - BKPIECE
+      - KPIECE
+      - RRT
+      - RRTConnect
+      - RRTstar
+      - TRRT
+      - PRM
+      - PRMstar
+      - FMT
+      - BFMT
+      - PDST
+      - STRIDE
+      - BiTRRT
+      - LBTRRT
+      - BiEST
+      - ProjEST
+      - LazyPRM
+      - LazyPRMstar
+      - SPARS
+      - SPARStwo
+
+  planner_configs:
+    BFMT:
+      balanced: 0
+      cache_cc: 1
+      extended_fmt: 1
+      heuristics: 1
+      nearest_k: 1
+      num_samples: 1000
+      optimality: 1
+      radius_multiplier: 1.0
+      type: geometric::BFMT
+    BKPIECE:
+      border_fraction: 0.9
+      failed_expansion_score_factor: 0.5
+      min_valid_path_fraction: 0.5
+      range: 0.0
+      type: geometric::BKPIECE
+    BiEST:
+      range: 0.0
+      type: geometric::BiEST
+    BiTRRT:
+      cost_threshold: 1.0e+300
+      frountier_node_ratio: 0.1
+      frountier_threshold: 0.0
+      init_temperature: 100
+      range: 0.0
+      temp_change_factor: 0.1
+      type: geometric::BiTRRT
+    EST:
+      goal_bias: 0.05
+      range: 0.0
+      type: geometric::EST
+    FMT:
+      cache_cc: 1
+      extended_fmt: 1
+      heuristics: 0
+      nearest_k: 1
+      num_samples: 3000
+      radius_multiplier: 1.1
+#     enforce_constrained_state_space: True
+#     projection_evaluator: joints(joint1, joint2)
+      type: geometric::FMT
+    KPIECE:
+      border_fraction: 0.9
+      failed_expansion_score_factor: 0.5
+      goal_bias: 0.05
+      min_valid_path_fraction: 0.5
+      range: 0.0
+      type: geometric::KPIECE
+    LBKPIECE:
+      border_fraction: 0.9
+      min_valid_path_fraction: 0.5
+      range: 0.0
+      type: geometric::LBKPIECE
+    LBTRRT:
+      epsilon: 0.4
+      goal_bias: 0.05
+      range: 0.0
+      type: geometric::LBTRRT
+    LazyPRM:
+      range: 0.0
+      type: geometric::LazyPRM
+    LazyPRMstar:
+      type: geometric::LazyPRMstar
+    PDST:
+      type: geometric::PDST
+    PRM:
+      max_nearest_neighbors: 10
+      type: geometric::PRM
+    PRMstar:
+      type: geometric::PRMstar
+    ProjEST:
+      goal_bias: 0.05
+      range: 0.0
+      type: geometric::ProjEST
+    RRT:
+      goal_bias: 0.05
+      range: 0.0
+      type: geometric::RRT
+    RRTConnect:
+      range: 0.0
+      type: geometric::RRTConnect
+    RRTstar:
+      delay_collision_checking: 1
+      goal_bias: 0.10
+      range: 0.0
+      type: geometric::RRTstar
+    SBL:
+      range: 0.0
+      type: geometric::SBL
+    SPARS:
+      dense_delta_fraction: 0.001
+      max_failures: 1000
+      sparse_delta_fraction: 0.25
+      stretch_factor: 3.0
+      type: geometric::SPARS
+    SPARStwo:
+      dense_delta_fraction: 0.001
+      max_failures: 5000
+      sparse_delta_fraction: 0.25
+      stretch_factor: 3.0
+      type: geometric::SPARStwo
+    STRIDE:
+      degree: 16
+      estimated_dimension: 0.0
+      goal_bias: 0.05
+      max_degree: 18
+      max_pts_per_leaf: 6
+      min_degree: 12
+      min_valid_path_fraction: 0.2
+      range: 0.0
+      type: geometric::STRIDE
+      use_projected_distance: 0
+    TRRT:
+      frountierNodeRatio: 0.1
+      frountier_threshold: 0.0
+      goal_bias: 0.05
+      init_temperature: 1.0e-05
+      k_constant: 0.0
+      max_states_failed: 10
+      min_temperature: 1.0e-09
+      range: 0.0
+      temp_change_factor: 2.0
+      type: geometric::TRRT
+
+trajectory_execution:
+  allowed_execution_duration_scaling: 1.2
+  allowed_goal_duration_margin: 0.5
+  allowed_start_tolerance: 0.01
+  execution_duration_monitoring: false

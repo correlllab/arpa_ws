@@ -1,0 +1,16 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="empty_world">
+
+    <!-- Ground plane is optional; remove if you truly want nothing -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- Lighting -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+  </world>
+</sdf>
