@@ -97,6 +97,34 @@ def launch_setup(context, *args, **kwargs):
             initial_positions_file_abs,
         ]
     )
+
+    print("safety_limits:=",
+            safety_limits.perform(context),
+            " ",
+            "safety_pos_margin:=",
+            safety_pos_margin.perform(context),
+            " ",
+            "safety_k_position:=",
+            safety_k_position.perform(context),
+            " ",
+            "name:=",
+            "ur",
+            " ",
+            "ur_type:=",
+            ur_type.perform(context),
+            " ",
+            "prefix:=",
+            prefix.perform(context),
+            " ",
+            "sim_gazebo:=true",
+            " ",
+            "simulation_controllers:=",
+            initial_joint_controllers.perform(context),
+            " ",
+            "initial_positions_file:=",
+            initial_positions_file_abs.perform(context)
+        )
+
     robot_description = {"robot_description": robot_description_content}
 
     arpa_moveit_launch = IncludeLaunchDescription(
