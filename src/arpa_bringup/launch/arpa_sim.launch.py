@@ -183,6 +183,27 @@ def launch_setup(context, *args, **kwargs):
     print("DEBUG: gui =", gui.perform(context))
     print("DEBUG: prefix =", prefix.perform(context))
 
+
+    motion_control = Node(
+        package='ur_manipulation',
+        executable='motion_control_node',
+        output='screen',
+        parameters=[
+            {'octomap_resolution': 0.01,},
+            robot_description,
+            moveit_controllers,
+            {"use_sim_time": use_sim_time},
+        ],
+    )
+
+    arpa_gui_pkg_share = FindPackageShare("arpa_gui").find("arpa_gui")
+    arpa_gui = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [arpa_gui_pkg_share, "/launch/arpa_gui.launch.py"]
+        )
+    )
+
+
     return [
         gazebo,
         rsp,
@@ -191,7 +212,8 @@ def launch_setup(context, *args, **kwargs):
         traj_controller_stopped,
         spawn_robot,
         move_group_launch,
-        # arpa_gui_launch,
+        motion_control,
+        arpa_gui,
         # delay_rviz
     ]
 
