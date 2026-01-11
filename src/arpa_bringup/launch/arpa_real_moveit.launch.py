@@ -46,6 +46,81 @@ from launch.substitutions import (
     PathJoinSubstitution,
 )
 
+import re
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+
+import xacro
+from ament_index_python.packages import get_package_share_directory
+from launch_ros.parameter_descriptions import ParameterValue
+
+
+def generate_ur_robot_description(
+    *,
+    ur_description_pkg: str = "ur_description",
+    ur_xacro_relpath: str = "urdf/ur.urdf.xacro",
+    ur_type: str = "ur16e",
+    safety_limits: bool = True,
+    safety_pos_margin: float = 0.15,
+    safety_k_position: float = 20.0,
+    limited: bool = False,
+    use_fake_hardware: bool = False,
+    tool_communication: bool = False,
+    # Optional string replacements for mesh/URI cleanup (leave empty if you don't need it)
+    mesh_uri_fixes: list[tuple[str, str]] | None = None,
+) -> ParameterValue:
+    """
+    Generate MoveIt-friendly robot_description for a single UR arm.
+
+    - Processes the UR xacro
+    - Returns ParameterValue(str) for launch usage
+    - Optional mesh URI string replacements
+    """
+    desc_dir = get_package_share_directory(ur_description_pkg)
+    xacro_file = os.path.join(desc_dir, ur_xacro_relpath)
+
+    if mesh_uri_fixes is None:
+        mesh_uri_fixes = []
+
+    print(f"[URDF GEN] Processing UR xacro: {xacro_file}")
+
+    # These are common args for UR xacros; unused mappings are typically ignored.
+    mappings = {
+        "ur_type": ur_type,
+        "safety_limits": "true" if safety_limits else "false",
+        "safety_pos_margin": str(safety_pos_margin),
+        "safety_k_position": str(safety_k_position),
+        "limited": "true" if limited else "false",
+        "use_fake_hardware": "true" if use_fake_hardware else "false",
+        "tool_communication": "true" if tool_communication else "false",
+    }
+
+    doc = xacro.process_file(xacro_file, mappings=mappings)
+    urdf_xml = doc.toxml()
+    print(f"[URDF GEN] Generated XML length: {len(urdf_xml)} chars")
+
+    # Quick sanity checks (won't catch everything, but catches "oops it's empty/wrong")
+    if "<robot" not in urdf_xml:
+        raise ValueError("[URDF GEN] Output does not look like a URDF (missing <robot ...>)")
+
+    # Optional mesh URI fixes (only if you actually see bad URIs in your setup)
+    for src, dst in mesh_uri_fixes:
+        count = urdf_xml.count(src)
+        if count:
+            urdf_xml = urdf_xml.replace(src, dst)
+            print(f"[URDF GEN] Replaced {count} occurrences: '{src}' -> '{dst}'")
+
+    # Helpful debug: show a few mesh filenames if present
+    mesh_matches = re.findall(r'<mesh filename="([^"]+)"', urdf_xml)
+    if mesh_matches:
+        print(f"[URDF GEN] Mesh filename sample: {mesh_matches[:5]}")
+
+    # Helpful debug: confirm expected base link appears (UR typically uses base_link)
+    if 'link name="base_link"' not in urdf_xml:
+        print("[URDF GEN] WARNING: did not find link name=\"base_link\" in URDF. "
+              "If your model uses a different base frame, that's ok—but double-check TF/planning frame names.")
+
+    return ParameterValue(urdf_xml, value_type=str)
 
 def launch_setup(context, *args, **kwargs):
 
@@ -215,25 +290,32 @@ def launch_setup(context, *args, **kwargs):
         "trajectory_execution.execution_duration_monitoring": False,
     }
 
-    planning_scene_monitor_parameters = {
-        "robot_description": robot_description,
-        "name": "planning_scene",
-        "joint_state_topic": "/joint_states",
-        "publish_planning_scene": True,
-        "publish_geometry_updates": True,
-        "publish_state_updates": True,
-        "publish_transforms_updates": True,
-        "wait_for_initial_state_timeout": 10.0,
-        "planning_scene_publish_frequency": 10.0,
-        "monitored_planning_scene": {
-            "planning_frame": "tool0"
-        }
-    }
-
     warehouse_ros_config = {
         "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
         "warehouse_host": warehouse_sqlite_path,
     }
+
+    moveit_config = (
+        MoveItConfigsBuilder('arpa_system', package_name='arpa_moveit_config')
+        .robot_description_semantic(file_path='config/arpa_system.srdf')  # Unified SRDF (expects prefixed links)
+        .robot_description_kinematics(file_path='config/kinematics.yaml')  # Same as original
+        .planning_pipelines(pipelines=['ompl'])  # Same as original
+        .trajectory_execution(file_path='config/moveit_controllers.yaml')  # Dual-arm controller config
+        .to_moveit_configs()
+    )
+    
+    # Override robot_description with our unified URDF
+    moveit_config_dict = moveit_config.to_dict()
+
+    robot_description_param = generate_ur_robot_description(
+        ur_description_pkg="arpa_moveit_config",
+        ur_xacro_relpath="urdf/arpa_system.urdf.xacro",
+        ur_type="ur16e",
+        safety_limits=True,
+    )
+}
+
+    moveit_config_dict['robot_description'] = robot_description_param
 
     # Start the actual move_group node/action server
     move_group_node = Node(
@@ -241,35 +323,21 @@ def launch_setup(context, *args, **kwargs):
         executable="move_group",
         output="screen",
         parameters=[
-            robot_description,
-            robot_description_semantic,
-            publish_robot_description_semantic,
-            robot_description_kinematics,
-            robot_description_planning,
-            ompl_planning_pipeline_config,
-            trajectory_execution,
-            moveit_controllers,
-            planning_scene_monitor_parameters,
+            moveit_config_dict,
+            {'planning_scene_monitor/publish_planning_scene': True},
+            {'planning_scene_monitor/publish_geometry_updates': True},
+            {'planning_scene_monitor/publish_state_updates': True},
             {"use_sim_time": use_sim_time},
-            warehouse_ros_config,
         ],
     )
 
     motion_control = Node(
-        package='ur_manipulation',
+        package='arpa_control',
         executable='motion_control_node',
         output='screen',
         parameters=[
             {'octomap_resolution': 0.01,},
-            robot_description,
-            robot_description_semantic,
-            publish_robot_description_semantic,
-            robot_description_kinematics,
-            robot_description_planning,
-            ompl_planning_pipeline_config,
-            trajectory_execution,
-            moveit_controllers,
-            planning_scene_monitor_parameters,
+            moveit_config_dict,
             {"use_sim_time": use_sim_time},
             warehouse_ros_config
         ],

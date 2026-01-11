@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(ur_manipulation)
+project(arpa_control)
 
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
@@ -50,7 +50,7 @@ add_dependencies(motion_control_node
 install(TARGETS motion_control_node
   DESTINATION lib/${PROJECT_NAME})
 
-install(DIRECTORY launch include
+install(DIRECTORY include launch
   DESTINATION share/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)

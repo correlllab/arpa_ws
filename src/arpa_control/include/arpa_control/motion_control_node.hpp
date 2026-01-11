@@ -9,11 +9,11 @@
 #include <octomap_msgs/conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
-#include "ur_manipulation/srv/plan_to_pose.hpp"
-#include "ur_manipulation/srv/plan_to_joint.hpp"
-#include "ur_manipulation/srv/execute_plan.hpp"
-#include "ur_manipulation/srv/stop_motion.hpp"
-#include "ur_manipulation/srv/get_point_cloud.hpp"
+#include "arpa_control/srv/plan_to_pose.hpp"
+#include "arpa_control/srv/plan_to_joint.hpp"
+#include "arpa_control/srv/execute_plan.hpp"
+#include "arpa_control/srv/stop_motion.hpp"
+#include "arpa_control/srv/get_point_cloud.hpp"
 #include <tf2_ros/static_transform_broadcaster.h>
 #include "std_srvs/srv/trigger.hpp"
 #include <moveit_msgs/msg/constraints.hpp>
@@ -39,20 +39,20 @@ public:
 
 private:
   void planToPoseCallback(
-      const std::shared_ptr<ur_manipulation::srv::PlanToPose::Request> request,
-      std::shared_ptr<ur_manipulation::srv::PlanToPose::Response> response);
+      const std::shared_ptr<arpa_control::srv::PlanToPose::Request> request,
+      std::shared_ptr<arpa_control::srv::PlanToPose::Response> response);
 
   void planToJointCallback(
-      const std::shared_ptr<ur_manipulation::srv::PlanToJoint::Request> request,
-      std::shared_ptr<ur_manipulation::srv::PlanToJoint::Response> response);
+      const std::shared_ptr<arpa_control::srv::PlanToJoint::Request> request,
+      std::shared_ptr<arpa_control::srv::PlanToJoint::Response> response);
 
   void executePlanCallback(
-    const std::shared_ptr<ur_manipulation::srv::ExecutePlan::Request> request,
-    std::shared_ptr<ur_manipulation::srv::ExecutePlan::Response> response);
+    const std::shared_ptr<arpa_control::srv::ExecutePlan::Request> request,
+    std::shared_ptr<arpa_control::srv::ExecutePlan::Response> response);
 
   void stopMotionCallback(
-      const std::shared_ptr<ur_manipulation::srv::StopMotion::Request> request,
-      std::shared_ptr<ur_manipulation::srv::StopMotion::Response> response);
+      const std::shared_ptr<arpa_control::srv::StopMotion::Request> request,
+      std::shared_ptr<arpa_control::srv::StopMotion::Response> response);
 
   void updateDepthCallback(
       const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
@@ -62,13 +62,13 @@ private:
   std::shared_ptr<planning_scene_monitor::PlanningSceneMonitor> 
   m_planning_scene_monitor;
   std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> m_planning_scene_interface;
-  rclcpp::Client<ur_manipulation::srv::GetPointCloud>::SharedPtr m_depth_client;
+  rclcpp::Client<arpa_control::srv::GetPointCloud>::SharedPtr m_depth_client;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_depth_reset_client;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr m_update_depth_service;
-  rclcpp::Service<ur_manipulation::srv::PlanToPose>::SharedPtr m_plan_to_pose_service;
-  rclcpp::Service<ur_manipulation::srv::PlanToJoint>::SharedPtr m_plan_to_joint_service;
-  rclcpp::Service<ur_manipulation::srv::ExecutePlan>::SharedPtr m_execute_plan_service;
-  rclcpp::Service<ur_manipulation::srv::StopMotion>::SharedPtr m_stop_motion_service;
+  rclcpp::Service<arpa_control::srv::PlanToPose>::SharedPtr m_plan_to_pose_service;
+  rclcpp::Service<arpa_control::srv::PlanToJoint>::SharedPtr m_plan_to_joint_service;
+  rclcpp::Service<arpa_control::srv::ExecutePlan>::SharedPtr m_execute_plan_service;
+  rclcpp::Service<arpa_control::srv::StopMotion>::SharedPtr m_stop_motion_service;
 
   moveit::planning_interface::MoveGroupInterface::Plan m_current_plan;
   bool m_use_depth;

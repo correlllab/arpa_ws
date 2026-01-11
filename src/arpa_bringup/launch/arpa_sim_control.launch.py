@@ -1,15 +1,4 @@
 from launch import LaunchDescription
-from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
-from launch_ros.substitutions import FindPackageShare
-from moveit_configs_utils import MoveItConfigsBuilder
-from ament_index_python.packages import get_package_share_directory
-from launch.actions import OpaqueFunction, DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
@@ -18,15 +7,13 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
-from launch.substitutions import Command, FindExecutable
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
+
 
 def launch_setup(context, *args, **kwargs):
-    # ARPA Launch Files
-    arpa_bringup_pkg_share = FindPackageShare("arpa_bringup").find("arpa_bringup")
-    ur_sim_pkg_share = FindPackageShare("ur_simulation_gazebo").find("ur_simulation_gazebo")
-    arpa_moveit_config_pkg_share = FindPackageShare("arpa_moveit_config").find("arpa_moveit_config")
-    arpa_gui_pkg_share = FindPackageShare("arpa_gui").find("arpa_gui")
-    arpa_depth_pkg_share = FindPackageShare("cl_realsense").find("cl_realsense")
     # Initialize Arguments
     ur_type = LaunchConfiguration("ur_type")
     safety_limits = LaunchConfiguration("safety_limits")
@@ -35,16 +22,11 @@ def launch_setup(context, *args, **kwargs):
     # General arguments
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
+    initial_positions_file = LaunchConfiguration("initial_positions_file")
     description_package = LaunchConfiguration("description_package")
     description_file = LaunchConfiguration("description_file")
-    moveit_config_package = LaunchConfiguration("moveit_config_package")
-    moveit_config_file = LaunchConfiguration("moveit_config_file")
+    description_file = LaunchConfiguration("description_file")
     prefix = LaunchConfiguration("prefix")
-
-
-    # Initialize Arguments
-    # General arguments
-    initial_positions_file = LaunchConfiguration("initial_positions_file")
     start_joint_controller = LaunchConfiguration("start_joint_controller")
     initial_joint_controller = LaunchConfiguration("initial_joint_controller")
     launch_rviz = LaunchConfiguration("launch_rviz")
@@ -99,59 +81,78 @@ def launch_setup(context, *args, **kwargs):
     )
     robot_description = {"robot_description": robot_description_content}
 
-    arpa_moveit_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [ur_sim_pkg_share, "/launch/ur_sim_moveit.launch.py"]
-        ),
-        launch_arguments={
-            "ur_type":ur_type,
-            "safety_limits":safety_limits,
-            "runtime_config_package":runtime_config_package,
-            "controllers_file":controllers_file,
-            "description_package":description_package,
-            "description_file":description_file,
-            "moveit_config_package":moveit_config_package,
-            "moveit_config_file":moveit_config_file,
-            "prefix":prefix
-        }.items()
+    robot_state_publisher_node = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="both",
+        parameters=[{"use_sim_time": True}, robot_description],
     )
 
-    arpa_motion_control = IncludeLaunchDescription(
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="log",
+        arguments=["-d", rviz_config_file],
+        condition=IfCondition(launch_rviz),
+    )
+
+    joint_state_broadcaster_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
+    )
+
+    # Delay rviz start after `joint_state_broadcaster`
+    delay_rviz_after_joint_state_broadcaster_spawner = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=joint_state_broadcaster_spawner,
+            on_exit=[rviz_node],
+        ),
+        condition=IfCondition(launch_rviz),
+    )
+
+    # There may be other controllers of the joints, but this is the initially-started one
+    initial_joint_controller_spawner_started = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[initial_joint_controller, "-c", "/controller_manager"],
+        condition=IfCondition(start_joint_controller),
+    )
+    initial_joint_controller_spawner_stopped = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=[initial_joint_controller, "-c", "/controller_manager", "--stopped"],
+        condition=UnlessCondition(start_joint_controller),
+    )
+
+    # Gazebo nodes
+    gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [FindPackageShare("arpa_control"), "/launch", "/arpa_motion_control.launch.py"]
+            [FindPackageShare("gazebo_ros"), "/launch", "/gazebo.launch.py"]
         ),
         launch_arguments={
-            "ur_type": ur_type,
-            "safety_limits": safety_limits,
-            "description_package": description_package,
-            "description_file": description_file,
-            "moveit_config_package": moveit_config_package,
-            "moveit_config_file": moveit_config_file,
-            "prefix": prefix,
-            "use_sim_time": "true",
-            "launch_rviz": "true",
-            "use_fake_hardware": "true",  # to change moveit default controller to joint_trajectory_controller
+            "gui": gazebo_gui,
         }.items(),
     )
 
-    arpa_gui = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [arpa_gui_pkg_share, "/launch/arpa_gui.launch.py"]
-        )
+    # Spawn robot
+    gazebo_spawn_robot = Node(
+        package="gazebo_ros",
+        executable="spawn_entity.py",
+        name="spawn_ur",
+        arguments=["-entity", "ur", "-topic", "robot_description"],
+        output="screen",
     )
 
-    static_tf_world_to_floor = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        name="static_tf_world_to_floor",
-        arguments=["0", "0", "0", "0", "0", "0", "world", "floor_link"]
-    )
-
-    return [
-        arpa_moveit_launch,
-        arpa_motion_control,
-        arpa_gui,
-        static_tf_world_to_floor
+    nodes_to_start = [
+        robot_state_publisher_node,
+        joint_state_broadcaster_spawner,
+        delay_rviz_after_joint_state_broadcaster_spawner,
+        initial_joint_controller_spawner_stopped,
+        initial_joint_controller_spawner_started,
+        gazebo,
+        gazebo_spawn_robot,
     ]
 
 
@@ -217,8 +218,21 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
+            "initial_positions_file",
+            default_value=PathJoinSubstitution(
+                [
+                    FindPackageShare("arpa_moveit_config"),
+                    "config",
+                    "initial_positions.yaml",
+                ]
+            ),
+            description="YAML file (absolute path) with the robot's initial joint positions.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
             "description_package",
-            default_value="ur_description",
+            default_value="arpa_moveit_config",
             description="Description package with robot URDF/XACRO files. Usually the argument \
         is not set, it enables use of a custom description.",
         )
@@ -226,23 +240,8 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "description_file",
-            default_value="ur.urdf.xacro",
+            default_value="arpa_system.urdf.xacro",
             description="URDF/XACRO description file with the robot.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "moveit_config_package",
-            default_value="ur_moveit_config",
-            description="MoveIt config package with robot SRDF/XACRO files. Usually the argument \
-        is not set, it enables use of a custom moveit config.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "moveit_config_file",
-            default_value="ur.srdf.xacro",
-            description="MoveIt SRDF/XACRO description file with the robot.",
         )
     )
     declared_arguments.append(
@@ -252,19 +251,6 @@ def generate_launch_description():
             description="Prefix of the joint names, useful for \
         multi-robot setup. If changed than also joint names in the controllers' configuration \
         have to be updated.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "initial_positions_file",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("ur_description"),
-                    "config",
-                    "initial_positions.yaml",
-                ]
-            ),
-            description="YAML file (absolute path) with the robot's initial joint positions.",
         )
     )
     declared_arguments.append(
@@ -282,7 +268,7 @@ def generate_launch_description():
         )
     )
     declared_arguments.append(
-        DeclareLaunchArgument("launch_rviz", default_value="false", description="Launch RViz?")
+        DeclareLaunchArgument("launch_rviz", default_value="true", description="Launch RViz?")
     )
     declared_arguments.append(
         DeclareLaunchArgument(

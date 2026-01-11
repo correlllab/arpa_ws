@@ -76,10 +76,10 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     setLayout(layout);
 
     // ROS2 clients
-    m_plan_client = m_node->create_client<ur_manipulation::srv::PlanToPose>("plan_to_pose");
+    m_plan_client = m_node->create_client<arpa_control::srv::PlanToPose>("plan_to_pose");
     m_update_depth_client = m_node->create_client<std_srvs::srv::Trigger>("update_depth");
-    m_exec_client = m_node->create_client<ur_manipulation::srv::ExecutePlan>("execute_plan");
-    m_stop_client = m_node->create_client<ur_manipulation::srv::StopMotion>("stop_motion");
+    m_exec_client = m_node->create_client<arpa_control::srv::ExecutePlan>("execute_plan");
+    m_stop_client = m_node->create_client<arpa_control::srv::StopMotion>("stop_motion");
     m_linear_actuator_pub = m_node->create_publisher<std_msgs::msg::Float64>("/linear_actuator_joint_position", 10);
 
     // Button handlers
@@ -114,7 +114,7 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
 
 void PoseWindow::planPose()
 {
-    auto req = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
+    auto req = std::make_shared<arpa_control::srv::PlanToPose::Request>();
     req->target_pose.pose.position.x = m_x->text().toDouble();
     req->target_pose.pose.position.y = m_y->text().toDouble();
     req->target_pose.pose.position.z = m_z->text().toDouble();
@@ -134,7 +134,7 @@ void PoseWindow::planPose()
 
 void PoseWindow::executePlan()
 {
-    auto req = std::make_shared<ur_manipulation::srv::ExecutePlan::Request>();
+    auto req = std::make_shared<arpa_control::srv::ExecutePlan::Request>();
     m_exec_client->async_send_request(req);
 }
 
@@ -146,7 +146,7 @@ void PoseWindow::updateDepth()
 
 void PoseWindow::stopMotion()
 {
-    auto req = std::make_shared<ur_manipulation::srv::StopMotion::Request>();
+    auto req = std::make_shared<arpa_control::srv::StopMotion::Request>();
     m_stop_client->async_send_request(req);
 }
 
@@ -208,7 +208,7 @@ void PoseWindow::goHome()
     geometry_msgs::msg::Pose home = m_home_pose;
 
     // ---------- PLAN REQUEST ----------
-    auto request = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
+    auto request = std::make_shared<arpa_control::srv::PlanToPose::Request>();
     request->target_pose.pose = home;
 
     if (!m_plan_client->wait_for_service(std::chrono::seconds(1))) {
@@ -231,7 +231,7 @@ void PoseWindow::goHome()
     }
 
     // ---------- EXECUTE REQUEST ----------
-    auto exec_req = std::make_shared<ur_manipulation::srv::ExecutePlan::Request>();
+    auto exec_req = std::make_shared<arpa_control::srv::ExecutePlan::Request>();
 
     if (!m_exec_client->wait_for_service(std::chrono::seconds(1))) {
         RCLCPP_ERROR(m_node->get_logger(), "ExecutePlan service not available.");

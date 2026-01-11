@@ -16,9 +16,9 @@
 #include <tf2/LinearMath/Matrix3x3.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include "std_srvs/srv/trigger.hpp"
-#include "ur_manipulation/srv/plan_to_pose.hpp"
-#include "ur_manipulation/srv/execute_plan.hpp"
-#include "ur_manipulation/srv/stop_motion.hpp"
+#include "arpa_control/srv/plan_to_pose.hpp"
+#include "arpa_control/srv/execute_plan.hpp"
+#include "arpa_control/srv/stop_motion.hpp"
 
 class PoseWindow : public QWidget
 {
@@ -55,10 +55,10 @@ private slots:
     tf2_ros::Buffer m_tf_buffer;
     std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
 
-    rclcpp::Client<ur_manipulation::srv::PlanToPose>::SharedPtr m_plan_client;
+    rclcpp::Client<arpa_control::srv::PlanToPose>::SharedPtr m_plan_client;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_update_depth_client;
-    rclcpp::Client<ur_manipulation::srv::ExecutePlan>::SharedPtr m_exec_client;
-    rclcpp::Client<ur_manipulation::srv::StopMotion>::SharedPtr m_stop_client;
+    rclcpp::Client<arpa_control::srv::ExecutePlan>::SharedPtr m_exec_client;
+    rclcpp::Client<arpa_control::srv::StopMotion>::SharedPtr m_stop_client;
     rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_linear_actuator_pub;
 };
 #endif // __ARPA_GUI_POSE_WINDOW_HPP__

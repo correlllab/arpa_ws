@@ -16,7 +16,6 @@ def launch_setup(context, *args, **kwargs):
     arpa_bringup_pkg_share = FindPackageShare("arpa_bringup").find("arpa_bringup")
     ur_moveit_config_pkg_share = FindPackageShare("ur_moveit_config").find("ur_moveit_config")
     arpa_moveit_config_pkg_share = FindPackageShare("arpa_moveit_config").find("arpa_moveit_config")
-    # ur_manipulation_pkg_share = FindPackageShare("ur_manipulation").find("ur_manipulation") #contains one 
     arpa_gui_pkg_share = FindPackageShare("arpa_gui").find("arpa_gui")
     arpa_depth_pkg_share = FindPackageShare("cl_realsense").find("cl_realsense")
     moveit_srdf = [FindPackageShare("arpa_moveit_config"), "srdf", "arpa_system.srdf"]
@@ -60,7 +59,7 @@ def launch_setup(context, *args, **kwargs):
 
     ur_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [arpa_bringup_pkg_share, "/launch/arpa_ur_control.launch.py"]
+            [arpa_bringup_pkg_share, "/launch/arpa_real_control.launch.py"]
         ),
         launch_arguments={
             "ur_type": ur_type,
@@ -97,101 +96,10 @@ def launch_setup(context, *args, **kwargs):
             "trajectory_port": trajectory_port,
         }.items()
     )
-
-    # print("YES")
-    # moveit_xacro_mappings = {
-    #     "ur_type": ur_type,
-    #     "robot_ip": robot_ip,
-    #     "safety_limits": safety_limits,
-    #     "safety_pos_margin": safety_pos_margin,
-    #     "safety_k_position": safety_k_position,
-    #     "runtime_config_package": runtime_config_package,
-    #     "controllers_file": controllers_file,
-    #     "description_package": "arpa_moveit_config",  # override default
-    #     "description_file": "arpa_system.urdf.xacro", # override default
-    #     "kinematics_params_file": kinematics_params_file,
-    #     "use_fake_hardware": use_fake_hardware,
-    #     "fake_sensor_commands": fake_sensor_commands,
-    #     "headless_mode": headless_mode,
-    #     "controller_spawner_timeout": controller_spawner_timeout,
-    #     "initial_joint_controller": initial_joint_controller,
-    #     "activate_joint_controller": activate_joint_controller,
-    #     "launch_rviz": launch_rviz,
-    #     "launch_dashboard_client": launch_dashboard_client,
-    #     "use_tool_communication": use_tool_communication,
-    #     "tool_parity": tool_parity,
-    #     "tool_baud_rate": tool_baud_rate,
-    #     "tool_stop_bits": tool_stop_bits,
-    #     "tool_rx_idle_chars": tool_rx_idle_chars,
-    #     "tool_tx_idle_chars": tool_tx_idle_chars,
-    #     "tool_device_name": tool_device_name,
-    #     "tool_tcp_port": tool_tcp_port,
-    #     "tool_voltage": tool_voltage,
-    #     "reverse_ip": reverse_ip,
-    #     "script_command_port": script_command_port,
-    #     "reverse_port": reverse_port,
-    #     "script_sender_port": script_sender_port,
-    #     "trajectory_port": trajectory_port
-    # }
-    # # Load the robot configuration
-    # moveit_config = (
-    #     MoveItConfigsBuilder(
-    #         "arpa_system", package_name="arpa_moveit_config"
-    #     )
-    #     .robot_description(file_path=get_package_share_directory("arpa_moveit_config") + "/urdf/arpa_system.urdf.xacro", mappings=moveit_xacro_mappings)
-    #     .robot_description_semantic(file_path=get_package_share_directory("arpa_moveit_config") + "/config/arpa_system.srdf")
-    #     .robot_description_kinematics(file_path=get_package_share_directory("arpa_moveit_config") + "/config/kinematics.yaml")
-    #     .joint_limits(file_path=get_package_share_directory("arpa_moveit_config") + "/config/joint_limits.yaml")
-    #     .trajectory_execution(file_path=get_package_share_directory("arpa_moveit_config") + "/config/real_moveit_controllers.yaml")
-    #     .moveit_cpp(file_path=get_package_share_directory("arpa_moveit_config") + "/config/moveit_cpp.yaml")
-    #     .pilz_cartesian_limits(file_path=get_package_share_directory("arpa_moveit_config") + "/config/pilz_cartesian_limits.yaml")
-    #     .to_moveit_configs()
-    # )
-
-    # print("MAYBE JUST MAYBE")
-    # planning_scene_monitor_parameters = {
-    #     'publish_planning_scene': True,
-    #     'publish_geometry_updates': True,
-    #     'publish_state_updates': True,
-    #     'publish_transforms_updates': True,
-    #     'publish_robot_description': True,
-    #     'publish_robot_description_semantic': True
-    #     # "planning_scene_monitor_options": {
-    #     #     "name": "planning_scene_monitor",
-    #     #     "robot_description": "robot_description",
-    #     #     "joint_state_topic": "/joint_states",
-    #     #     "attached_collision_object_topic": "/move_group/planning_scene_monitor",
-    #     #     "publish_planning_scene_topic": "/move_group/publish_planning_scene",
-    #     #     "monitored_planning_scene_topic": "/move_group/monitored_planning_scene",
-    #     #     "wait_for_initial_state_timeout": 10.0,
-    #     # },
-    # }
-
-    # move_group_node = Node(
-    #     package='moveit_ros_move_group',
-    #     executable='move_group', 
-    #     output='screen',
-    #     parameters=[
-    #         moveit_config.to_dict(),
-    #         planning_scene_monitor_parameters,
-    #         {'use_sim_time': False},
-    #     ],
-    #     #arguments=['--ros-args', '--log-level', 'DEBUG', '--log-level', 'rcl:=WARN', '--log-level', 'moveit_kinematics_base.kinematics_base:=WARN'],
-    # )
-
-    # # rviz with moveit configuration
-    # # rviz_config_file = get_package_share_directory("arpa_description") + "/rviz/arap.rviz"
-    # # rviz_node = Node(
-    # #     package="rviz2",
-    # #     executable="rviz2",
-    # #     name="rviz2_moveit",
-    # #     output="log",
-    # #     arguments=["-d", rviz_config_file]
-    # # )
 
     arpa_moveit_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [arpa_bringup_pkg_share, "/launch/arpa_moveit.launch.py"]
+            [arpa_bringup_pkg_share, "/launch/arpa_real_moveit.launch.py"]
         ),
         launch_arguments={
             "ur_type": ur_type,
@@ -228,13 +136,6 @@ def launch_setup(context, *args, **kwargs):
             "trajectory_port": trajectory_port,
         }.items()
     )
-
-
-    # arpa_motion = IncludeLaunchDescription(
-    #     PythonLaunchDescriptionSource(
-    #         [ur_manipulation_pkg_share, "/launch/motion_control.launch.py"]
-    #     )
-    # )
 
     arpa_gui = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -269,8 +170,6 @@ def launch_setup(context, *args, **kwargs):
         ur_driver,
         ur_rest_api,
         arpa_moveit_launch,
-        # rviz_node,
-        # arpa_move_group_launch,
         arpa_gui,
         arpa_depth,
         ethernet_motor_interface_node,

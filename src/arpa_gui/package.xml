@@ -14,7 +14,7 @@
 
   <!-- Core build + exec dependencies -->
   <depend>rclcpp</depend>
-  <depend>ur_manipulation</depend>
+  <depend>arpa_control</depend>
   <depend>tf2_ros</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
