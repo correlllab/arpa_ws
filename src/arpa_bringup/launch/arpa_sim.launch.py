@@ -4,6 +4,8 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
+    ExecuteProcess,
+    SetEnvironmentVariable,
 )
 from launch.event_handlers import OnProcessExit
 from launch.conditions import IfCondition, UnlessCondition
@@ -13,6 +15,7 @@ from launch.substitutions import (
     FindExecutable,
     LaunchConfiguration,
     PathJoinSubstitution,
+    EnvironmentVariable,
 )
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -69,7 +72,12 @@ def launch_setup(context, *args, **kwargs):
             FindPackageShare(description_pkg),
             "urdf",
             description_file
-        ])
+        ]),
+        " ",
+        "sim_gazebo:=true",
+        " ",
+        "simulation_controllers:=",
+        controller_yaml,
     ])
 
     print(robot_description_content.perform(context))
@@ -113,7 +121,7 @@ def launch_setup(context, *args, **kwargs):
     )
 
     # ---------------------------------------------------------
-    # Gazebo (empty.world)
+    # Gazebo Classic
     # ---------------------------------------------------------
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(

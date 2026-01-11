@@ -1,7 +1,21 @@
-from moveit_configs_utils import MoveItConfigsBuilder
-from moveit_configs_utils.launches import generate_move_group_launch
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    moveit_config = MoveItConfigsBuilder("arpa_system", package_name="arpa_moveit_config").to_moveit_configs()
-    return generate_move_group_launch(moveit_config)
+    # Use the manual launch file instead of auto-generated one
+    # This gives us more control over configuration
+    arpa_move_group_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [FindPackageShare("arpa_moveit_config"), "/launch/arpa_move_group.launch.py"]
+        ),
+        launch_arguments={
+            "use_sim_time": "true",  # We're in simulation
+        }.items(),
+    )
+    
+    return LaunchDescription([
+        arpa_move_group_launch,
+    ])

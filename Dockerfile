@@ -29,9 +29,13 @@ RUN apt update && apt install -y \
     ros-humble-gazebo-msgs \
     ros-humble-ros2-control \
     ros-humble-ros2-controllers \
+    ros-humble-moveit-configs-utils \
     gazebo \
     python3-colcon-common-extensions \
-    git build-essential cmake
+    python3-pip \
+    git build-essential cmake \
+    libqt5core5a libqt5gui5 libqt5widgets5 qtbase5-dev \
+    x11-apps xvfb
 
 # -------------------------------
 # 2. Install BehaviorTree.CPP v4
@@ -49,9 +53,18 @@ RUN source /opt/ros/humble/setup.bash && \
 WORKDIR /root/ros2_ws
 RUN mkdir -p src
 
-COPY src/arpa_behavior_trees/ src/arpa_behavior_trees/
+# Copy all ARPA packages
+COPY src/arpa_bringup/ src/arpa_bringup/
 COPY src/arpa_description/ src/arpa_description/
+COPY src/arpa_moveit_config/ src/arpa_moveit_config/
+COPY src/arpa_gui/ src/arpa_gui/
+COPY src/arpa_ethernet_motor/ src/arpa_ethernet_motor/
+COPY src/custom_ros_messages/ src/custom_ros_messages/
 COPY src/ur_manipulation/ src/ur_manipulation/
+COPY src/ur16e_rest/ src/ur16e_rest/
+COPY src/cl_realsense/ src/cl_realsense/
+# Copy Universal Robots packages
+COPY src/Universal_Robots_ROS2_Description/ src/Universal_Robots_ROS2_Description/
 COPY src/Universal_Robots_ROS2_Driver/ src/Universal_Robots_ROS2_Driver/
 COPY src/Universal_Robots_ROS2_Gazebo_Simulation/ src/Universal_Robots_ROS2_Gazebo_Simulation/
 

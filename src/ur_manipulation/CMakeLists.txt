@@ -50,7 +50,7 @@ add_dependencies(motion_control_node
 install(TARGETS motion_control_node
   DESTINATION lib/${PROJECT_NAME})
 
-install(DIRECTORY launch include
+install(DIRECTORY include
   DESTINATION share/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)
