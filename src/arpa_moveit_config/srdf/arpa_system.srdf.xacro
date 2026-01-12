@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="arpa_system">
+
+  <xacro:arg name="name" default=""/>
+  <xacro:arg name="prefix" default="" />
+
+  <xacro:include filename="$(find arpa_moveit_config)/srdf/arpa_system_macro.srdf.xacro"/>
+
+  <xacro:arpa_system name="" prefix="$(arg prefix)"/>
+
+</robot>

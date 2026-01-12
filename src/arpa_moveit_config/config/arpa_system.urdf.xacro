@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="arpa_system">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import arpa_system urdf file -->
+    <xacro:include filename="$(find arpa_description)/urdf/arpa_system.urdf.xacro" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="arpa_system.ros2_control.xacro" />
+
+
+    <xacro:arpa_system_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>

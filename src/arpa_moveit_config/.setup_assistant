@@ -1,0 +1,26 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: arpa_description
+    relative_path: urdf/arpa_system.urdf.xacro
+    xacro_args: safety_limits:=true safety_pos_margin:=0.15 safety_k_position:=20 name:=ur ur_type:=ur16e prefix:="" sim_gazebo:=true simulation_controllers:=/home/zaal/Research/arpa_ws/install/ur_simulation_gazebo/share/ur_simulation_gazebo/config/ur_controllers.yaml initial_positions_file:=/home/zaal/Research/arpa_ws/install/ur_description/share/ur_description/config/initial_positions.yaml
+  srdf:
+    relative_path: config/arpa_system.srdf
+  package_settings:
+    author_name: ""
+    author_email: ""
+    generated_timestamp: 1768177818
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity

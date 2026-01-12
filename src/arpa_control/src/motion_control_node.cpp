@@ -66,22 +66,12 @@ void MotionControlNode::initMoveGroup()
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() START");
 
-  RCLCPP_INFO(get_logger(), "[TRACE] Starting state monitor");
   m_move_group->startStateMonitor(1.0);
-  RCLCPP_INFO(get_logger(), "[TRACE] Setting planner ID");
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
-  RCLCPP_INFO(get_logger(), "[TRACE] Setting planning pipeline ID");
   m_move_group->setPlanningPipelineId("move_group");
-  RCLCPP_INFO(get_logger(), "[TRACE] Setting planner ID (second call)");
   m_move_group->setPlannerId("ur_manipulator");
-
-  // Set goal position tolerance (meters)
   m_move_group->setGoalPositionTolerance(0.001);  // 1mm instead of default ~1cm
-
-  // Set goal orientation tolerance (radians)
   m_move_group->setGoalOrientationTolerance(0.01);  // ~0.57 degrees
-
-  // Set goal joint tolerance (radians)
   m_move_group->setGoalJointTolerance(0.001);  // Very tight
 
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() END");
