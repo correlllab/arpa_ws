@@ -141,14 +141,16 @@ def launch_setup(context, *args, **kwargs):
     )
 
     # ---------------------------------------------------------
-    # Launch RVIZ only after JS broadcaster is up
+    # Launch RVIZ (after a short delay to ensure everything is ready)
     # ---------------------------------------------------------
     rviz = Node(
         package="rviz2",
         executable="rviz2",
-        arguments=["-d", rviz_config_file]
+        arguments=["-d", rviz_config_file],
+        condition=IfCondition(launch_rviz),
     )
 
+    # Launch RViz after joint state broadcaster spawner finishes
     delay_rviz = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=js_broadcaster,
@@ -160,19 +162,21 @@ def launch_setup(context, *args, **kwargs):
     # ---------------------------------------------------------
     # Launch MoveIt (MoveGroup)
     # ---------------------------------------------------------
+    # Convert controller_yaml to string for launch_arguments
+    controller_yaml_str = controller_yaml.perform(context)
+    
     move_group_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [FindPackageShare(moveit_pkg), "/launch/move_group.launch.py"]
         ),
-    )
-
-    # ---------------------------------------------------------
-    # Launch ARPA GUI
-    # ---------------------------------------------------------
-    arpa_gui_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [FindPackageShare("arpa_gui"), "/launch/arpa_gui.launch.py"]
-        ),
+        launch_arguments={
+            "use_sim_time": "true",
+            "description_package": description_pkg.perform(context),
+            "description_file": description_file.perform(context),
+            "moveit_config_package": moveit_pkg.perform(context),
+            "simulation_controllers": controller_yaml_str,
+            "launch_rviz": "false",  # RViz launched separately in this file
+        }.items(),
     )
 
     print("DEBUG: description_pkg =", description_pkg.perform(context))
@@ -183,16 +187,54 @@ def launch_setup(context, *args, **kwargs):
     print("DEBUG: gui =", gui.perform(context))
     print("DEBUG: prefix =", prefix.perform(context))
 
+
+    motion_control = Node(
+        package='ur_manipulation',
+        executable='motion_control_node',
+        output='screen',
+        parameters=[
+            {'octomap_resolution': 0.01,},
+            robot_description,
+            {"use_sim_time": True},
+        ],
+    )
+
+    # ---------------------------------------------------------
+    # Static TF: world -> floor_link (required for MoveIt planning)
+    # ---------------------------------------------------------
+    static_tf_world_to_floor = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_world_to_floor",
+        arguments=["--frame-id", "world", "--child-frame-id", "floor_link",
+                   "--x", "0", "--y", "0", "--z", "0",
+                   "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1"],
+        parameters=[{"use_sim_time": True}],
+    )
+
+    # ---------------------------------------------------------
+    # Launch ARPA GUI
+    # ---------------------------------------------------------
+    arpa_gui = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [FindPackageShare("arpa_gui"), "/launch/arpa_gui.launch.py"]
+        ),
+        launch_arguments={"use_sim_time": "true"}.items(),
+    )
+
+
     return [
         gazebo,
+        static_tf_world_to_floor,  # Publish TF before robot state publisher
         rsp,
         js_broadcaster,
         traj_controller_active,
         traj_controller_stopped,
         spawn_robot,
         move_group_launch,
-        # arpa_gui_launch,
-        # delay_rviz
+        motion_control,
+        arpa_gui,
+        delay_rviz,  # Launch RViz after joint state broadcaster is ready
     ]
 
 

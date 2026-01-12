@@ -67,6 +67,7 @@ def launch_setup(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration("use_sim_time")
     launch_rviz = LaunchConfiguration("launch_rviz")
     launch_servo = LaunchConfiguration("launch_servo")
+    simulation_controllers = LaunchConfiguration("simulation_controllers")
 
     # UR robot config files are in ur_description, not arpa_description
     joint_limit_params = PathJoinSubstitution(
@@ -82,53 +83,75 @@ def launch_setup(context, *args, **kwargs):
         [FindPackageShare("ur_description"), "config", ur_type, "visual_parameters.yaml"]
     )
 
-    robot_description_content = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name="xacro")]),
-            " ",
-            PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
-            " ",
-            "robot_ip:=",
-            robot_ip,
-            " ",
-            "joint_limit_params:=",
-            joint_limit_params,
-            " ",
-            "kinematics_params:=",
-            kinematics_params,
-            " ",
-            "physical_params:=",
-            physical_params,
-            " ",
-            "visual_params:=",
-            visual_params,
-            " ",
-            "safety_limits:=",
-            safety_limits,
-            " ",
-            "safety_pos_margin:=",
-            safety_pos_margin,
-            " ",
-            "safety_k_position:=",
-            safety_k_position,
-            " ",
-            "name:=",
-            "ur",
-            " ",
-            "ur_type:=",
-            ur_type,
-            " ",
-            "script_filename:=ros_control.urscript",
-            " ",
-            "input_recipe_filename:=rtde_input_recipe.txt",
-            " ",
-            "output_recipe_filename:=rtde_output_recipe.txt",
-            " ",
-            "prefix:=",
-            prefix,
-            " ",
-        ]
-    )
+    # Check if using arpa_description (custom robot) or ur_description (standard UR)
+    desc_pkg_str = description_package.perform(context)
+    use_sim = context.perform_substitution(use_sim_time)
+
+    if desc_pkg_str == "arpa_description":
+        # For arpa_description, use simpler xacro call - it handles UR params internally
+        robot_description_content = Command(
+            [
+                PathJoinSubstitution([FindExecutable(name="xacro")]),
+                " ",
+                PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
+                " ",
+                "sim_gazebo:=",
+                use_sim_time,
+                " ",
+                "simulation_controllers:=",
+                simulation_controllers,
+            ]
+        )
+    else:
+        # For ur_description, pass all UR-specific parameters
+        robot_description_content = Command(
+            [
+                PathJoinSubstitution([FindExecutable(name="xacro")]),
+                " ",
+                PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
+                " ",
+                "robot_ip:=",
+                robot_ip,
+                " ",
+                "joint_limit_params:=",
+                joint_limit_params,
+                " ",
+                "kinematics_params:=",
+                kinematics_params,
+                " ",
+                "physical_params:=",
+                physical_params,
+                " ",
+                "visual_params:=",
+                visual_params,
+                " ",
+                "safety_limits:=",
+                safety_limits,
+                " ",
+                "safety_pos_margin:=",
+                safety_pos_margin,
+                " ",
+                "safety_k_position:=",
+                safety_k_position,
+                " ",
+                "name:=",
+                "ur",
+                " ",
+                "ur_type:=",
+                ur_type,
+                " ",
+                "script_filename:=ros_control.urscript",
+                " ",
+                "input_recipe_filename:=rtde_input_recipe.txt",
+                " ",
+                "output_recipe_filename:=rtde_output_recipe.txt",
+                " ",
+                "prefix:=",
+                prefix,
+                " ",
+            ]
+        )
+
     robot_description = {
         "robot_description": ParameterValue(robot_description_content, value_type=str)
     }
@@ -402,6 +425,13 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument("launch_servo", default_value="true", description="Launch Servo?")
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "simulation_controllers",
+            default_value="",
+            description="Path to simulation controllers YAML file.",
+        )
     )
 
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])

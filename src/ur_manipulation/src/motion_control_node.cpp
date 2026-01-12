@@ -484,9 +484,27 @@ void MotionControlNode::executePlanCallback(
     std::shared_ptr<ur_manipulation::srv::ExecutePlan::Response> response)
 {
   RCLCPP_INFO(get_logger(), "Executing planned motion");
+  RCLCPP_INFO(get_logger(), "Plan has %zu waypoints", m_current_plan.trajectory_.size());
+  
+  if (m_current_plan.trajectory_.empty()) {
+    RCLCPP_ERROR(get_logger(), "Cannot execute: plan is empty!");
+    response->success = false;
+    response->message = "Plan is empty. Please plan first.";
+    return;
+  }
+  
+  RCLCPP_INFO(get_logger(), "Calling move_group->execute()...");
   auto execute_result = m_move_group->execute(m_current_plan);
+  RCLCPP_INFO(get_logger(), "Execute result: %d (SUCCESS=%d)", 
+              static_cast<int>(execute_result), 
+              static_cast<int>(moveit::core::MoveItErrorCode::SUCCESS));
+  
   response->success = (execute_result == moveit::core::MoveItErrorCode::SUCCESS);
   response->message = response->success ? "Execution successful" : "Execution failed";
+  
+  if (!response->success) {
+    RCLCPP_ERROR(get_logger(), "Execution failed with error code: %d", static_cast<int>(execute_result));
+  }
 }
 
 void MotionControlNode::updateDepthCallback(

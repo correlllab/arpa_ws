@@ -6,7 +6,9 @@
       "Bash(ros2 pkg:*)",
       "Bash(sudo apt install:*)",
       "Bash(dpkg:*)",
-      "Bash(apt list:*)"
+      "Bash(apt list:*)",
+      "Bash(colcon build:*)",
+      "Bash(sudo docker ps:*)"
     ]
   }
 }
