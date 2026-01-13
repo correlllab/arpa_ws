@@ -106,4 +106,14 @@
       </gazebo>
     </xacro:if>
 
+    <!-- Add linear actuator joint to ros2_control for Gazebo simulation -->
+    <xacro:if value="$(arg sim_gazebo)">
+      <ros2_control name="LinearActuatorSystem" type="system">
+        <hardware>
+          <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        </hardware>
+        <xacro:linear_actuator_ros2_control/>
+      </ros2_control>
+    </xacro:if>
+
 </robot>

@@ -30,6 +30,7 @@ RUN apt update && apt install -y \
     ros-humble-ros2-control \
     ros-humble-ros2-controllers \
     ros-humble-moveit-configs-utils \
+    ros-humble-topic-tools \
     gazebo \
     python3-colcon-common-extensions \
     python3-pip \

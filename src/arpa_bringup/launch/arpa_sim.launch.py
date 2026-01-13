@@ -1,3 +1,7 @@
+import os
+from ament_index_python.packages import get_package_share_directory
+import yaml
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -6,6 +10,7 @@ from launch.actions import (
     RegisterEventHandler,
     ExecuteProcess,
     SetEnvironmentVariable,
+    TimerAction,
 )
 from launch.event_handlers import OnProcessExit
 from launch.conditions import IfCondition, UnlessCondition
@@ -19,6 +24,7 @@ from launch.substitutions import (
 )
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 
 
 def launch_setup(context, *args, **kwargs):
@@ -61,6 +67,42 @@ def launch_setup(context, *args, **kwargs):
     rviz_config_file = PathJoinSubstitution(
         [FindPackageShare(description_pkg), "rviz", "arpa_visual.rviz"]
     )
+
+    # ---------------------------------------------------------
+    # MoveIt Configuration for RViz
+    # ---------------------------------------------------------
+    moveit_pkg_str = moveit_pkg.perform(context)
+    moveit_pkg_share = get_package_share_directory(moveit_pkg_str)
+    
+    # Load robot_description_semantic (SRDF)
+    srdf_file = os.path.join(moveit_pkg_share, "config", "arpa_system.srdf")
+    with open(srdf_file, 'r') as f:
+        robot_description_semantic_content = f.read()
+    robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
+    
+    # Kinematics file path (use ParameterFile to load it)
+    kinematics_file = PathJoinSubstitution(
+        [FindPackageShare(moveit_pkg), "config", "kinematics.yaml"]
+    )
+    
+    # Load joint limits
+    joint_limits_file = os.path.join(moveit_pkg_share, "config", "joint_limits.yaml")
+    with open(joint_limits_file, 'r') as f:
+        robot_description_planning = {"robot_description_planning": yaml.safe_load(f)}
+    
+    # Load OMPL planning config
+    ompl_file = os.path.join(get_package_share_directory("ur_moveit_config"), "config", "ompl_planning.yaml")
+    with open(ompl_file, 'r') as f:
+        ompl_yaml = yaml.safe_load(f)
+    
+    ompl_planning_pipeline_config = {
+        "move_group": {
+            "planning_plugin": "ompl_interface/OMPLPlanner",
+            "request_adapters": "default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
+            "start_state_max_bounds_error": 0.1,
+        }
+    }
+    ompl_planning_pipeline_config["move_group"].update(ompl_yaml)
 
     # ---------------------------------------------------------
     # Build robot_description from your ARPA xacro
@@ -120,6 +162,14 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    # Linear actuator controller
+    linear_actuator_controller = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["linear_actuator_controller", "-c", "/controller_manager"],
+        output="screen",
+    )
+
     # ---------------------------------------------------------
     # Gazebo Classic
     # ---------------------------------------------------------
@@ -147,16 +197,21 @@ def launch_setup(context, *args, **kwargs):
         package="rviz2",
         executable="rviz2",
         arguments=["-d", rviz_config_file],
-        condition=IfCondition(launch_rviz),
+        output="screen",
+        parameters=[
+            robot_description,
+            robot_description_semantic,
+            ParameterFile(kinematics_file, allow_substs=True),
+            robot_description_planning,
+            ompl_planning_pipeline_config,
+            {"use_sim_time": True},
+        ],
     )
 
-    # Launch RViz after joint state broadcaster spawner finishes
-    delay_rviz = RegisterEventHandler(
-        event_handler=OnProcessExit(
-            target_action=js_broadcaster,
-            on_exit=[rviz],
-        ),
-        condition=IfCondition(launch_rviz),
+    # Launch RViz after a 3 second delay to ensure move_group and other nodes are ready
+    delay_rviz = TimerAction(
+        period=3.0,
+        actions=[rviz],
     )
 
     # ---------------------------------------------------------
@@ -223,6 +278,18 @@ def launch_setup(context, *args, **kwargs):
     )
 
 
+    # Relay node to convert GUI topic to controller command
+    linear_actuator_relay = Node(
+        package="topic_tools",
+        executable="relay",
+        name="linear_actuator_relay",
+        arguments=[
+            "/linear_actuator_joint_position",
+            "/linear_actuator_controller/commands"
+        ],
+        output="screen",
+    )
+
     return [
         gazebo,
         static_tf_world_to_floor,  # Publish TF before robot state publisher
@@ -230,11 +297,13 @@ def launch_setup(context, *args, **kwargs):
         js_broadcaster,
         traj_controller_active,
         traj_controller_stopped,
+        linear_actuator_controller,
+        linear_actuator_relay,
         spawn_robot,
         move_group_launch,
         motion_control,
         arpa_gui,
-        delay_rviz,  # Launch RViz after joint state broadcaster is ready
+        delay_rviz,  # Launch RViz after 3 second delay
     ]
 
 

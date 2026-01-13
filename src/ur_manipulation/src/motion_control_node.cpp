@@ -124,13 +124,12 @@ void MotionControlNode::checkRobotStateReady()
   // Check if we have a current state
   auto current_state = m_move_group->getCurrentState(0.0001);  // Short timeout
   RCLCPP_ERROR(get_logger(), "[TRACE] getCurrentState() returned");
-  RCLCPP_INFO(get_logger(), "Motion Control Node initialization started. Waiting for robot state...");
 
   if (current_state) {
     RCLCPP_INFO(this->get_logger(), "Robot state received! Motion Control Node fully ready.");
     m_robot_state_ready = true;
-    // m_init_timer->cancel();  // Stop the timer
-    // m_init_timer.reset();
+    m_init_timer->cancel();  // Stop the timer
+    m_init_timer.reset();
   } else {
     RCLCPP_WARN_THROTTLE(get_logger(), *this->get_clock(), 2000,
                          "Still waiting for robot state...");
