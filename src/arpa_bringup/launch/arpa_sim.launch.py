@@ -177,7 +177,7 @@ def launch_setup(context, *args, **kwargs):
 
     return [
         arpa_moveit_launch,
-        # arpa_motion_control,
+        arpa_motion_control,
         arpa_gui,
         static_tf_world_to_floor
     ]
