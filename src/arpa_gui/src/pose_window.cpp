@@ -128,7 +128,8 @@ void PoseWindow::planPose()
     req->target_pose.pose.orientation.y = q.y();
     req->target_pose.pose.orientation.z = q.z();
     req->target_pose.pose.orientation.w = q.w();
-
+    req->target_pose.header.frame_id = m_target_frame;
+;
     m_plan_client->async_send_request(req);
 }
 

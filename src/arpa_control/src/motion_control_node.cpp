@@ -50,6 +50,9 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     m_arm_padding_map[link] = m_arm_padding;
   }
 
+  m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
+
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Constructor Initialized");
 }
 
@@ -69,10 +72,18 @@ void MotionControlNode::initMoveGroup()
   m_move_group->startStateMonitor(1.0);
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   m_move_group->setPlanningPipelineId("move_group");
-  m_move_group->setPlannerId("ur_manipulator");
-  m_move_group->setGoalPositionTolerance(0.001);  // 1mm instead of default ~1cm
-  m_move_group->setGoalOrientationTolerance(0.01);  // ~0.57 degrees
-  m_move_group->setGoalJointTolerance(0.001);  // Very tight
+  m_move_group->setPlanningTime(10.0);
+  m_move_group->setNumPlanningAttempts(10);
+  m_move_group->setGoalOrientationTolerance(0.01); 
+  m_move_group->setGoalPositionTolerance(0.01);
+  moveit_msgs::msg::WorkspaceParameters workspace;
+  workspace.header.frame_id = "tool_head_link";
+  workspace.min_corner.x = -1.0; workspace.min_corner.y = -1.0; workspace.min_corner.z = -1.0;
+  workspace.max_corner.x = 1.0;  workspace.max_corner.y = 1.0;  workspace.max_corner.z = 1.0;
+  m_move_group->setWorkspace(
+    workspace.min_corner.x, workspace.min_corner.y, workspace.min_corner.z,
+    workspace.max_corner.x, workspace.max_corner.y, workspace.max_corner.z
+  );
 
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() END");
 }
@@ -83,7 +94,6 @@ void MotionControlNode::planToPoseCallback(
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() START");
 
-  m_move_group->setStartStateToCurrentState();
   if (m_use_depth)
   {
     bool reset_depth = resetDepthMap(2000);
@@ -102,36 +112,53 @@ void MotionControlNode::planToPoseCallback(
       response->message = "Depth update failed.";
       return;
     }
-    else
-    {
-      RCLCPP_WARN(get_logger(), "Timed out waiting for lidar scan, proceeding without perception update");
-    }
+  }
+
+  // Transform Pose to the World Frame
+  geometry_msgs::msg::PoseStamped output_pose;
+  try {
+      // This will look up the transform and apply it to the pose
+      output_pose = m_tf_buffer->transform(request->target_pose, "world", tf2::durationFromSec(1.0));
+  } catch (const tf2::TransformException & ex) {
+      RCLCPP_ERROR(this->get_logger(), "Could not transform: %s", ex.what());
+      return;
   }
 
   RCLCPP_INFO(get_logger(), "Planning to target pose: x: %.2f, y: %.2f, z: %.2f",
-              request->target_pose.pose.position.x,
-              request->target_pose.pose.position.y,
-              request->target_pose.pose.position.z);
+              output_pose.pose.position.x,
+              output_pose.pose.position.y,
+              output_pose.pose.position.z);
 
   geometry_msgs::msg::TransformStamped static_transform;
   static_transform.header.stamp = now();
   static_transform.header.frame_id = "world";
   static_transform.child_frame_id = "target_pose";
-  static_transform.transform.translation.x = request->target_pose.pose.position.x;
-  static_transform.transform.translation.y = request->target_pose.pose.position.y;
-  static_transform.transform.translation.z = request->target_pose.pose.position.z;
-  static_transform.transform.rotation = request->target_pose.pose.orientation;
+  static_transform.transform.translation.x = output_pose.pose.position.x;
+  static_transform.transform.translation.y = output_pose.pose.position.y;
+  static_transform.transform.translation.z = output_pose.pose.position.z;
+  static_transform.transform.rotation = output_pose.pose.orientation;
   m_static_transform_broadcaster->sendTransform(static_transform);
 
-  m_move_group->setPlanningTime(10.0);
-  m_move_group->setNumPlanningAttempts(5);
+  m_move_group->setStartStateToCurrentState();
+  // moveit_msgs::msg::Constraints constraints;
+  // moveit_msgs::msg::OrientationConstraint o_constraint;
+  // geometry_msgs::msg::Pose current_pose = m_move_group->getCurrentPose("tool_head_link").pose;
+  // o_constraint.header.frame_id = "world";
+  // o_constraint.link_name = "tool_head_link";
+  // o_constraint.orientation = current_pose.orientation; // Keep current orientation
+  // o_constraint.absolute_x_axis_tolerance = 0.4; // Allow some wiggle room
+  // o_constraint.absolute_y_axis_tolerance = 0.4;
+  // o_constraint.absolute_z_axis_tolerance = 3.14; // Allow rotation around the tool axis
+  // o_constraint.weight = 1.0;
 
-  m_move_group->setPoseTarget(request->target_pose.pose, "tool0");
+  // constraints.orientation_constraints.push_back(o_constraint);
+  // m_move_group->setPathConstraints(constraints);
+  m_move_group->setPoseTarget(output_pose.pose, "tool_head_link");
 
   bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
   if (success)
   {
-    response->success = (success == moveit::core::MoveItErrorCode::SUCCESS);
+    response->success = success;
     response->message = response->success ? "Planning successful" : "Planning failed";
   }
   else
@@ -154,16 +181,15 @@ void MotionControlNode::planToJointCallback(
   {
     bool reset_depth = resetDepthMap(2000);
     if(!reset_depth) {
-      RCLCPP_ERROR(get_logger(), "Depth map failed to update. Abandoning move to pose");
+      RCLCPP_ERROR(get_logger(), "Depth map failed to update. Abandoning move to joint");
       response->success = false;
       response->message = "Depth reset failed.";
     }
-    std::this_thread::sleep_for(std::chrono::seconds(5));
     RCLCPP_INFO(get_logger(), "Updating depth map before planning");
     bool depth_update_success = updateDepthMap(2000);
     if (!depth_update_success)
     {
-      RCLCPP_ERROR(get_logger(), "Depth map failed to update. Abandoning move to pose");
+      RCLCPP_ERROR(get_logger(), "Depth map failed to update. Abandoning move to joint");
       response->success = false;
       response->message = "Depth update failed.";
       return;

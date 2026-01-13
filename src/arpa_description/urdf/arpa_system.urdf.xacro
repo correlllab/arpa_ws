@@ -97,4 +97,13 @@
         <origin xyz="0 0 0" rpy="0 0 0"/>
     </xacro:arpa_system_macro>
 
+    <!-- Gazebo Classic plugins for simulation -->
+    <xacro:if value="$(arg sim_gazebo)">
+      <gazebo>
+        <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+          <parameters>$(arg simulation_controllers)</parameters>
+        </plugin>
+      </gazebo>
+    </xacro:if>
+
 </robot>
