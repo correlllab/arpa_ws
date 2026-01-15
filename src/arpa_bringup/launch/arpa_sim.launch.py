@@ -104,6 +104,40 @@ def launch_setup(context, *args, **kwargs):
     }
     ompl_planning_pipeline_config["move_group"].update(ompl_yaml)
 
+    # Load controllers config for MoveIt
+    controllers_file_path = os.path.join(moveit_pkg_share, "config", "controllers.yaml")
+    with open(controllers_file_path, 'r') as f:
+        controllers_yaml = yaml.safe_load(f)
+    
+    # Set default controller for simulation
+    controllers_yaml["scaled_joint_trajectory_controller"]["default"] = False
+    controllers_yaml["joint_trajectory_controller"]["default"] = True
+    
+    moveit_controllers_config = {
+        "moveit_simple_controller_manager": controllers_yaml,
+        "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
+    }
+
+    trajectory_execution = {
+        "moveit_manage_controllers": False,
+        "trajectory_execution.allowed_execution_duration_scaling": 1.2,
+        "trajectory_execution.allowed_goal_duration_margin": 0.5,
+        "trajectory_execution.allowed_start_tolerance": 0.01,
+        "trajectory_execution.execution_duration_monitoring": False,
+    }
+
+    planning_scene_monitor_parameters = {
+        "publish_planning_scene": True,
+        "publish_geometry_updates": True,
+        "publish_state_updates": True,
+        "publish_transforms_updates": True,
+    }
+
+    warehouse_ros_config = {
+        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
+        "warehouse_host": "",
+    }
+
     # ---------------------------------------------------------
     # Build robot_description from your ARPA xacro
     # ---------------------------------------------------------
@@ -250,7 +284,15 @@ def launch_setup(context, *args, **kwargs):
         parameters=[
             {'octomap_resolution': 0.01,},
             robot_description,
+            robot_description_semantic,
+            ParameterFile(kinematics_file, allow_substs=True),
+            robot_description_planning,
+            ompl_planning_pipeline_config,
+            trajectory_execution,
+            moveit_controllers_config,
+            planning_scene_monitor_parameters,
             {"use_sim_time": True},
+            warehouse_ros_config,
         ],
     )
 

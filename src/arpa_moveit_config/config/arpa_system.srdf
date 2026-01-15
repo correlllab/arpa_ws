@@ -13,23 +13,7 @@
         <joint name="linear_actuator_to_linear_actuator_plate_joint"/>
     </group> -->
     <group name="ur_manipulator">
-        <link name="base_link"/>
-        <link name="base_link_inertia"/>
-        <link name="shoulder_link"/>
-        <link name="upper_arm_link"/>
-        <link name="forearm_link"/>
-        <link name="wrist_1_link"/>
-        <link name="wrist_2_link"/>
-        <link name="wrist_3_link"/>
-        <link name="flange"/>
-        <link name="tool0"/>
-        <joint name="shoulder_pan_joint"/>
-        <joint name="shoulder_lift_joint"/>
-        <joint name="elbow_joint"/>
-        <joint name="wrist_1_joint"/>
-        <joint name="wrist_2_joint"/>
-        <joint name="wrist_3_joint"/>
-        <chain base_link="base_link" tip_link="tool_holder_link"/>
+        <chain base_link="base_link" tip_link="tool0"/>
     </group>
     <!-- <group name="ur16e_on_gantry">
         <joint name="linear_actuator_to_linear_actuator_plate_joint"/>

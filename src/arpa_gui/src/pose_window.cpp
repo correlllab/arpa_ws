@@ -162,7 +162,7 @@ void PoseWindow::setupUI()
     mainLayout->addWidget(m_prismatic_group);
 
     // ============ TARGET POSE GROUP ============
-    m_target_pose_group = new QGroupBox("Target Pose");
+    m_target_pose_group = new QGroupBox("Relative Motion (Deltas from Current Pose)");
     auto *targetLayout = new QFormLayout;
 
     // Frame selectors
@@ -179,7 +179,7 @@ void PoseWindow::setupUI()
     frameLayout->addWidget(m_target_frame_selector);
     targetLayout->addRow(frameLayout);
 
-    // Position inputs
+    // Position inputs (RELATIVE DELTAS)
     auto *posLayout = new QHBoxLayout;
     m_x = new QLineEdit("0.0");
     m_y = new QLineEdit("0.0");
@@ -188,15 +188,15 @@ void PoseWindow::setupUI()
     m_y->setFixedWidth(80);
     m_z->setFixedWidth(80);
 
-    posLayout->addWidget(new QLabel("X:"));
+    posLayout->addWidget(new QLabel("ΔX:"));
     posLayout->addWidget(m_x);
-    posLayout->addWidget(new QLabel("Y:"));
+    posLayout->addWidget(new QLabel("ΔY:"));
     posLayout->addWidget(m_y);
-    posLayout->addWidget(new QLabel("Z:"));
+    posLayout->addWidget(new QLabel("ΔZ:"));
     posLayout->addWidget(m_z);
-    targetLayout->addRow("Position (m):", posLayout);
+    targetLayout->addRow("Position Delta (m):", posLayout);
 
-    // Orientation inputs
+    // Orientation inputs (RELATIVE DELTAS)
     auto *orientLayout = new QHBoxLayout;
     m_roll = new QLineEdit("0.0");
     m_pitch = new QLineEdit("0.0");
@@ -205,13 +205,13 @@ void PoseWindow::setupUI()
     m_pitch->setFixedWidth(80);
     m_yaw->setFixedWidth(80);
 
-    orientLayout->addWidget(new QLabel("R:"));
+    orientLayout->addWidget(new QLabel("ΔR:"));
     orientLayout->addWidget(m_roll);
-    orientLayout->addWidget(new QLabel("P:"));
+    orientLayout->addWidget(new QLabel("ΔP:"));
     orientLayout->addWidget(m_pitch);
-    orientLayout->addWidget(new QLabel("Y:"));
+    orientLayout->addWidget(new QLabel("ΔY:"));
     orientLayout->addWidget(m_yaw);
-    targetLayout->addRow("Orientation (rad):", orientLayout);
+    targetLayout->addRow("Orientation Delta (rad):", orientLayout);
 
     m_target_pose_group->setLayout(targetLayout);
     mainLayout->addWidget(m_target_pose_group);
@@ -225,18 +225,25 @@ void PoseWindow::setupUI()
     m_stop_btn = new QPushButton("STOP");
     m_home_btn = new QPushButton("Home");
     m_update_depth_btn = new QPushButton("Update Depth");
+    m_test_btn = new QPushButton("TEST: Move 1cm Up");
+    m_cartesian_checkbox = new QCheckBox("Cartesian (straight-line)");
+    m_cartesian_checkbox->setChecked(true);  // Default to Cartesian for smoother motion
+    m_cartesian_checkbox->setToolTip("Use straight-line path planning instead of sampling-based (RRTConnect)");
 
     m_plan_btn->setMinimumHeight(40);
     m_exec_btn->setMinimumHeight(40);
     m_stop_btn->setMinimumHeight(50);
     m_home_btn->setMinimumHeight(40);
     m_update_depth_btn->setMinimumHeight(40);
+    m_test_btn->setMinimumHeight(40);
 
-    buttonLayout->addWidget(m_plan_btn, 0, 0);
-    buttonLayout->addWidget(m_exec_btn, 0, 1);
-    buttonLayout->addWidget(m_home_btn, 1, 0);
-    buttonLayout->addWidget(m_update_depth_btn, 1, 1);
-    buttonLayout->addWidget(m_stop_btn, 2, 0, 1, 2);
+    buttonLayout->addWidget(m_cartesian_checkbox, 0, 0, 1, 2);  // Span 2 columns
+    buttonLayout->addWidget(m_plan_btn, 1, 0);
+    buttonLayout->addWidget(m_exec_btn, 1, 1);
+    buttonLayout->addWidget(m_home_btn, 2, 0);
+    buttonLayout->addWidget(m_update_depth_btn, 2, 1);
+    buttonLayout->addWidget(m_test_btn, 3, 0, 1, 2);
+    buttonLayout->addWidget(m_stop_btn, 4, 0, 1, 2);
 
     buttonGroup->setLayout(buttonLayout);
     mainLayout->addWidget(buttonGroup);
@@ -265,6 +272,7 @@ void PoseWindow::setupConnections()
     connect(m_stop_btn, &QPushButton::clicked, this, &PoseWindow::stopMotion);
     connect(m_home_btn, &QPushButton::clicked, this, &PoseWindow::goHome);
     connect(m_update_depth_btn, &QPushButton::clicked, this, &PoseWindow::updateDepth);
+    connect(m_test_btn, &QPushButton::clicked, this, &PoseWindow::testMoveUp);
 
     // Use lambda to avoid calling onFrameChanged during startup when TF isn't ready
     connect(m_source_frame_selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -467,26 +475,76 @@ void PoseWindow::planPose()
 {
     logStatus("Planning to target pose...");
 
+    // Get current end-effector pose
+    geometry_msgs::msg::Pose current_pose;
+    try {
+        geometry_msgs::msg::TransformStamped tf_msg = m_tf_buffer.lookupTransform(
+            "base_link", "tool0", tf2::TimePointZero);
+
+        current_pose.position.x = tf_msg.transform.translation.x;
+        current_pose.position.y = tf_msg.transform.translation.y;
+        current_pose.position.z = tf_msg.transform.translation.z;
+        current_pose.orientation = tf_msg.transform.rotation;
+    } catch (const tf2::TransformException &ex) {
+        logStatus(QString("Failed to get current pose: %1").arg(ex.what()), true);
+        return;
+    }
+
+    // Parse input values as RELATIVE offsets (deltas)
+    double delta_x = m_x->text().toDouble();
+    double delta_y = m_y->text().toDouble();
+    double delta_z = m_z->text().toDouble();
+    double delta_roll = m_roll->text().toDouble();
+    double delta_pitch = m_pitch->text().toDouble();
+    double delta_yaw = m_yaw->text().toDouble();
+
+    // Compute target pose = current + deltas
     auto req = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
-    req->target_pose.pose.position.x = m_x->text().toDouble();
-    req->target_pose.pose.position.y = m_y->text().toDouble();
-    req->target_pose.pose.position.z = m_z->text().toDouble();
+    req->target_pose.header.frame_id = "base_link";
+    req->target_pose.pose.position.x = current_pose.position.x + delta_x;
+    req->target_pose.pose.position.y = current_pose.position.y + delta_y;
+    req->target_pose.pose.position.z = current_pose.position.z + delta_z;
 
-    double roll = m_roll->text().toDouble();
-    double pitch = m_pitch->text().toDouble();
-    double yaw = m_yaw->text().toDouble();
+    // If orientation deltas are zero, preserve current orientation
+    if (std::abs(delta_roll) < 1e-6 && std::abs(delta_pitch) < 1e-6 && std::abs(delta_yaw) < 1e-6) {
+        // Keep current orientation
+        req->target_pose.pose.orientation = current_pose.orientation;
+        logStatus("Using current orientation (no orientation deltas specified)");
+    } else {
+        // Apply orientation deltas
+        tf2::Quaternion current_quat(
+            current_pose.orientation.x,
+            current_pose.orientation.y,
+            current_pose.orientation.z,
+            current_pose.orientation.w);
 
-    tf2::Quaternion q;
-    q.setRPY(roll, pitch, yaw);
-    req->target_pose.pose.orientation.x = q.x();
-    req->target_pose.pose.orientation.y = q.y();
-    req->target_pose.pose.orientation.z = q.z();
-    req->target_pose.pose.orientation.w = q.w();
+        double current_roll, current_pitch, current_yaw;
+        tf2::Matrix3x3(current_quat).getRPY(current_roll, current_pitch, current_yaw);
 
-    logStatus(QString("Target: X=%1 Y=%2 Z=%3").arg(
+        tf2::Quaternion target_quat;
+        target_quat.setRPY(
+            current_roll + delta_roll,
+            current_pitch + delta_pitch,
+            current_yaw + delta_yaw);
+
+        req->target_pose.pose.orientation.x = target_quat.x();
+        req->target_pose.pose.orientation.y = target_quat.y();
+        req->target_pose.pose.orientation.z = target_quat.z();
+        req->target_pose.pose.orientation.w = target_quat.w();
+
+        logStatus(QString("Applying orientation deltas: R=%1 P=%2 Y=%3").arg(
+            delta_roll, 0, 'f', 3).arg(delta_pitch, 0, 'f', 3).arg(delta_yaw, 0, 'f', 3));
+    }
+
+    logStatus(QString("Target (absolute): X=%1 Y=%2 Z=%3 (from deltas: dx=%4 dy=%5 dz=%6)").arg(
         req->target_pose.pose.position.x, 0, 'f', 3).arg(
         req->target_pose.pose.position.y, 0, 'f', 3).arg(
-        req->target_pose.pose.position.z, 0, 'f', 3));
+        req->target_pose.pose.position.z, 0, 'f', 3).arg(
+        delta_x, 0, 'f', 3).arg(delta_y, 0, 'f', 3).arg(delta_z, 0, 'f', 3));
+
+    // Use Cartesian (straight-line) planning if checkbox is checked
+    req->use_cartesian = m_cartesian_checkbox->isChecked();
+    logStatus(QString("Planning mode: %1").arg(req->use_cartesian ? "Cartesian (straight-line)" : "Sampling-based (RRTConnect)"));
 
     auto future = m_plan_client->async_send_request(req,
         [this](rclcpp::Client<ur_manipulation::srv::PlanToPose>::SharedFuture future) {
@@ -557,6 +615,55 @@ void PoseWindow::stopMotion()
         });
 }
 
+void PoseWindow::testMoveUp()
+{
+    logStatus("TEST: Planning to move 1cm up in Z direction...");
+
+    // Get current end-effector pose
+    geometry_msgs::msg::Pose current_pose;
+    try {
+        geometry_msgs::msg::TransformStamped tf_msg = m_tf_buffer.lookupTransform(
+            "base_link", "tool0", tf2::TimePointZero);
+
+        current_pose.position.x = tf_msg.transform.translation.x;
+        current_pose.position.y = tf_msg.transform.translation.y;
+        current_pose.position.z = tf_msg.transform.translation.z;
+        current_pose.orientation = tf_msg.transform.rotation;
+    } catch (const tf2::TransformException &ex) {
+        logStatus(QString("Failed to get current pose: %1").arg(ex.what()), true);
+        return;
+    }
+
+    // Target pose: current + 1cm in Z
+    auto req = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
+    req->target_pose.header.frame_id = "base_link";
+    req->target_pose.pose.position.x = current_pose.position.x;
+    req->target_pose.pose.position.y = current_pose.position.y;
+    req->target_pose.pose.position.z = current_pose.position.z + 0.01;  // 1cm up
+    req->target_pose.pose.orientation = current_pose.orientation;  // Keep current orientation
+    req->use_cartesian = true;  // Always use Cartesian for small test movements
+
+    logStatus(QString("Current Z: %1 m, Target Z: %2 m (delta: +0.01 m)").arg(
+        current_pose.position.z, 0, 'f', 3).arg(req->target_pose.pose.position.z, 0, 'f', 3));
+
+    // Plan and execute automatically (using Cartesian path)
+    auto future = m_plan_client->async_send_request(req,
+        [this](rclcpp::Client<ur_manipulation::srv::PlanToPose>::SharedFuture future) {
+            auto result = future.get();
+            if (result->success) {
+                QMetaObject::invokeMethod(this, [this]() {
+                    logStatus("TEST: Planning successful! Executing...");
+                    // Automatically execute after planning succeeds
+                    executePlan();
+                });
+            } else {
+                QMetaObject::invokeMethod(this, [this, result]() {
+                    logStatus("TEST: Planning failed: " + QString::fromStdString(result->message), true);
+                });
+            }
+        });
+}
+
 void PoseWindow::onFrameChanged()
 {
     if (m_source_frame.empty() || m_target_frame.empty())
@@ -606,7 +713,9 @@ void PoseWindow::goHome()
     logStatus("Moving to HOME position...");
 
     auto request = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
+    request->target_pose.header.frame_id = "base_link";
     request->target_pose.pose = m_home_pose;
+    request->use_cartesian = false;  // Use sampling-based for large home movements
 
     // Use non-blocking async request
     m_plan_client->async_send_request(request,

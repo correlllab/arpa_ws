@@ -14,6 +14,7 @@
 #include <QTimer>
 #include <QProgressBar>
 #include <QTextEdit>
+#include <QCheckBox>
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -46,6 +47,7 @@ private slots:
     void goHome();
     void updateCurrentPose();
     void onPrismaticChanged(int value);
+    void testMoveUp();
 
 private:
     void setupUI();
@@ -94,6 +96,8 @@ private:
     QPushButton *m_stop_btn;
     QPushButton *m_home_btn;
     QPushButton *m_update_depth_btn;
+    QPushButton *m_test_btn;  // Temporary test button
+    QCheckBox *m_cartesian_checkbox;  // Enable straight-line Cartesian motion
 
     // ============ STATUS LOG ============
     QTextEdit *m_status_log;

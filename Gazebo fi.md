@@ -136,3 +136,4 @@ The following documentation files were created to help users:
 
 The simulation is now **fully functional** - the robot spawns in Gazebo and is ready for motion planning with MoveIt2!
 
+

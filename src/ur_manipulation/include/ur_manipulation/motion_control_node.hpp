@@ -15,6 +15,9 @@
 #include "ur_manipulation/srv/stop_motion.hpp"
 #include "ur_manipulation/srv/get_point_cloud.hpp"
 #include <tf2_ros/static_transform_broadcaster.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include "std_srvs/srv/trigger.hpp"
 #include <moveit_msgs/msg/constraints.hpp>
 #include <moveit_msgs/msg/joint_constraint.hpp>
@@ -73,6 +76,8 @@ private:
   moveit::planning_interface::MoveGroupInterface::Plan m_current_plan;
   bool m_use_depth;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> m_static_transform_broadcaster;
+  std::shared_ptr<tf2_ros::Buffer> m_tf_buffer;
+  std::shared_ptr<tf2_ros::TransformListener> m_tf_listener;
 
   bool updateDepthMap(unsigned int timeout_ms = 2000);
   bool resetDepthMap(unsigned int timeout_ms = 2000);
@@ -84,6 +89,11 @@ private:
   std::vector<std::string> m_arm_padding_links;
   rclcpp::TimerBase::SharedPtr m_init_timer;
   bool m_robot_state_ready = false;
+
+  // Helper function for relative motion planning - simplifies moving end-effector by delta
+  geometry_msgs::msg::Pose planRelativeMotion(
+      double dx = 0.0, double dy = 0.0, double dz = 0.0,
+      double droll = 0.0, double dpitch = 0.0, double dyaw = 0.0);
 };
 
 #endif // __MOTION_CONTROL_NODE__
