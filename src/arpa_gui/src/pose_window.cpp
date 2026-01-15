@@ -41,7 +41,7 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     m_update_depth_client = m_node->create_client<std_srvs::srv::Trigger>("update_depth");
     m_exec_client = m_node->create_client<ur_manipulation::srv::ExecutePlan>("execute_plan");
     m_stop_client = m_node->create_client<ur_manipulation::srv::StopMotion>("stop_motion");
-    m_linear_actuator_pub = m_node->create_publisher<std_msgs::msg::Float64>("/linear_actuator_joint_position", 10);
+    m_linear_actuator_pub = m_node->create_publisher<std_msgs::msg::Float64MultiArray>("/linear_actuator_controller/commands", 10);
 
     // Subscribe to joint states
     m_joint_state_sub = m_node->create_subscription<sensor_msgs::msg::JointState>(
@@ -752,12 +752,13 @@ void PoseWindow::goHome()
 
 void PoseWindow::onPrismaticChanged(int value)
 {
-    double position_m = static_cast<double>(value) / 1000.0;
-    m_prismatic_value->setText(QString::number(position_m, 'f', 3));
+    // Convert slider value to negative position (joint limits are -1.845 to 0)
+    double position_m = -static_cast<double>(value) / 1000.0;
+    m_prismatic_value->setText(QString::number(-position_m, 'f', 3));
 
-    std_msgs::msg::Float64 cmd;
-    cmd.data = position_m;
+    std_msgs::msg::Float64MultiArray cmd;
+    cmd.data.push_back(position_m);
     m_linear_actuator_pub->publish(cmd);
 
-    RCLCPP_DEBUG(m_node->get_logger(), "Prismatic joint command: %.3f m", position_m);
+    RCLCPP_DEBUG(m_node->get_logger(), "Linear actuator command: %.3f m", position_m);
 }

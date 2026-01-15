@@ -20,6 +20,7 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -119,7 +120,7 @@ private:
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_update_depth_client;
     rclcpp::Client<ur_manipulation::srv::ExecutePlan>::SharedPtr m_exec_client;
     rclcpp::Client<ur_manipulation::srv::StopMotion>::SharedPtr m_stop_client;
-    rclcpp::Publisher<std_msgs::msg::Float64>::SharedPtr m_linear_actuator_pub;
+    rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_linear_actuator_pub;
 };
 
 #endif // __ARPA_GUI_POSE_WINDOW_HPP__

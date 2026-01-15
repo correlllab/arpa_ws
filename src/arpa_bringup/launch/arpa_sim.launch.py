@@ -320,18 +320,6 @@ def launch_setup(context, *args, **kwargs):
     )
 
 
-    # Relay node to convert GUI topic to controller command
-    linear_actuator_relay = Node(
-        package="topic_tools",
-        executable="relay",
-        name="linear_actuator_relay",
-        arguments=[
-            "/linear_actuator_joint_position",
-            "/linear_actuator_controller/commands"
-        ],
-        output="screen",
-    )
-
     return [
         gazebo,
         static_tf_world_to_floor,  # Publish TF before robot state publisher
@@ -340,7 +328,6 @@ def launch_setup(context, *args, **kwargs):
         traj_controller_active,
         traj_controller_stopped,
         linear_actuator_controller,
-        linear_actuator_relay,
         spawn_robot,
         move_group_launch,
         motion_control,
