@@ -1,6 +1,7 @@
 controller_names:
   - scaled_joint_trajectory_controller
   - joint_trajectory_controller
+  - linear_actuator_controller
 
 
 scaled_joint_trajectory_controller:
@@ -27,4 +28,12 @@ joint_trajectory_controller:
     - wrist_1_joint
     - wrist_2_joint
     - wrist_3_joint
+
+
+linear_actuator_controller:
+  action_ns: follow_joint_trajectory
+  type: FollowJointTrajectory
+  default: true
+  joints:
+    - linear_actuator_to_linear_actuator_plate_joint
 

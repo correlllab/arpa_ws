@@ -84,8 +84,9 @@ void MotionControlNode::init()
 
   RCLCPP_ERROR(get_logger(), "[TRACE] Creating PlanningSceneInterface");
   m_planning_scene_interface = std::make_shared<moveit::planning_interface::PlanningSceneInterface>();
+  // Use ur16e_on_gantry for 7-DOF coordinated planning (linear actuator + arm)
   m_move_group = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
-    shared_from_this(), "ur_manipulator");
+    shared_from_this(), "ur16e_on_gantry");
     RCLCPP_ERROR(get_logger(), "[TRACE] init() END");
 }
 
@@ -298,8 +299,16 @@ void MotionControlNode::planToPoseCallback(
   // m_move_group->setPathConstraints(constraints);
   
   // m_move_group->setPlanningFrame("base_link");
-  m_move_group->setPlanningTime(15.0);  // Increased from 10 to 15 seconds
-  m_move_group->setNumPlanningAttempts(10);  // Increased from 5 to 10 attempts
+  m_move_group->setPlanningTime(30.0);  // Increased to 30s for 7-DOF planning
+  m_move_group->setNumPlanningAttempts(20);  // Increased to 20 for 7-DOF exploration
+  
+  // Workspace bounds calculated from gantry URDF geometry
+  // Crossbeam: 3.0988m at Z=1.9419m
+  // Pillars: at X=±1.4744m, height 1.867m
+  // Safe workspace avoids pillars and beam
+  m_move_group->setWorkspace(
+    -1.3, -1.5, 0.2,    // min_x, min_y, min_z
+     1.3,  1.5, 1.7);   // max_x, max_y, max_z
 
   // Check if we can get current state
   auto current_robot_state = m_move_group->getCurrentState(2.0);

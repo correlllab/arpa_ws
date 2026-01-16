@@ -120,6 +120,7 @@ private:
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_update_depth_client;
     rclcpp::Client<ur_manipulation::srv::ExecutePlan>::SharedPtr m_exec_client;
     rclcpp::Client<ur_manipulation::srv::StopMotion>::SharedPtr m_stop_client;
+    // Linear actuator controller - dual mode: manual slider + MoveIt 7-DOF planning
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_linear_actuator_pub;
 };
 

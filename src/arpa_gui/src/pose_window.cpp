@@ -41,6 +41,7 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     m_update_depth_client = m_node->create_client<std_srvs::srv::Trigger>("update_depth");
     m_exec_client = m_node->create_client<ur_manipulation::srv::ExecutePlan>("execute_plan");
     m_stop_client = m_node->create_client<ur_manipulation::srv::StopMotion>("stop_motion");
+    // Linear actuator controller - supports both manual slider control and MoveIt 7-DOF planning
     m_linear_actuator_pub = m_node->create_publisher<std_msgs::msg::Float64MultiArray>("/linear_actuator_controller/commands", 10);
 
     // Subscribe to joint states
@@ -760,5 +761,5 @@ void PoseWindow::onPrismaticChanged(int value)
     cmd.data.push_back(position_m);
     m_linear_actuator_pub->publish(cmd);
 
-    RCLCPP_DEBUG(m_node->get_logger(), "Linear actuator command: %.3f m", position_m);
+    RCLCPP_DEBUG(m_node->get_logger(), "Linear actuator manual command: %.3f m", position_m);
 }
