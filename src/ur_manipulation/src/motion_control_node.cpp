@@ -44,7 +44,11 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     rmw_qos_profile_services_default,
       m_depth_client_group);
   
-  // Static TF Broacaster 
+  // Display planned path publisher for RViz visualization
+  m_display_path_publisher = this->create_publisher<moveit_msgs::msg::DisplayTrajectory>(
+      "display_planned_path", 10);
+
+  // Static TF Broacaster
   m_static_transform_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
 
   // TF2 Buffer and Listener for pose transformations
@@ -433,10 +437,16 @@ void MotionControlNode::planToPoseCallback(
       m_current_plan.trajectory_ = trajectory;
       success = true;
       response->success = true;
-      response->message = "Cartesian planning successful (" + 
+      response->message = "Cartesian planning successful (" +
                           std::to_string(int(fraction * 100)) + "% achieved)";
       RCLCPP_INFO(get_logger(), "✓ Cartesian planning succeeded! Trajectory has %zu waypoints",
                   m_current_plan.trajectory_.joint_trajectory.points.size());
+
+      // Publish the planned path for RViz visualization
+      moveit_msgs::msg::DisplayTrajectory display_trajectory;
+      display_trajectory.trajectory_start = m_current_plan.start_state_;
+      display_trajectory.trajectory.push_back(m_current_plan.trajectory_);
+      m_display_path_publisher->publish(display_trajectory);
     } else {
       success = false;
       response->success = false;
@@ -470,6 +480,12 @@ void MotionControlNode::planToPoseCallback(
       response->message = "Planning successful";
       RCLCPP_INFO(get_logger(), "✓ Planning succeeded! Trajectory has %zu waypoints",
                   m_current_plan.trajectory_.joint_trajectory.points.size());
+
+      // Publish the planned path for RViz visualization
+      moveit_msgs::msg::DisplayTrajectory display_trajectory;
+      display_trajectory.trajectory_start = m_current_plan.start_state_;
+      display_trajectory.trajectory.push_back(m_current_plan.trajectory_);
+      m_display_path_publisher->publish(display_trajectory);
     }
     else
     {
@@ -650,6 +666,12 @@ void MotionControlNode::planToJointCallback(
     response->message = "Planning successful";
     RCLCPP_INFO(get_logger(), "✓ Planning succeeded! Trajectory has %zu waypoints",
                 m_current_plan.trajectory_.joint_trajectory.points.size());
+
+    // Publish the planned path for RViz visualization
+    moveit_msgs::msg::DisplayTrajectory display_trajectory;
+    display_trajectory.trajectory_start = m_current_plan.start_state_;
+    display_trajectory.trajectory.push_back(m_current_plan.trajectory_);
+    m_display_path_publisher->publish(display_trajectory);
   }
   else
   {
