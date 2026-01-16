@@ -114,47 +114,41 @@ void MotionControlNode::planToPoseCallback(
     }
   }
 
-  // Transform Pose to the World Frame
-  geometry_msgs::msg::PoseStamped output_pose;
+  // Transform pose to the MoveIt planning frame
+  std::string planning_frame = m_move_group->getPlanningFrame();
+  geometry_msgs::msg::PoseStamped target_pose_in_planning_frame;
+
   try {
-      // This will look up the transform and apply it to the pose
-      output_pose = m_tf_buffer->transform(request->target_pose, "world", tf2::durationFromSec(1.0));
+    target_pose_in_planning_frame = m_tf_buffer->transform(
+      request->target_pose, planning_frame, tf2::durationFromSec(1.0));
   } catch (const tf2::TransformException & ex) {
-      RCLCPP_ERROR(this->get_logger(), "Could not transform: %s", ex.what());
-      return;
+    RCLCPP_ERROR(this->get_logger(), "Could not transform pose from '%s' to '%s': %s",
+                 request->target_pose.header.frame_id.c_str(),
+                 planning_frame.c_str(), ex.what());
+    response->success = false;
+    response->message = std::string("Transform failed: ") + ex.what();
+    return;
   }
 
-  RCLCPP_INFO(get_logger(), "Planning to target pose: x: %.2f, y: %.2f, z: %.2f",
-              output_pose.pose.position.x,
-              output_pose.pose.position.y,
-              output_pose.pose.position.z);
+  RCLCPP_INFO(get_logger(), "Planning to target pose in '%s': x: %.3f, y: %.3f, z: %.3f",
+              planning_frame.c_str(),
+              target_pose_in_planning_frame.pose.position.x,
+              target_pose_in_planning_frame.pose.position.y,
+              target_pose_in_planning_frame.pose.position.z);
 
+  // Publish static transform for visualization
   geometry_msgs::msg::TransformStamped static_transform;
   static_transform.header.stamp = now();
-  static_transform.header.frame_id = "world";
+  static_transform.header.frame_id = planning_frame;
   static_transform.child_frame_id = "target_pose";
-  static_transform.transform.translation.x = output_pose.pose.position.x;
-  static_transform.transform.translation.y = output_pose.pose.position.y;
-  static_transform.transform.translation.z = output_pose.pose.position.z;
-  static_transform.transform.rotation = output_pose.pose.orientation;
+  static_transform.transform.translation.x = target_pose_in_planning_frame.pose.position.x;
+  static_transform.transform.translation.y = target_pose_in_planning_frame.pose.position.y;
+  static_transform.transform.translation.z = target_pose_in_planning_frame.pose.position.z;
+  static_transform.transform.rotation = target_pose_in_planning_frame.pose.orientation;
   m_static_transform_broadcaster->sendTransform(static_transform);
 
   m_move_group->setStartStateToCurrentState();
-  // moveit_msgs::msg::Constraints constraints;
-  // moveit_msgs::msg::OrientationConstraint o_constraint;
-  // geometry_msgs::msg::Pose current_pose = m_move_group->getCurrentPose("tool_head_link").pose;
-  // o_constraint.header.frame_id = "world";
-  // o_constraint.link_name = "tool_head_link";
-  // o_constraint.orientation = current_pose.orientation; // Keep current orientation
-  // o_constraint.absolute_x_axis_tolerance = 0.4; // Allow some wiggle room
-  // o_constraint.absolute_y_axis_tolerance = 0.4;
-  // o_constraint.absolute_z_axis_tolerance = 3.14; // Allow rotation around the tool axis
-  // o_constraint.weight = 1.0;
-
-  // constraints.orientation_constraints.push_back(o_constraint);
-  // m_move_group->setPathConstraints(constraints);
-  m_move_group->setPoseTarget(output_pose.pose, "tool_head_link");
-
+  m_move_group->setPoseTarget(target_pose_in_planning_frame.pose);
   bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
   if (success)
   {

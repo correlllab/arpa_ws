@@ -10,7 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(Qt5 COMPONENTS Widgets REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
-find_package(ur_manipulation REQUIRED)
+find_package(arpa_control REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -34,7 +34,7 @@ ament_target_dependencies(arpa_gui
   rclcpp
   tf2_ros
   tf2
-  ur_manipulation
+  arpa_control
   std_msgs
   std_srvs
   sensor_msgs

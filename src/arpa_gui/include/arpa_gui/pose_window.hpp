@@ -27,9 +27,9 @@
 #include <tf2/LinearMath/Quaternion.h>
 
 #include "std_srvs/srv/trigger.hpp"
-#include "ur_manipulation/srv/plan_to_pose.hpp"
-#include "ur_manipulation/srv/execute_plan.hpp"
-#include "ur_manipulation/srv/stop_motion.hpp"
+#include "arpa_control/srv/plan_to_pose.hpp"
+#include "arpa_control/srv/execute_plan.hpp"
+#include "arpa_control/srv/stop_motion.hpp"
 
 class PoseWindow : public QWidget
 {
@@ -116,10 +116,10 @@ private:
     QTimer *m_update_timer;
 
     // ROS2 clients and publishers
-    rclcpp::Client<ur_manipulation::srv::PlanToPose>::SharedPtr m_plan_client;
+    rclcpp::Client<arpa_control::srv::PlanToPose>::SharedPtr m_plan_client;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_update_depth_client;
-    rclcpp::Client<ur_manipulation::srv::ExecutePlan>::SharedPtr m_exec_client;
-    rclcpp::Client<ur_manipulation::srv::StopMotion>::SharedPtr m_stop_client;
+    rclcpp::Client<arpa_control::srv::ExecutePlan>::SharedPtr m_exec_client;
+    rclcpp::Client<arpa_control::srv::StopMotion>::SharedPtr m_stop_client;
     // Linear actuator controller - dual mode: manual slider + MoveIt 7-DOF planning
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_linear_actuator_pub;
 };

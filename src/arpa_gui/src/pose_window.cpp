@@ -37,10 +37,10 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     applyStylesheet();
 
     // ROS2 clients
-    m_plan_client = m_node->create_client<ur_manipulation::srv::PlanToPose>("plan_to_pose");
+    m_plan_client = m_node->create_client<arpa_control::srv::PlanToPose>("plan_to_pose");
     m_update_depth_client = m_node->create_client<std_srvs::srv::Trigger>("update_depth");
-    m_exec_client = m_node->create_client<ur_manipulation::srv::ExecutePlan>("execute_plan");
-    m_stop_client = m_node->create_client<ur_manipulation::srv::StopMotion>("stop_motion");
+    m_exec_client = m_node->create_client<arpa_control::srv::ExecutePlan>("execute_plan");
+    m_stop_client = m_node->create_client<arpa_control::srv::StopMotion>("stop_motion");
     // Linear actuator controller - supports both manual slider control and MoveIt 7-DOF planning
     m_linear_actuator_pub = m_node->create_publisher<std_msgs::msg::Float64MultiArray>("/linear_actuator_controller/commands", 10);
 
@@ -500,11 +500,11 @@ void PoseWindow::planPose()
     double delta_yaw = m_yaw->text().toDouble();
 
     // Compute target pose = current + deltas
-    auto req = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
-    req->target_pose.header.frame_id = "base_link";
-    req->target_pose.pose.position.x = current_pose.position.x + delta_x;
-    req->target_pose.pose.position.y = current_pose.position.y + delta_y;
-    req->target_pose.pose.position.z = current_pose.position.z + delta_z;
+    auto req = std::make_shared<arpa_control::srv::PlanToPose::Request>();
+    req->target_pose.header.frame_id = m_target_frame_selector->currentText().toStdString();
+    req->target_pose.pose.position.x = delta_x;
+    req->target_pose.pose.position.y = delta_y;
+    req->target_pose.pose.position.z = delta_z;
 
     // If orientation deltas are zero, preserve current orientation
     if (std::abs(delta_roll) < 1e-6 && std::abs(delta_pitch) < 1e-6 && std::abs(delta_yaw) < 1e-6) {
@@ -548,7 +548,7 @@ void PoseWindow::planPose()
     logStatus(QString("Planning mode: %1").arg(req->use_cartesian ? "Cartesian (straight-line)" : "Sampling-based (RRTConnect)"));
 
     auto future = m_plan_client->async_send_request(req,
-        [this](rclcpp::Client<ur_manipulation::srv::PlanToPose>::SharedFuture future) {
+        [this](rclcpp::Client<arpa_control::srv::PlanToPose>::SharedFuture future) {
             auto result = future.get();
             if (result->success) {
                 QMetaObject::invokeMethod(this, [this]() {
@@ -566,9 +566,9 @@ void PoseWindow::executePlan()
 {
     logStatus("Executing planned motion...");
 
-    auto req = std::make_shared<ur_manipulation::srv::ExecutePlan::Request>();
+    auto req = std::make_shared<arpa_control::srv::ExecutePlan::Request>();
     auto future = m_exec_client->async_send_request(req,
-        [this](rclcpp::Client<ur_manipulation::srv::ExecutePlan>::SharedFuture future) {
+        [this](rclcpp::Client<arpa_control::srv::ExecutePlan>::SharedFuture future) {
             auto result = future.get();
             if (result->success) {
                 QMetaObject::invokeMethod(this, [this]() {
@@ -606,9 +606,9 @@ void PoseWindow::stopMotion()
 {
     logStatus("STOPPING MOTION!", true);
 
-    auto req = std::make_shared<ur_manipulation::srv::StopMotion::Request>();
+    auto req = std::make_shared<arpa_control::srv::StopMotion::Request>();
     m_stop_client->async_send_request(req,
-        [this](rclcpp::Client<ur_manipulation::srv::StopMotion>::SharedFuture future) {
+        [this](rclcpp::Client<arpa_control::srv::StopMotion>::SharedFuture future) {
             auto result = future.get();
             QMetaObject::invokeMethod(this, [this]() {
                 logStatus("Motion stopped");
@@ -636,7 +636,7 @@ void PoseWindow::testMoveUp()
     }
 
     // Target pose: current + 1cm in Z
-    auto req = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
+    auto req = std::make_shared<arpa_control::srv::PlanToPose::Request>();
     req->target_pose.header.frame_id = "base_link";
     req->target_pose.pose.position.x = current_pose.position.x;
     req->target_pose.pose.position.y = current_pose.position.y;
@@ -649,7 +649,7 @@ void PoseWindow::testMoveUp()
 
     // Plan and execute automatically (using Cartesian path)
     auto future = m_plan_client->async_send_request(req,
-        [this](rclcpp::Client<ur_manipulation::srv::PlanToPose>::SharedFuture future) {
+        [this](rclcpp::Client<arpa_control::srv::PlanToPose>::SharedFuture future) {
             auto result = future.get();
             if (result->success) {
                 QMetaObject::invokeMethod(this, [this]() {
@@ -713,14 +713,14 @@ void PoseWindow::goHome()
 {
     logStatus("Moving to HOME position...");
 
-    auto request = std::make_shared<ur_manipulation::srv::PlanToPose::Request>();
+    auto request = std::make_shared<arpa_control::srv::PlanToPose::Request>();
     request->target_pose.header.frame_id = "base_link";
     request->target_pose.pose = m_home_pose;
     request->use_cartesian = false;  // Use sampling-based for large home movements
 
     // Use non-blocking async request
     m_plan_client->async_send_request(request,
-        [this](rclcpp::Client<ur_manipulation::srv::PlanToPose>::SharedFuture future) {
+        [this](rclcpp::Client<arpa_control::srv::PlanToPose>::SharedFuture future) {
             auto result = future.get();
             if (!result->success) {
                 QMetaObject::invokeMethod(this, [this, result]() {
@@ -734,9 +734,9 @@ void PoseWindow::goHome()
             }, Qt::QueuedConnection);
 
             // Execute the plan
-            auto exec_req = std::make_shared<ur_manipulation::srv::ExecutePlan::Request>();
+            auto exec_req = std::make_shared<arpa_control::srv::ExecutePlan::Request>();
             m_exec_client->async_send_request(exec_req,
-                [this](rclcpp::Client<ur_manipulation::srv::ExecutePlan>::SharedFuture exec_future) {
+                [this](rclcpp::Client<arpa_control::srv::ExecutePlan>::SharedFuture exec_future) {
                     auto exec_result = exec_future.get();
                     if (exec_result->success) {
                         QMetaObject::invokeMethod(this, [this]() {
