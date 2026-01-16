@@ -47,6 +47,10 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   // Static TF Broacaster 
   m_static_transform_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
 
+  // TF2 Buffer and Listener for pose transformations
+  m_tf_buffer = std::make_shared<tf2_ros::Buffer>(this->get_clock());
+  m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
+
   m_use_depth = false;
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
@@ -80,8 +84,9 @@ void MotionControlNode::init()
 
   RCLCPP_ERROR(get_logger(), "[TRACE] Creating PlanningSceneInterface");
   m_planning_scene_interface = std::make_shared<moveit::planning_interface::PlanningSceneInterface>();
+  // Use ur16e_on_gantry for 7-DOF coordinated planning (linear actuator + arm)
   m_move_group = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
-    shared_from_this(), "ur_manipulator");
+    shared_from_this(), "ur16e_on_gantry");
     RCLCPP_ERROR(get_logger(), "[TRACE] init() END");
 }
 
@@ -91,21 +96,23 @@ void MotionControlNode::initMoveGroup()
 
   RCLCPP_ERROR(get_logger(), "[TRACE] Starting state monitor");
   m_move_group->startStateMonitor(1.0);
-  RCLCPP_ERROR(get_logger(), "[TRACE] Setting planner ID");
-  m_move_group->setPlannerId("RRTConnectkConfigDefault");
   RCLCPP_ERROR(get_logger(), "[TRACE] Setting planning pipeline ID");
   m_move_group->setPlanningPipelineId("move_group");
-  RCLCPP_ERROR(get_logger(), "[TRACE] Setting planner ID (second call)");
-  m_move_group->setPlannerId("ur_manipulator");
+  RCLCPP_ERROR(get_logger(), "[TRACE] Setting planner ID");
+  m_move_group->setPlannerId("RRTConnectkConfigDefault");
+  
+  // Log configured planning pipeline and planner
+  RCLCPP_INFO(get_logger(), "Planning Pipeline ID: %s", m_move_group->getPlanningPipelineId().c_str());
+  RCLCPP_INFO(get_logger(), "Planner ID: %s", m_move_group->getPlannerId().c_str());
 
-  // Set goal position tolerance (meters)
-  m_move_group->setGoalPositionTolerance(0.001);  // 1mm instead of default ~1cm
+  // Set goal position tolerance (meters) - Use default MoveIt tolerances
+  m_move_group->setGoalPositionTolerance(0.01);  // 1cm (MoveIt default)
 
   // Set goal orientation tolerance (radians)
-  m_move_group->setGoalOrientationTolerance(0.01);  // ~0.57 degrees
+  m_move_group->setGoalOrientationTolerance(0.1);  // ~5.7 degrees (MoveIt default)
 
   // Set goal joint tolerance (radians)
-  m_move_group->setGoalJointTolerance(0.001);  // Very tight
+  m_move_group->setGoalJointTolerance(0.01);  // Default tolerance
 
   // Create a one-shot timer to check when state is ready
   RCLCPP_ERROR(get_logger(), "[TRACE] Creating wall timer");
@@ -124,13 +131,12 @@ void MotionControlNode::checkRobotStateReady()
   // Check if we have a current state
   auto current_state = m_move_group->getCurrentState(0.0001);  // Short timeout
   RCLCPP_ERROR(get_logger(), "[TRACE] getCurrentState() returned");
-  RCLCPP_INFO(get_logger(), "Motion Control Node initialization started. Waiting for robot state...");
 
   if (current_state) {
     RCLCPP_INFO(this->get_logger(), "Robot state received! Motion Control Node fully ready.");
     m_robot_state_ready = true;
-    // m_init_timer->cancel();  // Stop the timer
-    // m_init_timer.reset();
+    m_init_timer->cancel();  // Stop the timer
+    m_init_timer.reset();
   } else {
     RCLCPP_WARN_THROTTLE(get_logger(), *this->get_clock(), 2000,
                          "Still waiting for robot state...");
@@ -293,9 +299,26 @@ void MotionControlNode::planToPoseCallback(
   // m_move_group->setPathConstraints(constraints);
   
   // m_move_group->setPlanningFrame("base_link");
-  m_move_group->setPlanningTime(10.0);
-  m_move_group->setNumPlanningAttempts(5);
+  m_move_group->setPlanningTime(30.0);  // Increased to 30s for 7-DOF planning
+  m_move_group->setNumPlanningAttempts(20);  // Increased to 20 for 7-DOF exploration
+  
+  // Workspace bounds calculated from gantry URDF geometry
+  // Crossbeam: 3.0988m at Z=1.9419m
+  // Pillars: at X=±1.4744m, height 1.867m
+  // Safe workspace avoids pillars and beam
+  m_move_group->setWorkspace(
+    -1.3, -1.5, 0.2,    // min_x, min_y, min_z
+     1.3,  1.5, 1.7);   // max_x, max_y, max_z
 
+  // Check if we can get current state
+  auto current_robot_state = m_move_group->getCurrentState(2.0);
+  if (!current_robot_state) {
+    RCLCPP_ERROR(get_logger(), "CRITICAL: Cannot get current robot state! Joint states may not be published.");
+    response->success = false;
+    response->message = "Cannot get robot state - check if robot/simulation is running";
+    return;
+  }
+  RCLCPP_INFO(get_logger(), "Current robot state retrieved successfully");
 
   // // Get the robot model and current state
   // const moveit::core::JointModelGroup* joint_model_group = 
@@ -340,24 +363,174 @@ void MotionControlNode::planToPoseCallback(
   // // Now plan in joint space
   // m_move_group->setJointValueTarget(joint_values);
     
-  // RCLCPP_INFO(get_logger(), "Planning with path constraints to avoid arm self-collision23456789abc.");
-  RCLCPP_ERROR(get_logger(), "[TRACE] Setting pose target");
-  m_move_group->setPoseTarget(request->target_pose.pose, "tool0");
-
-  RCLCPP_ERROR(get_logger(), "[TRACE] Calling plan()");
-  bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
-  RCLCPP_ERROR(get_logger(), "[TRACE] plan() returned");
-
-  if (success)
-  {
-    response->success = (success == moveit::core::MoveItErrorCode::SUCCESS);
-    response->message = response->success ? "Planning successful" : "Planning failed";
+  // Log planning configuration
+  RCLCPP_INFO(get_logger(), "Planning configuration:");
+  RCLCPP_INFO(get_logger(), "  Planning Pipeline ID: %s", m_move_group->getPlanningPipelineId().c_str());
+  RCLCPP_INFO(get_logger(), "  Planner ID: %s", m_move_group->getPlannerId().c_str());
+  RCLCPP_INFO(get_logger(), "  Planning Time: %.2f s", m_move_group->getPlanningTime());
+  RCLCPP_INFO(get_logger(), "  Goal Position Tolerance: %.4f m", m_move_group->getGoalPositionTolerance());
+  RCLCPP_INFO(get_logger(), "  Goal Orientation Tolerance: %.4f rad", m_move_group->getGoalOrientationTolerance());
+  
+  // Log target pose
+  RCLCPP_INFO(get_logger(), "Target pose: x=%.4f, y=%.4f, z=%.4f", 
+              request->target_pose.pose.position.x,
+              request->target_pose.pose.position.y,
+              request->target_pose.pose.position.z);
+  
+  // Use setPoseTarget like RViz does - let MoveIt handle IK internally
+  // This is simpler and matches how RViz interactive markers work
+  RCLCPP_ERROR(get_logger(), "[TRACE] Setting pose target (MoveIt will solve IK internally)");
+  
+  // Get planning frame and verify it matches the request frame
+  std::string planning_frame = m_move_group->getPlanningFrame();
+  RCLCPP_INFO(get_logger(), "Planning frame: %s", planning_frame.c_str());
+  RCLCPP_INFO(get_logger(), "Request frame: %s", request->target_pose.header.frame_id.c_str());
+  
+  // Transform pose to planning frame if needed
+  geometry_msgs::msg::PoseStamped target_pose_in_planning_frame;
+  target_pose_in_planning_frame.header = request->target_pose.header;
+  target_pose_in_planning_frame.pose = request->target_pose.pose;
+  
+  if (request->target_pose.header.frame_id != planning_frame && 
+      !request->target_pose.header.frame_id.empty()) {
+    try {
+      RCLCPP_INFO(get_logger(), "Transforming pose from %s to %s",
+                  request->target_pose.header.frame_id.c_str(), planning_frame.c_str());
+      target_pose_in_planning_frame = m_tf_buffer->transform(
+          request->target_pose, planning_frame, tf2::durationFromSec(1.0));
+      RCLCPP_INFO(get_logger(), "Transformed pose: x=%.4f, y=%.4f, z=%.4f",
+                  target_pose_in_planning_frame.pose.position.x,
+                  target_pose_in_planning_frame.pose.position.y,
+                  target_pose_in_planning_frame.pose.position.z);
+    } catch (const tf2::TransformException& ex) {
+      RCLCPP_ERROR(get_logger(), "Failed to transform pose: %s", ex.what());
+      response->success = false;
+      response->message = std::string("Frame transform failed: ") + ex.what();
+      return;
+    }
   }
-  else
-  {
-    response->success = false;
-    response->message = "Planning failed";
-  }
+  
+  bool success = false;
+  
+  if (request->use_cartesian) {
+    // Cartesian path planning - straight line motion like interactive marker
+    RCLCPP_INFO(get_logger(), "Using Cartesian path planning (straight-line motion)");
+    
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose_in_planning_frame.pose);
+    
+    // Compute Cartesian path with 1cm resolution, allow 0% jump threshold
+    const double eef_step = 0.01;  // 1cm interpolation step
+    const double jump_threshold = 0.0;  // Disable jump threshold
+    
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    double fraction = m_move_group->computeCartesianPath(
+        waypoints, eef_step, jump_threshold, trajectory);
+    
+    RCLCPP_INFO(get_logger(), "Cartesian path computed: %.2f%% achieved", fraction * 100.0);
+    
+    if (fraction >= 0.95) {  // Accept if 95%+ of path achieved
+      m_current_plan.trajectory_ = trajectory;
+      success = true;
+      response->success = true;
+      response->message = "Cartesian planning successful (" + 
+                          std::to_string(int(fraction * 100)) + "% achieved)";
+      RCLCPP_INFO(get_logger(), "✓ Cartesian planning succeeded! Trajectory has %zu waypoints",
+                  m_current_plan.trajectory_.joint_trajectory.points.size());
+    } else {
+      success = false;
+      response->success = false;
+      response->message = "Cartesian path only " + std::to_string(int(fraction * 100)) + 
+                          "% achievable - obstacle or singularity in path";
+      RCLCPP_ERROR(get_logger(), "✗ Cartesian planning failed: only %.2f%% of path achievable", 
+                   fraction * 100.0);
+    }
+  } else {
+    // Standard sampling-based planning (RRTConnect)
+    RCLCPP_INFO(get_logger(), "Using sampling-based planning (RRTConnect)");
+    
+    // Set pose target - MoveIt will solve IK internally (like RViz does)
+    m_move_group->setPoseTarget(target_pose_in_planning_frame.pose, "tool0");
+
+    RCLCPP_ERROR(get_logger(), "[TRACE] Calling plan()");
+
+    // Get detailed error code
+    auto error_code = m_move_group->plan(m_current_plan);
+    success = (error_code == moveit::core::MoveItErrorCode::SUCCESS);
+
+    RCLCPP_ERROR(get_logger(), "[TRACE] plan() returned with error code: %d (SUCCESS=%d, PLANNING_FAILED=%d, NO_IK_SOLUTION=%d)", 
+                 error_code.val,
+                 static_cast<int>(moveit::core::MoveItErrorCode::SUCCESS),
+                 static_cast<int>(moveit::core::MoveItErrorCode::PLANNING_FAILED),
+                 static_cast<int>(moveit::core::MoveItErrorCode::NO_IK_SOLUTION));
+
+    if (success)
+    {
+      response->success = true;
+      response->message = "Planning successful";
+      RCLCPP_INFO(get_logger(), "✓ Planning succeeded! Trajectory has %zu waypoints",
+                  m_current_plan.trajectory_.joint_trajectory.points.size());
+    }
+    else
+    {
+      response->success = false;
+      std::string error_msg;
+
+      // Detailed error messages based on MoveIt error codes
+      switch (error_code.val) {
+        case moveit::core::MoveItErrorCode::PLANNING_FAILED:
+          error_msg = "Planning failed - no solution found. Target may be unreachable.";
+          break;
+        case moveit::core::MoveItErrorCode::INVALID_MOTION_PLAN:
+          error_msg = "Invalid motion plan - check target pose validity.";
+          break;
+        case moveit::core::MoveItErrorCode::MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE:
+          error_msg = "Plan invalidated by environment change.";
+          break;
+        case moveit::core::MoveItErrorCode::CONTROL_FAILED:
+          error_msg = "Control failed.";
+          break;
+        case moveit::core::MoveItErrorCode::UNABLE_TO_AQUIRE_SENSOR_DATA:
+          error_msg = "Unable to acquire sensor data.";
+          break;
+        case moveit::core::MoveItErrorCode::TIMED_OUT:
+          error_msg = "Planning timed out - try increasing planning time.";
+          break;
+        case moveit::core::MoveItErrorCode::PREEMPTED:
+          error_msg = "Planning preempted.";
+          break;
+        case moveit::core::MoveItErrorCode::START_STATE_IN_COLLISION:
+        error_msg = "Start state is in collision! Robot may be colliding with itself or environment.";
+        break;
+      case moveit::core::MoveItErrorCode::GOAL_IN_COLLISION:
+        error_msg = "Goal state is in collision! Target pose would cause collision.";
+        break;
+      case moveit::core::MoveItErrorCode::START_STATE_INVALID:
+        error_msg = "Start state is invalid - check robot state.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_GROUP_NAME:
+        error_msg = "Invalid planning group name.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_GOAL_CONSTRAINTS:
+        error_msg = "Invalid goal constraints.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_ROBOT_STATE:
+        error_msg = "Invalid robot state.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_LINK_NAME:
+        error_msg = "Invalid link name.";
+        break;
+      case moveit::core::MoveItErrorCode::NO_IK_SOLUTION:
+        error_msg = "No IK solution found - target pose cannot be reached by robot.";
+        break;
+      default:
+        error_msg = "Planning failed with error code: " + std::to_string(error_code.val);
+      }
+
+      response->message = error_msg;
+      RCLCPP_ERROR(get_logger(), "✗ %s", error_msg.c_str());
+    }
+  }  // end else (sampling-based planning)
 }
 
 
@@ -464,18 +637,78 @@ void MotionControlNode::planToJointCallback(
   // m_move_group->setPoseTarget(request->target_pose.pose, "tool0");
 
   RCLCPP_ERROR(get_logger(), "[TRACE] Calling plan()");
-  bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
-  RCLCPP_ERROR(get_logger(), "[TRACE] plan() returned");
+
+  // Get detailed error code
+  auto error_code = m_move_group->plan(m_current_plan);
+  bool success = (error_code == moveit::core::MoveItErrorCode::SUCCESS);
+
+  RCLCPP_ERROR(get_logger(), "[TRACE] plan() returned with error code: %d", error_code.val);
 
   if (success)
   {
-    response->success = (success == moveit::core::MoveItErrorCode::SUCCESS);
-    response->message = response->success ? "Planning successful" : "Planning failed";
+    response->success = true;
+    response->message = "Planning successful";
+    RCLCPP_INFO(get_logger(), "✓ Planning succeeded! Trajectory has %zu waypoints",
+                m_current_plan.trajectory_.joint_trajectory.points.size());
   }
   else
   {
     response->success = false;
-    response->message = "Planning failed";
+    std::string error_msg;
+
+    // Detailed error messages based on MoveIt error codes
+    switch (error_code.val) {
+      case moveit::core::MoveItErrorCode::PLANNING_FAILED:
+        error_msg = "Planning failed - no solution found. Target may be unreachable.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_MOTION_PLAN:
+        error_msg = "Invalid motion plan - check target pose validity.";
+        break;
+      case moveit::core::MoveItErrorCode::MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE:
+        error_msg = "Plan invalidated by environment change.";
+        break;
+      case moveit::core::MoveItErrorCode::CONTROL_FAILED:
+        error_msg = "Control failed.";
+        break;
+      case moveit::core::MoveItErrorCode::UNABLE_TO_AQUIRE_SENSOR_DATA:
+        error_msg = "Unable to acquire sensor data.";
+        break;
+      case moveit::core::MoveItErrorCode::TIMED_OUT:
+        error_msg = "Planning timed out - try increasing planning time.";
+        break;
+      case moveit::core::MoveItErrorCode::PREEMPTED:
+        error_msg = "Planning preempted.";
+        break;
+      case moveit::core::MoveItErrorCode::START_STATE_IN_COLLISION:
+        error_msg = "Start state is in collision! Robot may be colliding with itself or environment.";
+        break;
+      case moveit::core::MoveItErrorCode::GOAL_IN_COLLISION:
+        error_msg = "Goal state is in collision! Target pose would cause collision.";
+        break;
+      case moveit::core::MoveItErrorCode::START_STATE_INVALID:
+        error_msg = "Start state is invalid - check robot state.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_GROUP_NAME:
+        error_msg = "Invalid planning group name.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_GOAL_CONSTRAINTS:
+        error_msg = "Invalid goal constraints.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_ROBOT_STATE:
+        error_msg = "Invalid robot state.";
+        break;
+      case moveit::core::MoveItErrorCode::INVALID_LINK_NAME:
+        error_msg = "Invalid link name.";
+        break;
+      case moveit::core::MoveItErrorCode::NO_IK_SOLUTION:
+        error_msg = "No IK solution found - target pose cannot be reached by robot.";
+        break;
+      default:
+        error_msg = "Planning failed with error code: " + std::to_string(error_code.val);
+    }
+
+    response->message = error_msg;
+    RCLCPP_ERROR(get_logger(), "✗ %s", error_msg.c_str());
   }
 }
 
@@ -484,9 +717,27 @@ void MotionControlNode::executePlanCallback(
     std::shared_ptr<ur_manipulation::srv::ExecutePlan::Response> response)
 {
   RCLCPP_INFO(get_logger(), "Executing planned motion");
+  RCLCPP_INFO(get_logger(), "Plan has %zu waypoints", m_current_plan.trajectory_.joint_trajectory.points.size());
+  
+  if (m_current_plan.trajectory_.joint_trajectory.points.empty()) {
+    RCLCPP_ERROR(get_logger(), "Cannot execute: plan is empty!");
+    response->success = false;
+    response->message = "Plan is empty. Please plan first.";
+    return;
+  }
+  
+  RCLCPP_INFO(get_logger(), "Calling move_group->execute()...");
   auto execute_result = m_move_group->execute(m_current_plan);
+  RCLCPP_INFO(get_logger(), "Execute result: %d (SUCCESS=%d)",
+              execute_result.val,
+              static_cast<int>(moveit::core::MoveItErrorCode::SUCCESS));
+  
   response->success = (execute_result == moveit::core::MoveItErrorCode::SUCCESS);
   response->message = response->success ? "Execution successful" : "Execution failed";
+  
+  if (!response->success) {
+    RCLCPP_ERROR(get_logger(), "Execution failed with error code: %d", execute_result.val);
+  }
 }
 
 void MotionControlNode::updateDepthCallback(
@@ -636,6 +887,50 @@ void MotionControlNode::stopMotionCallback(
   RCLCPP_INFO(get_logger(), "Stopping motion");
   m_move_group->stop();
   response->success = true;
+}
+
+geometry_msgs::msg::Pose MotionControlNode::planRelativeMotion(
+    double dx, double dy, double dz,
+    double droll, double dpitch, double dyaw)
+{
+  // Get current end-effector pose
+  auto current_state = m_move_group->getCurrentState();
+  if (!current_state) {
+    RCLCPP_ERROR(get_logger(), "Cannot get current state for relative motion");
+    return geometry_msgs::msg::Pose();
+  }
+
+  const Eigen::Isometry3d& current_transform = current_state->getGlobalLinkTransform("tool0");
+  Eigen::Vector3d current_pos = current_transform.translation();
+  Eigen::Quaterniond current_quat(current_transform.rotation());
+
+  // Apply delta to position
+  Eigen::Vector3d target_pos = current_pos + Eigen::Vector3d(dx, dy, dz);
+
+  // Apply rotation delta using Euler angles (roll, pitch, yaw) as quaternions
+  Eigen::Quaterniond dq_roll(Eigen::AngleAxisd(droll, Eigen::Vector3d::UnitX()));
+  Eigen::Quaterniond dq_pitch(Eigen::AngleAxisd(dpitch, Eigen::Vector3d::UnitY()));
+  Eigen::Quaterniond dq_yaw(Eigen::AngleAxisd(dyaw, Eigen::Vector3d::UnitZ()));
+  
+  // Combine rotations: yaw * pitch * roll order
+  Eigen::Quaterniond target_quat = current_quat * (dq_roll * dq_pitch * dq_yaw);
+  target_quat.normalize();
+
+  // Create target pose
+  geometry_msgs::msg::Pose target_pose;
+  target_pose.position.x = target_pos.x();
+  target_pose.position.y = target_pos.y();
+  target_pose.position.z = target_pos.z();
+  target_pose.orientation.x = target_quat.x();
+  target_pose.orientation.y = target_quat.y();
+  target_pose.orientation.z = target_quat.z();
+  target_pose.orientation.w = target_quat.w();
+
+  RCLCPP_INFO(get_logger(), "Relative motion: current (%.3f, %.3f, %.3f) -> target (%.3f, %.3f, %.3f)",
+              current_pos.x(), current_pos.y(), current_pos.z(),
+              target_pos.x(), target_pos.y(), target_pos.z());
+
+  return target_pose;
 }
 
 int main(int argc, char **argv)

@@ -7,6 +7,8 @@
     <xacro:arg name="use_fake_hardware" default="false"/>
     <xacro:arg name="fake_sensor_commands" default="false"/>
     <xacro:arg name="sim_gazebo" default="false"/>
+    <xacro:arg name="sim_ignition" default="false"/>
+    <xacro:arg name="simulation_controllers" default=""/>
 
     <!-- UR driver essentials -->
     <xacro:arg name="robot_ip" default="128.138.224.247"/>
@@ -48,7 +50,6 @@
     <xacro:arg name="trajectory_port" default="50003"/>
 
     <xacro:arg name="initial_positions_file_path" default="$(find arpa_moveit_config)/config/initial_positions.yaml" />
-    <xacro:arg name="simulation_controllers" default="" />
 
     <xacro:include filename="$(find arpa_description)/urdf/arpa_system_macro.urdf.xacro" />
     <xacro:arpa_system_macro
@@ -84,16 +85,35 @@
         tool_tx_idle_chars="$(arg tool_tx_idle_chars)"
 
         sim_gazebo="$(arg sim_gazebo)"
-        sim_ignition="false"
+        sim_ignition="$(arg sim_ignition)"
     />
 
-    <!-- Gazebo plugins for simulation -->
+    <!-- Gazebo Classic plugins for simulation -->
     <xacro:if value="$(arg sim_gazebo)">
       <gazebo>
         <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
           <parameters>$(arg simulation_controllers)</parameters>
         </plugin>
       </gazebo>
+    </xacro:if>
+
+    <!-- Ignition/Gazebo Sim plugins for simulation -->
+    <xacro:if value="$(arg sim_ignition)">
+      <gazebo>
+        <plugin filename="libign_ros2_control-system.so" name="ign_ros2_control::IgnitionROS2ControlPlugin">
+          <parameters>$(arg simulation_controllers)</parameters>
+        </plugin>
+      </gazebo>
+    </xacro:if>
+
+    <!-- Add linear actuator joint to ros2_control for Gazebo simulation -->
+    <xacro:if value="$(arg sim_gazebo)">
+      <ros2_control name="LinearActuatorSystem" type="system">
+        <hardware>
+          <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        </hardware>
+        <xacro:linear_actuator_ros2_control/>
+      </ros2_control>
     </xacro:if>
 
 </robot>

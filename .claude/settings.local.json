@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source:*)",
+      "Bash(xacro:*)",
+      "Bash(ros2 pkg:*)",
+      "Bash(sudo apt install:*)",
+      "Bash(dpkg:*)",
+      "Bash(apt list:*)",
+      "Bash(colcon build:*)",
+      "Bash(sudo docker ps:*)",
+      "Bash(grep:*)",
+      "Bash(ros2 topic echo:*)",
+      "Bash(ros2 node info:*)",
+      "Bash(ros2 service call:*)",
+      "Bash(ros2 node list:*)",
+      "Bash(ros2 topic list:*)"
+    ]
+  }
+}

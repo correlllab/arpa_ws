@@ -1,9 +1,16 @@
+import os
+from ament_index_python.packages import get_package_share_directory
+import yaml
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
+    ExecuteProcess,
+    SetEnvironmentVariable,
+    TimerAction,
 )
 from launch.event_handlers import OnProcessExit
 from launch.conditions import IfCondition, UnlessCondition
@@ -13,9 +20,11 @@ from launch.substitutions import (
     FindExecutable,
     LaunchConfiguration,
     PathJoinSubstitution,
+    EnvironmentVariable,
 )
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 
 
 def launch_setup(context, *args, **kwargs):
@@ -60,6 +69,76 @@ def launch_setup(context, *args, **kwargs):
     )
 
     # ---------------------------------------------------------
+    # MoveIt Configuration for RViz
+    # ---------------------------------------------------------
+    moveit_pkg_str = moveit_pkg.perform(context)
+    moveit_pkg_share = get_package_share_directory(moveit_pkg_str)
+    
+    # Load robot_description_semantic (SRDF)
+    srdf_file = os.path.join(moveit_pkg_share, "config", "arpa_system.srdf")
+    with open(srdf_file, 'r') as f:
+        robot_description_semantic_content = f.read()
+    robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
+    
+    # Kinematics file path (use ParameterFile to load it)
+    kinematics_file = PathJoinSubstitution(
+        [FindPackageShare(moveit_pkg), "config", "kinematics.yaml"]
+    )
+    
+    # Load joint limits
+    joint_limits_file = os.path.join(moveit_pkg_share, "config", "joint_limits.yaml")
+    with open(joint_limits_file, 'r') as f:
+        robot_description_planning = {"robot_description_planning": yaml.safe_load(f)}
+    
+    # Load OMPL planning config
+    ompl_file = os.path.join(get_package_share_directory("ur_moveit_config"), "config", "ompl_planning.yaml")
+    with open(ompl_file, 'r') as f:
+        ompl_yaml = yaml.safe_load(f)
+    
+    ompl_planning_pipeline_config = {
+        "move_group": {
+            "planning_plugin": "ompl_interface/OMPLPlanner",
+            "request_adapters": "default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
+            "start_state_max_bounds_error": 0.1,
+        }
+    }
+    ompl_planning_pipeline_config["move_group"].update(ompl_yaml)
+
+    # Load controllers config for MoveIt
+    controllers_file_path = os.path.join(moveit_pkg_share, "config", "controllers.yaml")
+    with open(controllers_file_path, 'r') as f:
+        controllers_yaml = yaml.safe_load(f)
+    
+    # Set default controller for simulation
+    controllers_yaml["scaled_joint_trajectory_controller"]["default"] = False
+    controllers_yaml["joint_trajectory_controller"]["default"] = True
+    
+    moveit_controllers_config = {
+        "moveit_simple_controller_manager": controllers_yaml,
+        "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
+    }
+
+    trajectory_execution = {
+        "moveit_manage_controllers": False,
+        "trajectory_execution.allowed_execution_duration_scaling": 1.2,
+        "trajectory_execution.allowed_goal_duration_margin": 0.5,
+        "trajectory_execution.allowed_start_tolerance": 0.01,
+        "trajectory_execution.execution_duration_monitoring": False,
+    }
+
+    planning_scene_monitor_parameters = {
+        "publish_planning_scene": True,
+        "publish_geometry_updates": True,
+        "publish_state_updates": True,
+        "publish_transforms_updates": True,
+    }
+
+    warehouse_ros_config = {
+        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
+        "warehouse_host": "",
+    }
+
+    # ---------------------------------------------------------
     # Build robot_description from your ARPA xacro
     # ---------------------------------------------------------
     robot_description_content = Command([
@@ -69,7 +148,12 @@ def launch_setup(context, *args, **kwargs):
             FindPackageShare(description_pkg),
             "urdf",
             description_file
-        ])
+        ]),
+        " ",
+        "sim_gazebo:=true",
+        " ",
+        "simulation_controllers:=",
+        controller_yaml,
     ])
 
     print(robot_description_content.perform(context))
@@ -112,8 +196,16 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    # Linear actuator controller
+    linear_actuator_controller = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["linear_actuator_controller", "-c", "/controller_manager"],
+        output="screen",
+    )
+
     # ---------------------------------------------------------
-    # Gazebo (empty.world)
+    # Gazebo Classic
     # ---------------------------------------------------------
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -133,38 +225,47 @@ def launch_setup(context, *args, **kwargs):
     )
 
     # ---------------------------------------------------------
-    # Launch RVIZ only after JS broadcaster is up
+    # Launch RVIZ (after a short delay to ensure everything is ready)
     # ---------------------------------------------------------
     rviz = Node(
         package="rviz2",
         executable="rviz2",
-        arguments=["-d", rviz_config_file]
+        arguments=["-d", rviz_config_file],
+        output="screen",
+        parameters=[
+            robot_description,
+            robot_description_semantic,
+            ParameterFile(kinematics_file, allow_substs=True),
+            robot_description_planning,
+            ompl_planning_pipeline_config,
+            {"use_sim_time": True},
+        ],
     )
 
-    delay_rviz = RegisterEventHandler(
-        event_handler=OnProcessExit(
-            target_action=js_broadcaster,
-            on_exit=[rviz],
-        ),
-        condition=IfCondition(launch_rviz),
+    # Launch RViz after a 3 second delay to ensure move_group and other nodes are ready
+    delay_rviz = TimerAction(
+        period=3.0,
+        actions=[rviz],
     )
 
     # ---------------------------------------------------------
     # Launch MoveIt (MoveGroup)
     # ---------------------------------------------------------
+    # Convert controller_yaml to string for launch_arguments
+    controller_yaml_str = controller_yaml.perform(context)
+    
     move_group_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             [FindPackageShare(moveit_pkg), "/launch/move_group.launch.py"]
         ),
-    )
-
-    # ---------------------------------------------------------
-    # Launch ARPA GUI
-    # ---------------------------------------------------------
-    arpa_gui_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [FindPackageShare("arpa_gui"), "/launch/arpa_gui.launch.py"]
-        ),
+        launch_arguments={
+            "use_sim_time": "true",
+            "description_package": description_pkg.perform(context),
+            "description_file": description_file.perform(context),
+            "moveit_config_package": moveit_pkg.perform(context),
+            "simulation_controllers": controller_yaml_str,
+            "launch_rviz": "false",  # RViz launched separately in this file
+        }.items(),
     )
 
     print("DEBUG: description_pkg =", description_pkg.perform(context))
@@ -175,16 +276,63 @@ def launch_setup(context, *args, **kwargs):
     print("DEBUG: gui =", gui.perform(context))
     print("DEBUG: prefix =", prefix.perform(context))
 
+
+    motion_control = Node(
+        package='ur_manipulation',
+        executable='motion_control_node',
+        output='screen',
+        parameters=[
+            {'octomap_resolution': 0.01,},
+            robot_description,
+            robot_description_semantic,
+            ParameterFile(kinematics_file, allow_substs=True),
+            robot_description_planning,
+            ompl_planning_pipeline_config,
+            trajectory_execution,
+            moveit_controllers_config,
+            planning_scene_monitor_parameters,
+            {"use_sim_time": True},
+            warehouse_ros_config,
+        ],
+    )
+
+    # ---------------------------------------------------------
+    # Static TF: world -> floor_link (required for MoveIt planning)
+    # ---------------------------------------------------------
+    static_tf_world_to_floor = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_world_to_floor",
+        arguments=["--frame-id", "world", "--child-frame-id", "floor_link",
+                   "--x", "0", "--y", "0", "--z", "0",
+                   "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1"],
+        parameters=[{"use_sim_time": True}],
+    )
+
+    # ---------------------------------------------------------
+    # Launch ARPA GUI
+    # ---------------------------------------------------------
+    arpa_gui = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [FindPackageShare("arpa_gui"), "/launch/arpa_gui.launch.py"]
+        ),
+        launch_arguments={"use_sim_time": "true"}.items(),
+    )
+
+
     return [
         gazebo,
+        static_tf_world_to_floor,  # Publish TF before robot state publisher
         rsp,
         js_broadcaster,
         traj_controller_active,
         traj_controller_stopped,
+        linear_actuator_controller,
         spawn_robot,
         move_group_launch,
-        # arpa_gui_launch,
-        # delay_rviz
+        motion_control,
+        arpa_gui,
+        delay_rviz,  # Launch RViz after 3 second delay
     ]
 
 

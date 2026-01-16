@@ -1,4 +1,5 @@
 geometry_msgs/PoseStamped target_pose
+bool use_cartesian  # If true, use straight-line Cartesian path (like interactive marker)
 ---
 bool success
 string message

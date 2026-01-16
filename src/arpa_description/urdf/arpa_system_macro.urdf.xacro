@@ -4,6 +4,7 @@
   <!-- Sub-components -->
   <xacro:include filename="$(find arpa_description)/urdf/gantry.xacro"/>
   <xacro:include filename="$(find arpa_description)/urdf/linear_actuator.xacro"/>
+  <xacro:include filename="$(find arpa_description)/urdf/linear_actuator_ros2_control.xacro"/>
   <xacro:include filename="$(find arpa_description)/urdf/tool_holder.xacro"/>
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
 
@@ -75,6 +76,8 @@
       tool_stop_bits:=1
       tool_rx_idle_chars:=1.5
       tool_tx_idle_chars:=3.5
+
+      initial_positions:=${dict(shoulder_pan_joint=0.0,shoulder_lift_joint=-1.57,elbow_joint=0.0,wrist_1_joint=-1.57,wrist_2_joint=0.0,wrist_3_joint=0.0)}
     ">
 
     <!-- Map link -->
@@ -180,6 +183,8 @@
 
       robot_ip="${robot_ip}"
       reverse_ip="${reverse_ip}"
+
+      initial_positions="${initial_positions}"
     >
       <origin xyz="0 0.0 0" rpy="0 0 0"/>
     </xacro:ur_robot>

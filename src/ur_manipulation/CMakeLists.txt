@@ -12,6 +12,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(rosidl_default_runtime REQUIRED)
 
@@ -38,6 +39,7 @@ ament_target_dependencies(motion_control_node
   std_srvs
   rosidl_default_runtime
   tf2_ros
+  tf2_geometry_msgs
 )
 target_link_libraries(motion_control_node
   ${PROJECT_NAME}__rosidl_typesupport_cpp
@@ -50,7 +52,7 @@ add_dependencies(motion_control_node
 install(TARGETS motion_control_node
   DESTINATION lib/${PROJECT_NAME})
 
-install(DIRECTORY launch include
+install(DIRECTORY include
   DESTINATION share/${PROJECT_NAME})
 
 ament_export_dependencies(rosidl_default_runtime)

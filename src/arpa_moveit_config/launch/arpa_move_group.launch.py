@@ -67,91 +67,111 @@ def launch_setup(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration("use_sim_time")
     launch_rviz = LaunchConfiguration("launch_rviz")
     launch_servo = LaunchConfiguration("launch_servo")
+    simulation_controllers = LaunchConfiguration("simulation_controllers")
 
+    # UR robot config files are in ur_description, not arpa_description
     joint_limit_params = PathJoinSubstitution(
-        [FindPackageShare(description_package), "config", ur_type, "joint_limits.yaml"]
+        [FindPackageShare("ur_description"), "config", ur_type, "joint_limits.yaml"]
     )
     kinematics_params = PathJoinSubstitution(
-        [FindPackageShare(description_package), "config", ur_type, "default_kinematics.yaml"]
+        [FindPackageShare("ur_description"), "config", ur_type, "default_kinematics.yaml"]
     )
     physical_params = PathJoinSubstitution(
-        [FindPackageShare(description_package), "config", ur_type, "physical_parameters.yaml"]
+        [FindPackageShare("ur_description"), "config", ur_type, "physical_parameters.yaml"]
     )
     visual_params = PathJoinSubstitution(
-        [FindPackageShare(description_package), "config", ur_type, "visual_parameters.yaml"]
+        [FindPackageShare("ur_description"), "config", ur_type, "visual_parameters.yaml"]
     )
 
-    robot_description_content = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name="xacro")]),
-            " ",
-            PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
-            " ",
-            "robot_ip:=",
-            robot_ip,
-            " ",
-            "joint_limit_params:=",
-            joint_limit_params,
-            " ",
-            "kinematics_params:=",
-            kinematics_params,
-            " ",
-            "physical_params:=",
-            physical_params,
-            " ",
-            "visual_params:=",
-            visual_params,
-            " ",
-            "safety_limits:=",
-            safety_limits,
-            " ",
-            "safety_pos_margin:=",
-            safety_pos_margin,
-            " ",
-            "safety_k_position:=",
-            safety_k_position,
-            " ",
-            "name:=",
-            "ur",
-            " ",
-            "ur_type:=",
-            ur_type,
-            " ",
-            "script_filename:=ros_control.urscript",
-            " ",
-            "input_recipe_filename:=rtde_input_recipe.txt",
-            " ",
-            "output_recipe_filename:=rtde_output_recipe.txt",
-            " ",
-            "prefix:=",
-            prefix,
-            " ",
-        ]
-    )
+    # Check if using arpa_description (custom robot) or ur_description (standard UR)
+    desc_pkg_str = description_package.perform(context)
+    use_sim = context.perform_substitution(use_sim_time)
+
+    if desc_pkg_str == "arpa_description":
+        # For arpa_description, use simpler xacro call - it handles UR params internally
+        robot_description_content = Command(
+            [
+                PathJoinSubstitution([FindExecutable(name="xacro")]),
+                " ",
+                PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
+                " ",
+                "sim_gazebo:=",
+                use_sim_time,
+                " ",
+                "simulation_controllers:=",
+                simulation_controllers,
+            ]
+        )
+    else:
+        # For ur_description, pass all UR-specific parameters
+        robot_description_content = Command(
+            [
+                PathJoinSubstitution([FindExecutable(name="xacro")]),
+                " ",
+                PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
+                " ",
+                "robot_ip:=",
+                robot_ip,
+                " ",
+                "joint_limit_params:=",
+                joint_limit_params,
+                " ",
+                "kinematics_params:=",
+                kinematics_params,
+                " ",
+                "physical_params:=",
+                physical_params,
+                " ",
+                "visual_params:=",
+                visual_params,
+                " ",
+                "safety_limits:=",
+                safety_limits,
+                " ",
+                "safety_pos_margin:=",
+                safety_pos_margin,
+                " ",
+                "safety_k_position:=",
+                safety_k_position,
+                " ",
+                "name:=",
+                "ur",
+                " ",
+                "ur_type:=",
+                ur_type,
+                " ",
+                "script_filename:=ros_control.urscript",
+                " ",
+                "input_recipe_filename:=rtde_input_recipe.txt",
+                " ",
+                "output_recipe_filename:=rtde_output_recipe.txt",
+                " ",
+                "prefix:=",
+                prefix,
+                " ",
+            ]
+        )
+
     robot_description = {
         "robot_description": ParameterValue(robot_description_content, value_type=str)
     }
 
     # MoveIt Configuration
-    robot_description_semantic_content = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name="xacro")]),
-            " ",
-            PathJoinSubstitution(
-                [FindPackageShare(moveit_config_package), "srdf", moveit_config_file]
-            ),
-            " ",
-            "name:=",
-            # Also ur_type parameter could be used but then the planning group names in yaml
-            # configs has to be updated!
-            "ur",
-            " ",
-            "prefix:=",
-            prefix,
-            " ",
-        ]
+    # Since arpa_system.srdf is a plain SRDF file (not xacro), we can load it directly
+    robot_description_semantic_content = ParameterValue(
+        Command(
+            [
+                "cat ",
+                PathJoinSubstitution(
+                    [FindPackageShare(moveit_config_package), "config", moveit_config_file]
+                ),
+            ]
+        ),
+        value_type=str
     )
-    robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
+    robot_description_semantic = {
+        "robot_description_semantic": robot_description_semantic_content
+    }
 
     publish_robot_description_semantic = {
         "publish_robot_description_semantic": _publish_robot_description_semantic
@@ -180,7 +200,7 @@ def launch_setup(context, *args, **kwargs):
     ompl_planning_pipeline_config["move_group"].update(ompl_planning_yaml)
 
     # Trajectory Execution Configuration
-    controllers_yaml = load_yaml("ur_moveit_config", "config/controllers.yaml")
+    controllers_yaml = load_yaml("arpa_moveit_config", "config/controllers.yaml")
     # the scaled_joint_trajectory_controller does not work on fake hardware
     change_controllers = context.perform_substitution(use_sim_time)
     if change_controllers == "true":
@@ -366,7 +386,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "moveit_config_file",
-            default_value="ur.srdf.xacro",
+            default_value="arpa_system.srdf",
             description="MoveIt SRDF/XACRO description file with the robot.",
         )
     )
@@ -405,6 +425,13 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument("launch_servo", default_value="true", description="Launch Servo?")
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "simulation_controllers",
+            default_value="",
+            description="Path to simulation controllers YAML file.",
+        )
     )
 
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])
