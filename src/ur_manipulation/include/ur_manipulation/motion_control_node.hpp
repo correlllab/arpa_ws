@@ -21,6 +21,7 @@
 #include "std_srvs/srv/trigger.hpp"
 #include <moveit_msgs/msg/constraints.hpp>
 #include <moveit_msgs/msg/joint_constraint.hpp>
+#include <moveit_msgs/msg/display_trajectory.hpp>
 
 
 // lidar
@@ -72,6 +73,7 @@ private:
   rclcpp::Service<ur_manipulation::srv::PlanToJoint>::SharedPtr m_plan_to_joint_service;
   rclcpp::Service<ur_manipulation::srv::ExecutePlan>::SharedPtr m_execute_plan_service;
   rclcpp::Service<ur_manipulation::srv::StopMotion>::SharedPtr m_stop_motion_service;
+  rclcpp::Publisher<moveit_msgs::msg::DisplayTrajectory>::SharedPtr m_display_path_publisher;
 
   moveit::planning_interface::MoveGroupInterface::Plan m_current_plan;
   bool m_use_depth;
