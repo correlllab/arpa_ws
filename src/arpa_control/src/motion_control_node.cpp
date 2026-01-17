@@ -72,20 +72,43 @@ void MotionControlNode::initMoveGroup()
   m_move_group->startStateMonitor(1.0);
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   m_move_group->setPlanningPipelineId("move_group");
-  m_move_group->setPlanningTime(10.0);
+  m_move_group->setPlanningTime(5.0);
   m_move_group->setNumPlanningAttempts(10);
-  m_move_group->setGoalOrientationTolerance(0.01); 
+  m_move_group->setMaxVelocityScalingFactor(0.1);
+  m_move_group->setMaxAccelerationScalingFactor(0.1);
   m_move_group->setGoalPositionTolerance(0.01);
-  moveit_msgs::msg::WorkspaceParameters workspace;
-  workspace.header.frame_id = "tool_head_link";
-  workspace.min_corner.x = -1.0; workspace.min_corner.y = -1.0; workspace.min_corner.z = -1.0;
-  workspace.max_corner.x = 1.0;  workspace.max_corner.y = 1.0;  workspace.max_corner.z = 1.0;
-  m_move_group->setWorkspace(
-    workspace.min_corner.x, workspace.min_corner.y, workspace.min_corner.z,
-    workspace.max_corner.x, workspace.max_corner.y, workspace.max_corner.z
-  );
+  m_move_group->setGoalOrientationTolerance(0.01); 
 
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() END");
+}
+
+bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
+{
+  // Get current robot state as IK seed (biases solution toward current config)
+  auto robot_state = m_move_group->getCurrentState();
+  if (!robot_state) {
+    RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
+    return false;
+  }
+
+  // Compute IK to convert pose to joint values
+  const auto* joint_model_group = robot_state->getJointModelGroup(m_move_group->getName());
+  bool ik_success = robot_state->setFromIK(
+      joint_model_group,
+      target_pose,
+      m_move_group->getEndEffectorLink(),
+      0.1);  // timeout in seconds
+
+  if (!ik_success) {
+    RCLCPP_ERROR(get_logger(), "IK failed for target pose");
+    return false;
+  }
+
+  // Set joint value target from IK solution
+  m_move_group->setJointValueTarget(*robot_state);
+  m_move_group->setStartStateToCurrentState();
+
+  return true;
 }
 
 void MotionControlNode::planToPoseCallback(
@@ -147,8 +170,12 @@ void MotionControlNode::planToPoseCallback(
   static_transform.transform.rotation = target_pose_in_planning_frame.pose.orientation;
   m_static_transform_broadcaster->sendTransform(static_transform);
 
-  m_move_group->setStartStateToCurrentState();
-  m_move_group->setPoseTarget(target_pose_in_planning_frame.pose);
+  if (!configureForPlanning(target_pose_in_planning_frame.pose)) {
+    response->success = false;
+    response->message = "Failed to configure for planning";
+    return;
+  }
+
   bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
   if (success)
   {

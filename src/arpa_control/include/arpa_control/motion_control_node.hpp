@@ -81,6 +81,7 @@ private:
   bool resetDepthMap(unsigned int timeout_ms = 2000);
   void initUpdateDepth();
   void checkRobotStateReady();
+  bool configureForPlanning(geometry_msgs::msg::Pose target_pose);
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;
   float m_arm_padding;
   std::map<std::string, double> m_arm_padding_map;
