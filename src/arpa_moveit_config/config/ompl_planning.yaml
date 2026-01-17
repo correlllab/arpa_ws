@@ -69,3 +69,23 @@ ur_manipulator:
   #projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
   longest_valid_segment_fraction: 0.01
   simplify_solution: true
+ur16e_on_gantry:
+  planner_configs:
+    - SBLkConfigDefault
+    - ESTkConfigDefault
+    - LBKPIECEkConfigDefault
+    - BKPIECEkConfigDefault
+    - KPIECEkConfigDefault
+    - RRTkConfigDefault
+    - RRTConnectkConfigDefault
+    - RRTstarkConfigDefault
+    - TRRTkConfigDefault
+    - PRMkConfigDefault
+    - PRMstarkConfigDefault
+  longest_valid_segment_fraction: 0.01
+
+linear_actuator_axis:
+  planner_configs:
+    - RRTConnectkConfigDefault
+    - PRMkConfigDefault
+  longest_valid_segment_fraction: 0.01

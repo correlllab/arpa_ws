@@ -61,7 +61,7 @@ void MotionControlNode::init()
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Init()");
   m_planning_scene_interface = std::make_shared<moveit::planning_interface::PlanningSceneInterface>();
   m_move_group = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
-    shared_from_this(), "ur_manipulator");
+    shared_from_this(), "ur16e_on_gantry");
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Init() END");
 }
 

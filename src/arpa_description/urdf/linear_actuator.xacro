@@ -51,20 +51,13 @@
       </inertial>
     </link>
 
-    <!-- Fixed joints (pillars attach to beam) -->
-    <!-- <joint name="linear_actuator_to_linear_actuator_plate_joint" type="prismatic">
+    <!-- Prismatic joint for linear actuator movement -->
+    <joint name="linear_actuator_to_linear_actuator_plate_joint" type="prismatic">
       <parent link="linear_actuator_link"/>
       <child link="linear_actuator_plate_link"/>
       <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
       <limit lower="-1.845" upper="0.0" effort="100.0" velocity="0.5"/>
-    </joint> -->
-
-    <joint name="linear_actuator_to_linear_actuator_plate_joint" type="fixed">
-      <parent link="linear_actuator_link"/>
-      <child link="linear_actuator_plate_link"/>
-      <!-- <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/> -->
-      <origin xyz="0.3556 0 -0.04375" rpy="0 0 0"/>
     </joint>
   </xacro:macro>
 </robot>

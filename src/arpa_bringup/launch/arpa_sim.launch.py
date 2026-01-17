@@ -168,6 +168,14 @@ def launch_setup(context, *args, **kwargs):
         )
     )
 
+    # Linear actuator controller
+    linear_actuator_controller = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["linear_actuator_controller", "-c", "/controller_manager"],
+        output="screen",
+    )
+
     static_tf_world_to_floor = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -179,7 +187,8 @@ def launch_setup(context, *args, **kwargs):
         arpa_moveit_launch,
         arpa_motion_control,
         arpa_gui,
-        static_tf_world_to_floor
+        static_tf_world_to_floor,
+        linear_actuator_controller
     ]
 
 
@@ -231,7 +240,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "runtime_config_package",
-            default_value="ur_simulation_gazebo",
+            default_value="arpa_moveit_config",
             description='Package with the controller\'s configuration in "config" folder. \
         Usually the argument is not set, it enables use of a custom setup.',
         )
@@ -239,7 +248,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "controllers_file",
-            default_value="ur_controllers.yaml",
+            default_value="arpa_controllers.yaml",
             description="YAML file with the controllers configuration.",
         )
     )
@@ -289,7 +298,7 @@ def generate_launch_description():
                 [
                     FindPackageShare("arpa_moveit_config"),
                     "config",
-                    "initial_positions.yaml",
+                    "arpa_initial_positions.yaml",
                 ]
             ),
             description="YAML file (absolute path) with the robot's initial joint positions.",
