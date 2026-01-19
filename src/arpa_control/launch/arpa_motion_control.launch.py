@@ -38,7 +38,6 @@ from launch_ros.parameter_descriptions import ParameterValue
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
-from launch.conditions import IfCondition
 from launch.substitutions import (
     Command,
     FindExecutable,
@@ -57,15 +56,11 @@ def launch_setup(context, *args, **kwargs):
     # General arguments
     description_package = LaunchConfiguration("description_package")
     description_file = LaunchConfiguration("description_file")
-    _publish_robot_description_semantic = LaunchConfiguration("publish_robot_description_semantic")
     moveit_config_package = LaunchConfiguration("moveit_config_package")
     moveit_joint_limits_file = LaunchConfiguration("moveit_joint_limits_file")
     moveit_config_file = LaunchConfiguration("moveit_config_file")
-    warehouse_sqlite_path = LaunchConfiguration("warehouse_sqlite_path")
     prefix = LaunchConfiguration("prefix")
     use_sim_time = LaunchConfiguration("use_sim_time")
-    launch_rviz = LaunchConfiguration("launch_rviz")
-    launch_servo = LaunchConfiguration("launch_servo")
 
     joint_limit_params = PathJoinSubstitution(
         [FindPackageShare(description_package), "config", ur_type, "joint_limits.yaml"]
@@ -131,7 +126,6 @@ def launch_setup(context, *args, **kwargs):
     }
 
     # MoveIt Configuration
-    print("Generating robot description semantic from package: " + str(moveit_config_package.perform(context)) + " and file: " + str(moveit_config_file.perform(context)))
     robot_description_semantic_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
@@ -152,10 +146,6 @@ def launch_setup(context, *args, **kwargs):
     )
     robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
 
-    publish_robot_description_semantic = {
-        "publish_robot_description_semantic": _publish_robot_description_semantic
-    }
-
     robot_description_kinematics = PathJoinSubstitution(
         [FindPackageShare(moveit_config_package), "config", "kinematics.yaml"]
     )
@@ -167,85 +157,6 @@ def launch_setup(context, *args, **kwargs):
         )
     }
 
-    # Planning Configuration
-    ompl_planning_pipeline_config = {
-        "move_group": {
-            "planning_plugin": "ompl_interface/OMPLPlanner",
-            "request_adapters": "default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
-            "start_state_max_bounds_error": 0.1,
-            # Add these to remove the "not set" warnings and control smoothing
-            "path_tolerance": 0.05,
-            "resample_dt": 0.1,
-            "min_angle_change": 0.001,
-            "path_tolerance":0.050000,
-            "resample_dt":0.100000,
-            "min_angle_change":0.001000,
-            "default_workspace_bounds": 10.000000,
-            "start_state_max_bounds_error":0.100000,
-            "start_state_max_dt": 0.500000,
-            "start_state_max_dt": 0.500000,
-            "jiggle_fraction": 0.020000,
-            "max_sampling_attempts": 100
-        }
-    }
-    ompl_planning_yaml = load_yaml("ur_moveit_config", "config/ompl_planning.yaml")
-    ompl_planning_pipeline_config["move_group"].update(ompl_planning_yaml)
-
-    # Trajectory Execution Configuration
-    controllers_yaml = load_yaml("ur_moveit_config", "config/controllers.yaml")
-    # the scaled_joint_trajectory_controller does not work on fake hardware
-    change_controllers = context.perform_substitution(use_sim_time)
-    if change_controllers == "true":
-        controllers_yaml["scaled_joint_trajectory_controller"]["default"] = False
-        controllers_yaml["joint_trajectory_controller"]["default"] = True
-
-    moveit_controllers = {
-        "moveit_simple_controller_manager": controllers_yaml,
-        "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
-    }
-
-    trajectory_execution = {
-        "moveit_manage_controllers": False,
-        "trajectory_execution.allowed_execution_duration_scaling": 1.2,
-        "trajectory_execution.allowed_goal_duration_margin": 0.5,
-        "trajectory_execution.allowed_start_tolerance": 0.01,
-        # Execution time monitoring can be incompatible with the scaled JTC
-        "trajectory_execution.execution_duration_monitoring": False,
-    }
-
-    planning_scene_monitor_parameters = {
-        "publish_planning_scene": True,
-        "publish_geometry_updates": True,
-        "publish_state_updates": True,
-        "publish_transforms_updates": True,
-    }
-
-    warehouse_ros_config = {
-        "warehouse_plugin": "warehouse_ros_sqlite::DatabaseConnection",
-        "warehouse_host": warehouse_sqlite_path,
-    }
-
-    # Planning Configuration
-    arpa_ompl_planning_pipeline_config = {
-        "planning_plugin": "ompl_interface/OMPLPlanner",
-        "request_adapters": "default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints",
-        "start_state_max_bounds_error": 0.1,
-        # Add these to remove the "not set" warnings and control smoothing
-        "path_tolerance": 0.05,
-        "resample_dt": 0.1,
-        "min_angle_change": 0.001,
-        "path_tolerance":0.050000,
-        "resample_dt":0.100000,
-        "min_angle_change":0.001000,
-        "default_workspace_bounds": 10.000000,
-        "start_state_max_bounds_error":0.100000,
-        "start_state_max_dt": 0.500000,
-        "start_state_max_dt": 0.500000,
-        "jiggle_fraction": 0.020000,
-        "max_sampling_attempts": 100
-    }
-    arpa_ompl_planning_yaml = load_yaml("arpa_moveit_config", "config/ompl_planning.yaml")
-    arpa_ompl_planning_pipeline_config.update(arpa_ompl_planning_yaml)
     motion_control_node = Node(
         package="arpa_control",
         executable="motion_control_node",
@@ -315,7 +226,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "description_package",
-            default_value="ur_description",
+            default_value="arpa_description",
             description="Description package with robot URDF/XACRO files. Usually the argument "
             "is not set, it enables use of a custom description.",
         )
@@ -323,21 +234,14 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "description_file",
-            default_value="ur.urdf.xacro",
+            default_value="arpa_system.urdf.xacro",
             description="URDF/XACRO description file with the robot.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "publish_robot_description_semantic",
-            default_value="True",
-            description="Whether to publish the SRDF description on topic /robot_description_semantic.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
             "moveit_config_package",
-            default_value="ur_moveit_config",
+            default_value="arpa_moveit_config",
             description="MoveIt config package with robot SRDF/XACRO files. Usually the argument "
             "is not set, it enables use of a custom moveit config.",
         )
@@ -345,7 +249,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "moveit_config_file",
-            default_value="ur.srdf.xacro",
+            default_value="arpa_system.srdf.xacro",
             description="MoveIt SRDF/XACRO description file with the robot.",
         )
     )
@@ -354,13 +258,6 @@ def generate_launch_description():
             "moveit_joint_limits_file",
             default_value="joint_limits.yaml",
             description="MoveIt joint limits that augment or override the values from the URDF robot_description.",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "warehouse_sqlite_path",
-            default_value=os.path.expanduser("~/.ros/warehouse_ros.sqlite"),
-            description="Path where the warehouse database should be stored",
         )
     )
     declared_arguments.append(
@@ -378,12 +275,6 @@ def generate_launch_description():
             "multi-robot setup. If changed than also joint names in the controllers' configuration "
             "have to be updated.",
         )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument("launch_rviz", default_value="true", description="Launch RViz?")
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument("launch_servo", default_value="true", description="Launch Servo?")
     )
 
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])

@@ -1,37 +1,21 @@
-from launch import LaunchDescription
-from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
-from launch_ros.substitutions import FindPackageShare
-from moveit_configs_utils import MoveItConfigsBuilder
-from ament_index_python.packages import get_package_share_directory
-from launch.actions import OpaqueFunction, DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+import os
 
-from launch.actions import IncludeLaunchDescription
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.actions import (
-    DeclareLaunchArgument,
-    IncludeLaunchDescription,
-    OpaqueFunction,
-    RegisterEventHandler,
-)
-from launch.conditions import IfCondition, UnlessCondition
-from launch.event_handlers import OnProcessExit
-from launch.substitutions import Command, FindExecutable
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 def launch_setup(context, *args, **kwargs):
     # ARPA Launch Files
-    arpa_bringup_pkg_share = FindPackageShare("arpa_bringup").find("arpa_bringup")
-    ur_sim_pkg_share = FindPackageShare("ur_simulation_gazebo").find("ur_simulation_gazebo")
-    arpa_moveit_config_pkg_share = FindPackageShare("arpa_moveit_config").find("arpa_moveit_config")
-    arpa_gui_pkg_share = FindPackageShare("arpa_gui").find("arpa_gui")
-    arpa_depth_pkg_share = FindPackageShare("cl_realsense").find("cl_realsense")
+    ur_sim_pkg_share = get_package_share_directory("ur_simulation_gazebo")
+    arpa_gui_pkg_share = get_package_share_directory("arpa_gui")
+
     # Initialize Arguments
     ur_type = LaunchConfiguration("ur_type")
     safety_limits = LaunchConfiguration("safety_limits")
-    safety_pos_margin = LaunchConfiguration("safety_pos_margin")
-    safety_k_position = LaunchConfiguration("safety_k_position")
+
     # General arguments
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
@@ -41,91 +25,14 @@ def launch_setup(context, *args, **kwargs):
     moveit_config_file = LaunchConfiguration("moveit_config_file")
     prefix = LaunchConfiguration("prefix")
 
-
-    # Initialize Arguments
-    # General arguments
+    # Unused parameters
+    safety_pos_margin = LaunchConfiguration("safety_pos_margin")
+    safety_k_position = LaunchConfiguration("safety_k_position")
     initial_positions_file = LaunchConfiguration("initial_positions_file")
     start_joint_controller = LaunchConfiguration("start_joint_controller")
     initial_joint_controller = LaunchConfiguration("initial_joint_controller")
     launch_rviz = LaunchConfiguration("launch_rviz")
     gazebo_gui = LaunchConfiguration("gazebo_gui")
-
-    initial_joint_controllers = PathJoinSubstitution(
-        [FindPackageShare(runtime_config_package), "config", controllers_file]
-    )
-
-    initial_positions_file_abs = PathJoinSubstitution(
-        [FindPackageShare(runtime_config_package), "config", initial_positions_file]
-    )
-
-    rviz_config_file = PathJoinSubstitution(
-        [FindPackageShare(description_package), "rviz", "view_robot.rviz"]
-    )
-
-    robot_description_content = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name="xacro")]),
-            " ",
-            PathJoinSubstitution(
-                [FindPackageShare(description_package), "urdf", description_file]
-            ),
-            " ",
-            "safety_limits:=",
-            safety_limits,
-            " ",
-            "safety_pos_margin:=",
-            safety_pos_margin,
-            " ",
-            "safety_k_position:=",
-            safety_k_position,
-            " ",
-            "name:=",
-            "ur",
-            " ",
-            "ur_type:=",
-            ur_type,
-            " ",
-            "prefix:=",
-            prefix,
-            " ",
-            "sim_gazebo:=true",
-            " ",
-            "simulation_controllers:=",
-            initial_joint_controllers,
-            " ",
-            "initial_positions_file:=",
-            initial_positions_file_abs,
-        ]
-    )
-
-    print("safety_limits:=",
-            safety_limits.perform(context),
-            " ",
-            "safety_pos_margin:=",
-            safety_pos_margin.perform(context),
-            " ",
-            "safety_k_position:=",
-            safety_k_position.perform(context),
-            " ",
-            "name:=",
-            "ur",
-            " ",
-            "ur_type:=",
-            ur_type.perform(context),
-            " ",
-            "prefix:=",
-            prefix.perform(context),
-            " ",
-            "sim_gazebo:=true",
-            " ",
-            "simulation_controllers:=",
-            initial_joint_controllers.perform(context),
-            " ",
-            "initial_positions_file:=",
-            initial_positions_file_abs.perform(context)
-        )
-
-    robot_description = {"robot_description": robot_description_content}
 
     arpa_moveit_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -140,13 +47,14 @@ def launch_setup(context, *args, **kwargs):
             "description_file":description_file,
             "moveit_config_package":moveit_config_package,
             "moveit_config_file":moveit_config_file,
+            "use_sim_time": "true",
             "prefix":prefix
         }.items()
     )
 
     arpa_motion_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [FindPackageShare("arpa_control"), "/launch", "/arpa_motion_control.launch.py"]
+            get_package_share_directory("arpa_control") + "/launch/arpa_motion_control.launch.py"
         ),
         launch_arguments={
             "ur_type": ur_type,
@@ -294,12 +202,10 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "initial_positions_file",
-            default_value=PathJoinSubstitution(
-                [
-                    FindPackageShare("arpa_moveit_config"),
-                    "config",
-                    "arpa_initial_positions.yaml",
-                ]
+            default_value=os.path.join(
+                get_package_share_directory("arpa_moveit_config"),
+                "config",
+                "arpa_initial_positions.yaml",
             ),
             description="YAML file (absolute path) with the robot's initial joint positions.",
         )
