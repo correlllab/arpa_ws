@@ -34,23 +34,40 @@ def launch_setup(context, *args, **kwargs):
     launch_rviz = LaunchConfiguration("launch_rviz")
     gazebo_gui = LaunchConfiguration("gazebo_gui")
 
-    arpa_moveit_launch = IncludeLaunchDescription(
+    ur_control_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [ur_sim_pkg_share, "/launch/ur_sim_moveit.launch.py"]
+            get_package_share_directory("ur_simulation_gazebo") + "/launch/ur_sim_control.launch.py"
         ),
         launch_arguments={
-            "ur_type":ur_type,
-            "safety_limits":safety_limits,
-            "runtime_config_package":runtime_config_package,
-            "controllers_file":controllers_file,
-            "description_package":description_package,
-            "description_file":description_file,
-            "moveit_config_package":moveit_config_package,
-            "moveit_config_file":moveit_config_file,
-            "use_sim_time": "true",
-            "prefix":prefix
-        }.items()
+            "ur_type": ur_type,
+            "safety_limits": safety_limits,
+            "runtime_config_package": runtime_config_package,
+            "controllers_file": controllers_file,
+            "description_package": description_package,
+            "description_file": description_file,
+            "prefix": prefix,
+            "launch_rviz": "false",
+        }.items(),
     )
+
+    arpa_moveit_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            get_package_share_directory("arpa_moveit_config") + "/launch/arpa_move_group.launch.py"
+        ),
+        launch_arguments={
+            "ur_type": ur_type,
+            "safety_limits": safety_limits,
+            "description_package": description_package,
+            "description_file": description_file,
+            "moveit_config_package": moveit_config_package,
+            "moveit_config_file": moveit_config_file,
+            "prefix": prefix,
+            "use_sim_time": "true",
+            "launch_rviz": "true",
+            "use_fake_hardware": "true",  # to change moveit default controller to joint_trajectory_controller
+        }.items(),
+    )
+
 
     arpa_motion_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -72,16 +89,8 @@ def launch_setup(context, *args, **kwargs):
 
     arpa_gui = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [arpa_gui_pkg_share, "/launch/arpa_gui.launch.py"]
+            get_package_share_directory("arpa_gui") + "/launch/arpa_gui.launch.py"
         )
-    )
-
-    # Linear actuator controller
-    linear_actuator_controller = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["linear_actuator_controller", "-c", "/controller_manager"],
-        output="screen",
     )
 
     static_tf_world_to_floor = Node(
@@ -92,11 +101,11 @@ def launch_setup(context, *args, **kwargs):
     )
 
     return [
+        ur_control_launch,
         arpa_moveit_launch,
         arpa_motion_control,
         arpa_gui,
-        static_tf_world_to_floor,
-        linear_actuator_controller
+        static_tf_world_to_floor
     ]
 
 
