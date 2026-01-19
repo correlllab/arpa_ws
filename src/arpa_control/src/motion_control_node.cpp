@@ -16,6 +16,10 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
       "plan_to_joint",
       std::bind(&MotionControlNode::planToJointCallback, this, std::placeholders::_1, std::placeholders::_2));
 
+  m_plan_linear_actuator_service = this->create_service<arpa_control::srv::PlanLinearActuator>(
+      "plan_linear_actuator",
+      std::bind(&MotionControlNode::planLinearActuatorCallback, this, std::placeholders::_1, std::placeholders::_2));
+
   m_execute_plan_service = this->create_service<arpa_control::srv::ExecutePlan>(
       "execute_plan",
       std::bind(&MotionControlNode::executePlanCallback, this, std::placeholders::_1, std::placeholders::_2));
@@ -253,6 +257,43 @@ void MotionControlNode::planToJointCallback(
     response->message = "Planning failed";
   }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToJointCallback() END");
+}
+
+void MotionControlNode::planLinearActuatorCallback(
+    const std::shared_ptr<arpa_control::srv::PlanLinearActuator::Request> request,
+    std::shared_ptr<arpa_control::srv::PlanLinearActuator::Response> response)
+{
+  RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planLinearActuatorCallback() START");
+  RCLCPP_INFO(get_logger(), "Planning linear actuator to position: %.3f m", request->position);
+
+  m_move_group->setStartStateToCurrentState();
+
+  // Get current robot state
+  auto robot_state = m_move_group->getCurrentState();
+  if (!robot_state) {
+    RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
+    response->success = false;
+    response->message = "Failed to get current robot state";
+    return;
+  }
+
+  // Set only the linear actuator joint target, keep all other joints at current position
+  std::map<std::string, double> joint_targets;
+  joint_targets["linear_actuator_to_linear_actuator_plate_joint"] = request->position;
+  joint_targets["shoulder_pan_joint"] = robot_state->getJointPositions("shoulder_pan_joint")[0];
+  joint_targets["shoulder_lift_joint"] = robot_state->getJointPositions("shoulder_lift_joint")[0];
+  joint_targets["elbow_joint"] = robot_state->getJointPositions("elbow_joint")[0];
+  joint_targets["wrist_1_joint"] = robot_state->getJointPositions("wrist_1_joint")[0];
+  joint_targets["wrist_2_joint"] = robot_state->getJointPositions("wrist_2_joint")[0];
+  joint_targets["wrist_3_joint"] = robot_state->getJointPositions("wrist_3_joint")[0];
+
+  m_move_group->setJointValueTarget(joint_targets);
+
+  bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+  response->success = success;
+  response->message = success ? "Linear actuator planning successful" : "Linear actuator planning failed";
+
+  RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planLinearActuatorCallback() END");
 }
 
 void MotionControlNode::executePlanCallback(

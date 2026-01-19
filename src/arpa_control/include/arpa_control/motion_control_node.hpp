@@ -11,6 +11,7 @@
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include "arpa_control/srv/plan_to_pose.hpp"
 #include "arpa_control/srv/plan_to_joint.hpp"
+#include "arpa_control/srv/plan_linear_actuator.hpp"
 #include "arpa_control/srv/execute_plan.hpp"
 #include "arpa_control/srv/stop_motion.hpp"
 #include "arpa_control/srv/get_point_cloud.hpp"
@@ -48,6 +49,10 @@ private:
       const std::shared_ptr<arpa_control::srv::PlanToJoint::Request> request,
       std::shared_ptr<arpa_control::srv::PlanToJoint::Response> response);
 
+  void planLinearActuatorCallback(
+      const std::shared_ptr<arpa_control::srv::PlanLinearActuator::Request> request,
+      std::shared_ptr<arpa_control::srv::PlanLinearActuator::Response> response);
+
   void executePlanCallback(
     const std::shared_ptr<arpa_control::srv::ExecutePlan::Request> request,
     std::shared_ptr<arpa_control::srv::ExecutePlan::Response> response);
@@ -69,6 +74,7 @@ private:
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr m_update_depth_service;
   rclcpp::Service<arpa_control::srv::PlanToPose>::SharedPtr m_plan_to_pose_service;
   rclcpp::Service<arpa_control::srv::PlanToJoint>::SharedPtr m_plan_to_joint_service;
+  rclcpp::Service<arpa_control::srv::PlanLinearActuator>::SharedPtr m_plan_linear_actuator_service;
   rclcpp::Service<arpa_control::srv::ExecutePlan>::SharedPtr m_execute_plan_service;
   rclcpp::Service<arpa_control::srv::StopMotion>::SharedPtr m_stop_motion_service;
 

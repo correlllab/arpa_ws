@@ -28,6 +28,7 @@
 
 #include "std_srvs/srv/trigger.hpp"
 #include "arpa_control/srv/plan_to_pose.hpp"
+#include "arpa_control/srv/plan_linear_actuator.hpp"
 #include "arpa_control/srv/execute_plan.hpp"
 #include "arpa_control/srv/stop_motion.hpp"
 
@@ -40,6 +41,7 @@ public:
 
 private slots:
     void planPose();
+    void planLinearActuator();
     void updateDepth();
     void executePlan();
     void stopMotion();
@@ -90,6 +92,7 @@ private:
     QSlider *m_prismatic_slider;
     QLineEdit *m_prismatic_value;
     QGroupBox *m_prismatic_group;
+    QPushButton *m_plan_linear_actuator_btn;
 
     // ============ CONTROL BUTTONS ============
     QPushButton *m_plan_btn;
@@ -117,6 +120,7 @@ private:
 
     // ROS2 clients and publishers
     rclcpp::Client<arpa_control::srv::PlanToPose>::SharedPtr m_plan_client;
+    rclcpp::Client<arpa_control::srv::PlanLinearActuator>::SharedPtr m_plan_linear_actuator_client;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_update_depth_client;
     rclcpp::Client<arpa_control::srv::ExecutePlan>::SharedPtr m_exec_client;
     rclcpp::Client<arpa_control::srv::StopMotion>::SharedPtr m_stop_client;
