@@ -18,6 +18,7 @@ find_package(rosidl_default_runtime REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlanToPose.srv"
   "srv/PlanToJoint.srv"
+  "srv/PlanLinearActuator.srv"
   "srv/ExecutePlan.srv"
   "srv/StopMotion.srv"
   "srv/GetPointCloud.srv"

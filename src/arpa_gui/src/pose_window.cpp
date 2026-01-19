@@ -38,6 +38,7 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
 
     // ROS2 clients
     m_plan_client = m_node->create_client<arpa_control::srv::PlanToPose>("plan_to_pose");
+    m_plan_linear_actuator_client = m_node->create_client<arpa_control::srv::PlanLinearActuator>("plan_linear_actuator");
     m_update_depth_client = m_node->create_client<std_srvs::srv::Trigger>("update_depth");
     m_exec_client = m_node->create_client<arpa_control::srv::ExecutePlan>("execute_plan");
     m_stop_client = m_node->create_client<arpa_control::srv::StopMotion>("stop_motion");
@@ -140,7 +141,8 @@ void PoseWindow::setupUI()
 
     // ============ PRISMATIC CONTROL GROUP ============
     m_prismatic_group = new QGroupBox("Linear Actuator Control");
-    auto *prismaticLayout = new QHBoxLayout;
+    auto *prismaticOuterLayout = new QVBoxLayout;
+    auto *prismaticSliderLayout = new QHBoxLayout;
 
     m_prismatic_slider = new QSlider(Qt::Horizontal);
     m_prismatic_slider->setMinimum(0);
@@ -154,12 +156,18 @@ void PoseWindow::setupUI()
     m_prismatic_value->setFixedWidth(80);
     m_prismatic_value->setAlignment(Qt::AlignRight);
 
-    prismaticLayout->addWidget(new QLabel("Extension:"));
-    prismaticLayout->addWidget(m_prismatic_slider, 1);
-    prismaticLayout->addWidget(m_prismatic_value);
-    prismaticLayout->addWidget(new QLabel("m"));
+    prismaticSliderLayout->addWidget(new QLabel("Extension:"));
+    prismaticSliderLayout->addWidget(m_prismatic_slider, 1);
+    prismaticSliderLayout->addWidget(m_prismatic_value);
+    prismaticSliderLayout->addWidget(new QLabel("m"));
 
-    m_prismatic_group->setLayout(prismaticLayout);
+    m_plan_linear_actuator_btn = new QPushButton("Plan Linear Actuator");
+    m_plan_linear_actuator_btn->setMinimumHeight(40);
+
+    prismaticOuterLayout->addLayout(prismaticSliderLayout);
+    prismaticOuterLayout->addWidget(m_plan_linear_actuator_btn);
+
+    m_prismatic_group->setLayout(prismaticOuterLayout);
     mainLayout->addWidget(m_prismatic_group);
 
     // ============ TARGET POSE GROUP ============
@@ -269,6 +277,7 @@ void PoseWindow::setupUI()
 void PoseWindow::setupConnections()
 {
     connect(m_plan_btn, &QPushButton::clicked, this, &PoseWindow::planPose);
+    connect(m_plan_linear_actuator_btn, &QPushButton::clicked, this, &PoseWindow::planLinearActuator);
     connect(m_exec_btn, &QPushButton::clicked, this, &PoseWindow::executePlan);
     connect(m_stop_btn, &QPushButton::clicked, this, &PoseWindow::stopMotion);
     connect(m_home_btn, &QPushButton::clicked, this, &PoseWindow::goHome);
@@ -557,6 +566,30 @@ void PoseWindow::planPose()
             } else {
                 QMetaObject::invokeMethod(this, [this, result]() {
                     logStatus("Planning failed: " + QString::fromStdString(result->message), true);
+                });
+            }
+        });
+}
+
+void PoseWindow::planLinearActuator()
+{
+    // Get linear actuator target from slider (convert to negative position for joint limits -1.845 to 0)
+    double linear_actuator_target = -static_cast<double>(m_prismatic_slider->value()) / 1000.0;
+    logStatus(QString("Planning linear actuator to: %1 m").arg(linear_actuator_target, 0, 'f', 3));
+
+    auto req = std::make_shared<arpa_control::srv::PlanLinearActuator::Request>();
+    req->position = linear_actuator_target;
+
+    m_plan_linear_actuator_client->async_send_request(req,
+        [this](rclcpp::Client<arpa_control::srv::PlanLinearActuator>::SharedFuture future) {
+            auto result = future.get();
+            if (result->success) {
+                QMetaObject::invokeMethod(this, [this]() {
+                    logStatus("Linear actuator planning successful!");
+                });
+            } else {
+                QMetaObject::invokeMethod(this, [this, result]() {
+                    logStatus("Linear actuator planning failed: " + QString::fromStdString(result->message), true);
                 });
             }
         });
