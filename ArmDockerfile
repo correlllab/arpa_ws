@@ -22,16 +22,9 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
 
 RUN apt update && apt install -y \
     ros-humble-desktop-full \
-    ros-humble-moveit \
-    #ros-humble-gazebo-ros \
-    #ros-humble-gazebo-ros-pkgs \
-    #ros-humble-gazebo-plugins \
-    #ros-humble-gazebo-msgs \
-    ros-humble-ros2-control \
-    ros-humble-ros2-controllers \
-    #gazebo \
     python3-colcon-common-extensions \
-    git build-essential cmake
+    git build-essential cmake \
+    ros-humble-rmw-cyclonedds-cpp
 
 # -------------------------------
 # 2. Install BehaviorTree.CPP v4
@@ -49,11 +42,7 @@ RUN source /opt/ros/humble/setup.bash && \
 WORKDIR /root/ros2_ws
 RUN mkdir -p src
 
-COPY src/arpa_behavior_trees/ src/arpa_behavior_trees/
-COPY src/arpa_description/ src/arpa_description/
-COPY src/ur_manipulation/ src/ur_manipulation/
-COPY src/Universal_Robots_ROS2_Driver/ src/Universal_Robots_ROS2_Driver/
-COPY src/Universal_Robots_ROS2_Gazebo_Simulation/ src/Universal_Robots_ROS2_Gazebo_Simulation/
+COPY src src 
 
 # -------------------------------
 # Runtime setup
@@ -65,12 +54,13 @@ ENV ROS_DISTRO=humble
 # Install deps
 # -------------------------------
 RUN apt update && apt install -y python3-rosdep
-RUN apt install python3-pip
+RUN apt install -y python-is-python3
+RUN apt update && apt install -y python3-pip
+RUN python3 -m pip install requests
 RUN rosdep init || true
 RUN rosdep update
-#RUN cd /root/ros2_ws && \
+# RUN cd /root/ros2_ws && \
 #    rosdep install --from-paths src --ignore-src -r -y --rosdistro humble
-RUN python3 -m pip install requests
 # -------------------------------
 # Build workspace
 # -------------------------------

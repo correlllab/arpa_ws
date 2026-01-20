@@ -71,7 +71,7 @@ def launch_setup(context, *args, **kwargs):
             "safety_k_position": safety_k_position,
             "runtime_config_package": runtime_config_package,
             "controllers_file": controllers_file,
-            "description_package": "arpa_moveit_config",  # override default
+            "description_package": "arpa_description",  # override default
             "description_file": "arpa_system.urdf.xacro", # override default
             "kinematics_params_file": kinematics_params_file,
             "use_fake_hardware": use_fake_hardware,
