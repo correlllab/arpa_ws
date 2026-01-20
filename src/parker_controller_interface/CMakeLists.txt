@@ -10,8 +10,6 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
-find_package(rclpy REQUIRED)
-find_package(std_msgs REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 
@@ -51,12 +49,30 @@ install(TARGETS parker_core
   INCLUDES DESTINATION include
 )
 
-# =============================================================================
-# ros2_control Hardware Interface
-# =============================================================================
 
-# =============================================================================
-# Python Section
-# =============================================================================
+# Linear Actuator Hardware Interface Library
+add_library(
+  ${PROJECT_NAME}
+  SHARED
+  src/parker_controller_interface.cpp
+)
+
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include/${PROJECT_NAME}>
+)
+
+ament_target_dependencies(
+  ${PROJECT_NAME}
+  hardware_interface
+  pluginlib
+  rclcpp
+  rclcpp_lifecycle
+)
+
+# Export hardware plugins
+pluginlib_export_plugin_description_file(hardware_interface parker_controller_interface.xml)
+
 
 ament_package()

@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="linear_actuator_ros2_control" params="name use_simulation device_port baud_rate">
+    
+    <ros2_control name="${name}" type="actuator">
+      
+      <hardware>
+        <plugin>linear_actuator_hardware/LinearActuatorHardware</plugin>
+        <param name="use_simulation">${use_simulation}</param>
+        <param name="device_port">${device_port}</param>
+        <param name="baud_rate">${baud_rate}</param>
+        <param name="min_position">0.0</param>
+        <param name="max_position">0.5</param>
+        <param name="max_velocity">0.1</param>
+        <param name="max_effort">100.0</param>
+      </hardware>
+      
+      <joint name="linear_actuator_joint">
+        <!-- State interfaces -->
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="effort">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        
+        <!-- Command interfaces -->
+        <command_interface name="position">
+          <param name="min">0.0</param>
+          <param name="max">0.5</param>
+        </command_interface>
+        <command_interface name="velocity">
+          <param name="min">-0.1</param>
+          <param name="max">0.1</param>
+        </command_interface>
+        <command_interface name="effort">
+          <param name="min">-100.0</param>
+          <param name="max">100.0</param>
+        </command_interface>
+      </joint>
+      
+    </ros2_control>
+
+  </xacro:macro>
+
+</robot>

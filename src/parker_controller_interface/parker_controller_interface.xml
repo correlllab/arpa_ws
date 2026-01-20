@@ -1,0 +1,11 @@
+<library path="parker_controller_interface">
+  <class name="parker_controller_interface/ParkerControllerInterface" 
+         type="parker_controller_interface::ParkerControllerInterface" 
+         base_class_type="hardware_interface::ActuatorInterface">
+    <description>
+      Hardware interface for a Parker linear actuator with position, velocity, and effort control.
+      This implementation demonstrates the use of hardware_interface::LinearActuator
+      for prismatic joint control in ROS2 Control.
+    </description>
+  </class>
+</library>
