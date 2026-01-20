@@ -71,6 +71,17 @@ ament_target_dependencies(
   rclcpp_lifecycle
 )
 
+install(TARGETS ${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY urdf config
+  DESTINATION share/${PROJECT_NAME}
+)
+
+
 # Export hardware plugins
 pluginlib_export_plugin_description_file(hardware_interface parker_controller_interface.xml)
 

@@ -7,6 +7,7 @@
   <xacro:include filename="$(find arpa_description)/urdf/linear_actuator_ros2_control.xacro"/>
   <xacro:include filename="$(find arpa_description)/urdf/tool_holder.xacro"/>
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
 
 
   <!-- <xacro:arg name="tf_prefix" default="" />
@@ -203,6 +204,12 @@
         <xacro:linear_actuator_ros2_control/>
       </ros2_control>
     </xacro:if>
+
+    <!-- Add ros2_control hardware interface -->
+    <xacro:parker_linear_actuator_ros2_control
+      name="ParkerControllerInterface"
+      host="192.168.100.1"
+      port="5002"/>
 
   </xacro:macro>
 
