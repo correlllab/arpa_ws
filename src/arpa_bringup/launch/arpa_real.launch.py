@@ -13,6 +13,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def launch_setup(context, *args, **kwargs):
     arpa_bringup_pkg_share = FindPackageShare("arpa_bringup").find("arpa_bringup")
+    ur_robot_driver_pkg_share = FindPackageShare("ur_robot_driver").find("ur_robot_driver")
     arpa_moveit_config_pkg_share = FindPackageShare("arpa_moveit_config").find("arpa_moveit_config")
     arpa_gui_pkg_share = FindPackageShare("arpa_gui").find("arpa_gui")
     arpa_depth_pkg_share = FindPackageShare("cl_realsense").find("cl_realsense")
@@ -121,7 +122,7 @@ def launch_setup(context, *args, **kwargs):
 
     ur_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [arpa_bringup_pkg_share, "/launch/arpa_real_control.launch.py"]
+            [ur_robot_driver_pkg_share, "/launch/ur_control.launch.py"]
         ),
         launch_arguments={
             "ur_type": ur_type,
@@ -349,7 +350,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "runtime_config_package",
-            default_value="ur_robot_driver",
+            default_value="arpa_moveit_config",
             description='Package with the controller\'s configuration in "config" folder. '
             "Usually the argument is not set, it enables use of a custom setup.",
         )
@@ -357,7 +358,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "controllers_file",
-            default_value="ur_controllers.yaml",
+            default_value="arpa_controllers.yaml",
             description="YAML file with the controllers configuration.",
         )
     )
@@ -380,9 +381,9 @@ def generate_launch_description():
             "kinematics_params_file",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("arpa_moveit_config"),
-                    "config",
-                    "calib_kinematics.yaml",
+                    FindPackageShare("arpa_description"),
+                    "config/ur16e",
+                    "default_kinematics.yaml",
                 ]
             ),
             description="The calibration configuration of the actual robot used.",
@@ -420,7 +421,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "initial_joint_controller",
-            default_value="scaled_joint_trajectory_controller",
+            default_value="joint_trajectory_controller",
             choices=[
                 "scaled_joint_trajectory_controller",
                 "joint_trajectory_controller",
