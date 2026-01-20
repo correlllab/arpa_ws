@@ -47,7 +47,6 @@ from launch.substitutions import (
 
 
 def launch_setup(context, *args, **kwargs):
-    print("HELLO ARPA UR CONTROL")
     # Initialize Arguments
     ur_type = LaunchConfiguration("ur_type")
     tf_prefix = LaunchConfiguration("tf_prefix")

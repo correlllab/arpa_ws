@@ -55,6 +55,8 @@ def launch_setup(context, *args, **kwargs):
     reverse_port = LaunchConfiguration("reverse_port")
     script_sender_port = LaunchConfiguration("script_sender_port")
     trajectory_port = LaunchConfiguration("trajectory_port")
+    moveit_config_package = LaunchConfiguration("moveit_config_package")
+    moveit_config_file = LaunchConfiguration("moveit_config_file")
     print("HELLO LAUNCH SETUP ARPA UR CONTRO 323 L")
 
     ur_driver = IncludeLaunchDescription(
@@ -99,42 +101,37 @@ def launch_setup(context, *args, **kwargs):
 
     arpa_moveit_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [arpa_bringup_pkg_share, "/launch/arpa_real_moveit.launch.py"]
+            get_package_share_directory("arpa_moveit_config") + "/launch/arpa_move_group.launch.py"
         ),
         launch_arguments={
             "ur_type": ur_type,
-            "robot_ip": robot_ip,
             "safety_limits": safety_limits,
-            "safety_pos_margin": safety_pos_margin,
-            "safety_k_position": safety_k_position,
-            "runtime_config_package": runtime_config_package,
-            "controllers_file": controllers_file,
-            "description_package": "arpa_moveit_config",  # override default
-            "description_file": "arpa_system.urdf.xacro", # override default
-            "kinematics_params_file": kinematics_params_file,
-            "use_fake_hardware": use_fake_hardware,
-            "fake_sensor_commands": fake_sensor_commands,
-            "headless_mode": headless_mode,
-            "controller_spawner_timeout": controller_spawner_timeout,
-            "initial_joint_controller": initial_joint_controller,
-            "activate_joint_controller": activate_joint_controller,
-            "launch_rviz": launch_rviz,
-            "launch_dashboard_client": launch_dashboard_client,
-            "use_tool_communication": use_tool_communication,
-            "tool_parity": tool_parity,
-            "tool_baud_rate": tool_baud_rate,
-            "tool_stop_bits": tool_stop_bits,
-            "tool_rx_idle_chars": tool_rx_idle_chars,
-            "tool_tx_idle_chars": tool_tx_idle_chars,
-            "tool_device_name": tool_device_name,
-            "tool_tcp_port": tool_tcp_port,
-            "tool_voltage": tool_voltage,
-            "reverse_ip": reverse_ip,
-            "script_command_port": script_command_port,
-            "reverse_port": reverse_port,
-            "script_sender_port": script_sender_port,
-            "trajectory_port": trajectory_port,
-        }.items()
+            "description_package": description_package,
+            "description_file": description_file,
+            "moveit_config_package": moveit_config_package,
+            "moveit_config_file": moveit_config_file,
+            "use_sim_time": "true",
+            "launch_rviz": "true",
+            "use_fake_hardware": "true",  # to change moveit default controller to joint_trajectory_controller
+        }.items(),
+    )
+
+
+    arpa_motion_control = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            get_package_share_directory("arpa_control") + "/launch/arpa_motion_control.launch.py"
+        ),
+        launch_arguments={
+            "ur_type": ur_type,
+            "safety_limits": safety_limits,
+            "description_package": description_package,
+            "description_file": description_file,
+            "moveit_config_package": moveit_config_package,
+            "moveit_config_file": moveit_config_file,
+            "use_sim_time": "true",
+            "launch_rviz": "true",
+            "use_fake_hardware": "true",  # to change moveit default controller to joint_trajectory_controller
+        }.items(),
     )
 
     arpa_gui = IncludeLaunchDescription(
@@ -440,6 +437,21 @@ def generate_launch_description():
             "trajectory_port",
             default_value="50003",
             description="Port that will be opened for trajectory control.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "moveit_config_package",
+            default_value="arpa_moveit_config",
+            description="MoveIt config package with robot SRDF/XACRO files. Usually the argument \
+        is not set, it enables use of a custom moveit config.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "moveit_config_file",
+            default_value="arpa_system.srdf.xacro",
+            description="MoveIt SRDF/XACRO description file with the robot.",
         )
     )
 
