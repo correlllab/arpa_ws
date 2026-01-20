@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parker_actuator_system">
+
+  <!-- Include the macro definition -->
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator_macro.urdf.xacro" />
+
+  <!-- World/Base link -->
+  <link name="world">
+    <visual>
+      <geometry>
+        <box size="0.1 0.1 0.01"/>
+      </geometry>
+      <material name="world_gray">
+        <color rgba="0.3 0.3 0.3 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <!-- Fixed joint to attach actuator to world -->
+  <joint name="world_to_actuator_joint" type="fixed">
+    <parent link="world"/>
+    <child link="linear_actuator_link"/>
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Instantiate the Parker linear actuator macro -->
+  <xacro:parker_linear_actuator />
+
+</robot>

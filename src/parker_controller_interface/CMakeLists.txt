@@ -70,6 +70,7 @@ ament_target_dependencies(
   rclcpp
   rclcpp_lifecycle
 )
+target_link_libraries(${PROJECT_NAME} parker_core)
 
 install(TARGETS ${PROJECT_NAME}
   ARCHIVE DESTINATION lib
@@ -77,7 +78,7 @@ install(TARGETS ${PROJECT_NAME}
   RUNTIME DESTINATION bin
 )
 
-install(DIRECTORY urdf config
+install(DIRECTORY urdf config launch
   DESTINATION share/${PROJECT_NAME}
 )
 
