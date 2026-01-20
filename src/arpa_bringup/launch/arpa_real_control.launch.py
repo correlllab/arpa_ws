@@ -84,13 +84,13 @@ def launch_setup(context, *args, **kwargs):
     trajectory_port = LaunchConfiguration("trajectory_port")
 
     joint_limit_params = PathJoinSubstitution(
-        [FindPackageShare("arpa_moveit_config"), "config", "joint_limits.yaml"]
+        [FindPackageShare("arpa_description"), "config/ur16e", "joint_limits.yaml"]
     )
     physical_params = PathJoinSubstitution(
-        [FindPackageShare("arpa_moveit_config"), "config", "physical_parameters.yaml"]
+        [FindPackageShare("arpa_description"), "config/ur16e", "physical_parameters.yaml"]
     )
     visual_params = PathJoinSubstitution(
-        [FindPackageShare("arpa_moveit_config"), "config", "visual_parameters.yaml"]
+        [FindPackageShare("arpa_description"), "config/ur16e", "visual_parameters.yaml"]
     )
     script_filename = PathJoinSubstitution(
         [FindPackageShare("ur_client_library"), "resources", "external_control.urscript"]
@@ -106,7 +106,7 @@ def launch_setup(context, *args, **kwargs):
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
             " ",
-            PathJoinSubstitution([FindPackageShare("arpa_moveit_config"), "urdf", description_file]),
+            PathJoinSubstitution([FindPackageShare("arpa_description"), "urdf", description_file]),
             " ",
             "robot_ip:=",
             robot_ip,
