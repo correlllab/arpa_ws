@@ -189,6 +189,21 @@
     <!-- Tool holder on tool0 -->
     <xacro:tool_holder parent_link="tool0"/>
 
+    <!-- Gazebo Classic plugins for simulation -->
+    <xacro:if value="$(arg sim_gazebo)">
+      <gazebo>
+        <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+          <parameters>$(arg simulation_controllers)</parameters>
+        </plugin>
+      </gazebo>
+      <ros2_control name="LinearActuatorSystem" type="system">
+        <hardware>
+          <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        </hardware>
+        <xacro:linear_actuator_ros2_control/>
+      </ros2_control>
+    </xacro:if>
+
   </xacro:macro>
 
 </robot>
