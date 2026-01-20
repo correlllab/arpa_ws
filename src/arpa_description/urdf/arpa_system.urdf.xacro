@@ -46,7 +46,7 @@
     <xacro:arg name="fake_sensor_commands" default="false" />
     <xacro:arg name="sim_gazebo" default="false" />
     <xacro:arg name="sim_ignition" default="false" />
-    <xacro:arg name="simulation_controllers" default="" />
+    <!-- <xacro:arg name="simulation_controllers" default="" /> -->
  
     <!-- initial position for simulations (Fake Hardware, Gazebo, Ignition) -->
     <xacro:arg name="initial_positions_file" default="$(find ur_description)/config/initial_positions.yaml"/>
@@ -70,6 +70,7 @@
         safety_pos_margin="$(arg safety_pos_margin)"
         safety_k_position="$(arg safety_k_position)"
         use_fake_hardware="$(arg use_fake_hardware)"
+        generate_ros2_control_tag="false"
         fake_sensor_commands="$(arg fake_sensor_commands)"
         sim_gazebo="$(arg sim_gazebo)"
         sim_ignition="$(arg sim_ignition)"

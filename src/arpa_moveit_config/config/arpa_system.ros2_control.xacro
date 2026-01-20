@@ -10,8 +10,7 @@
     initial_positions:=${dict(shoulder_pan_joint=0.0,shoulder_lift_joint=-1.57,elbow_joint=0.0,wrist_1_joint=-1.57,wrist_2_joint=0.0,wrist_3_joint=0.0)}
     use_tool_communication:=false
     script_filename output_recipe_filename
-    input_recipe_filename tf_prefix
-    hash_kinematics robot_ip
+    input_recipe_filename tf_prefix robot_ip
     tool_voltage:=0 tool_parity:=0 tool_baud_rate:=115200 tool_stop_bits:=1
     tool_rx_idle_chars:=1.5 tool_tx_idle_chars:=3.5 tool_device_name:=/tmp/ttyUR tool_tcp_port:=54321
     reverse_port:=50001
@@ -54,7 +53,6 @@
           <param name="servoj_gain">2000</param>
           <param name="servoj_lookahead_time">0.03</param>
           <param name="use_tool_communication">${use_tool_communication}</param>
-          <param name="kinematics/hash">${hash_kinematics}</param>
           <param name="tool_voltage">${tool_voltage}</param>
           <param name="tool_parity">${tool_parity}</param>
           <param name="tool_baud_rate">${tool_baud_rate}</param>
@@ -144,6 +142,18 @@
         <state_interface name="velocity"/>
         <state_interface name="effort"/>
       </joint>
+
+      <!-- Linear actuator joint for simulation -->
+      <xacro:if value="${sim_gazebo or sim_ignition}">
+        <joint name="linear_actuator_to_linear_actuator_plate_joint">
+          <command_interface name="position"/>
+          <command_interface name="velocity"/>
+          <state_interface name="position">
+            <param name="initial_value">0.0</param>
+          </state_interface>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:if>
 
       <xacro:unless value="${sim_gazebo or sim_ignition}">
         <sensor name="${tf_prefix}tcp_fts_sensor">
