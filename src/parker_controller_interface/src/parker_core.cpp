@@ -12,7 +12,7 @@
 #include <chrono>
 #include <algorithm>
 
-namespace arpa_ethernet_motor
+namespace parker_controller_interface
 {
 
 ParkerCore::ParkerCore(const std::string& host, int port, int timeout_sec)
@@ -307,4 +307,4 @@ void ParkerCore::monitor_position()
   }
 }
 
-}  // namespace arpa_ethernet_motor
+}  // namespace parker_controller_interface

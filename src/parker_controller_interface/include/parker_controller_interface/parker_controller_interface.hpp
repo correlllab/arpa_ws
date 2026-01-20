@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "parker_controller_interface/parker_core.hpp"
 #include "hardware_interface/actuator_interface.hpp"
 #include "hardware_interface/handle.hpp"
 #include "hardware_interface/hardware_info.hpp"
@@ -44,14 +45,17 @@ public:
     const rclcpp::Time & time, const rclcpp::Duration & period) override;
 
 private:
+  // Parker motor driver
+  std::unique_ptr<ParkerCore> parker_;
+
   // Hardware communication parameters
-  std::string device_port_;
-  int baud_rate_;
+  std::string host_;
+  int port_;
   
   // Linear actuator state
-  double hw_position_;
-  double hw_velocity_;
-  double hw_effort_;
+  double hw_position_state_;
+  double hw_velocity_state_;
+  double hw_effort_state_;
   
   // Linear actuator commands
   double hw_position_command_;
@@ -63,18 +67,13 @@ private:
   double max_position_;
   double max_velocity_;
   double max_effort_;
-  
-  // Simulated or real hardware
-  bool use_simulation_;
-  
+
   // Communication status
   bool is_connected_;
-  
-  // Helper methods
-  bool connect_to_hardware();
-  void disconnect_from_hardware();
-  bool send_command_to_hardware(double position, double velocity, double effort);
-  bool read_state_from_hardware(double & position, double & velocity, double & effort);
+
+  // Joint name
+  std::string joint_name_;
+
 };
 
 }  // namespace parker_controller_interface

@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parker_linear_actuator_robot">
+
+  <!-- Include ros2_control xacro macros -->
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
+
+  <xacro:macro name="parker_linear_actuator">
+    <link name="linear_actuator_link">
+      <visual>
+        <geometry>
+          <box size="2.58 0.15 0.0675"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="actuator_gray">
+          <color rgba="0.75 0.75 0.75 1"/>
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="2.58 0.15 0.0675"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <link name="linear_actuator_plate_link">
+      <visual>
+        <geometry>
+          <box size="0.26 0.15 0.02"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="actuator_plate">
+          <color rgba="0.0 0.0 0.5 1"/>
+        </material>
+
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.26 0.15 0.02"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <!-- Prismatic joint for linear actuator movement -->
+    <joint name="linear_actuator_to_linear_actuator_plate_joint" type="prismatic">
+      <parent link="linear_actuator_link"/>
+      <child link="linear_actuator_plate_link"/>
+      <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-1.845" upper="0.0" effort="100.0" velocity="0.5"/>
+    </joint>
+  
+    <!-- Add ros2_control hardware interface -->
+    <xacro:parker_linear_actuator_ros2_control
+      name="ParkerControllerInterface"
+      host="192.168.100.1"
+      port="5002"/>
+  </xacro:macro>
+
+</robot>

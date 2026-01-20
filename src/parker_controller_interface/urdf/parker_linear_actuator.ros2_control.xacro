@@ -1,19 +1,14 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="linear_actuator_ros2_control" params="name use_simulation device_port baud_rate">
-    
+  <xacro:macro name="parker_linear_actuator_ros2_control" params="name host port">
+
     <ros2_control name="${name}" type="actuator">
-      
+
       <hardware>
-        <plugin>linear_actuator_hardware/LinearActuatorHardware</plugin>
-        <param name="use_simulation">${use_simulation}</param>
-        <param name="device_port">${device_port}</param>
-        <param name="baud_rate">${baud_rate}</param>
-        <param name="min_position">0.0</param>
-        <param name="max_position">0.5</param>
-        <param name="max_velocity">0.1</param>
-        <param name="max_effort">100.0</param>
+        <plugin>parker_controller_interface/ParkerControllerInterface</plugin>
+        <param name="host">${host}</param>
+        <param name="port">${port}</param>
       </hardware>
       
       <joint name="linear_actuator_joint">

@@ -1,5 +1,5 @@
-#ifndef ARPA_ETHERNET_MOTOR__PARKER_CORE_HPP_
-#define ARPA_ETHERNET_MOTOR__PARKER_CORE_HPP_
+#ifndef PARKER_CONTROLLER_INTERFACE__PARKER_CORE_HPP_
+#define PARKER_CONTROLLER_INTERFACE__PARKER_CORE_HPP_
 
 #include <string>
 #include <vector>
@@ -8,7 +8,7 @@
 #include <mutex>
 #include <cmath>
 
-namespace arpa_ethernet_motor
+namespace parker_controller_interface
 {
 
 // Default settings
@@ -82,6 +82,6 @@ private:
   std::mutex monitor_sock_mutex_;
 };
 
-}  // namespace arpa_ethernet_motor
+}  // namespace parker_controller_interface
 
-#endif  // ARPA_ETHERNET_MOTOR__PARKER_CORE_HPP_
+#endif  // PARKER_CONTROLLER_INTERFACE__PARKER_CORE_HPP_
