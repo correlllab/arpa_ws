@@ -1,5 +1,7 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parker_linear_actuator_robot">
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parker_linear_actuator_robot" params="
+    attach_link
+    origin">
 
   <!-- Include ros2_control xacro macros -->
   <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
@@ -25,6 +27,12 @@
         <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
       </inertial>
     </link>
+
+    <joint name="${attach_link}_to_linear_actuator_joint" type="fixed">
+      <parent link="${attach_link}"/>
+      <child link="linear_actuator_link"/>
+      <origin xyz="${origin.split(' ')[0]} ${origin.split(' ')[1]} ${origin.split(' ')[2]}" rpy="${origin.split(' ')[3]} ${origin.split(' ')[4]} ${origin.split(' ')[5]}"/>
+    </joint>
 
     <link name="linear_actuator_plate_link">
       <visual>

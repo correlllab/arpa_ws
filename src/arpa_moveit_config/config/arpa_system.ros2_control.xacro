@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
 
   <xacro:macro name="arpa_system_ros2_control" params="
     name
@@ -62,6 +63,12 @@
           <param name="tool_device_name">${tool_device_name}</param>
           <param name="tool_tcp_port">${tool_tcp_port}</param>
           <param name="keep_alive_count">${keep_alive_count}</param>
+            <!-- Add ros2_control hardware interface
+          <xacro:parker_linear_actuator_ros2_control
+            name="ParkerControllerInterface"
+            host="192.168.100.1"
+            port="5002"/>
+          </xacro:macro> -->
         </xacro:unless>
       </hardware>
       <joint name="${tf_prefix}shoulder_pan_joint">

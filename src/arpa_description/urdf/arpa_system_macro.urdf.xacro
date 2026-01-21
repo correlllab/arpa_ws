@@ -8,6 +8,7 @@
   <xacro:include filename="$(find arpa_description)/urdf/tool_holder.xacro"/>
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
   <xacro:include filename="$(find arpa_moveit_config)/config/arpa_system.ros2_control.xacro" />
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator_macro.urdf.xacro" />
   <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
   <!-- Macro definition -->
   <xacro:macro name="arpa_system_macro" params="
@@ -67,13 +68,13 @@
     </joint>
 
     <!-- Fixed transform from gantry_link to linear_actuator_link -->
-    <joint name="gantry_to_linear_actuator" type="fixed">
+    <!-- <joint name="gantry_to_linear_actuator" type="fixed">
       <parent link="gantry_link"/>
       <child link="linear_actuator_link"/>
       <origin xyz="0 0 -0.11375" rpy="0 0 0"/>
-    </joint>
+    </joint> -->
 
-    <xacro:linear_actuator/>
+    <xacro:parker_linear_actuator  attach_link="gantry_link" origin="0 0 -0.11375 0 0 0"/>
 
     <link name="arm_mount_plate">
       <visual>
