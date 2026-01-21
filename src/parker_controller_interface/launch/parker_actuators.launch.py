@@ -138,7 +138,7 @@ def generate_launch_description():
     nodes.append(robot_state_pub_node)
 
 
-    """
+
 
     joint_state_broadcaster_spawner = Node(
         package="controller_manager",
@@ -147,7 +147,7 @@ def generate_launch_description():
     )
     nodes.append(joint_state_broadcaster_spawner)
 
-
+    
 
     robot_controller_spawner = Node(
         package="controller_manager",
@@ -181,7 +181,7 @@ def generate_launch_description():
         )
     )
     nodes.append(delay_robot_controller_spawner_after_joint_state_broadcaster_spawner)
-    """
+    
     
 
     return LaunchDescription(declared_arguments + nodes)

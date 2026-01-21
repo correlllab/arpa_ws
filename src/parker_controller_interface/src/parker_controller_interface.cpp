@@ -48,7 +48,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
   // Validate configuration - expect exactly one joint
   if (info_.joints.size() != 1) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("ParkerHardwareInterface"),
+      rclcpp::get_logger("ParkerControllerInterface"),
       "Expected 1 joint, got %zu", info_.joints.size());
     return hardware_interface::CallbackReturn::ERROR;
   }
@@ -61,7 +61,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
       joint.command_interfaces[0].name != hardware_interface::HW_IF_POSITION)
   {
     RCLCPP_ERROR(
-      rclcpp::get_logger("ParkerHardwareInterface"),
+      rclcpp::get_logger("ParkerControllerInterface"),
       "Joint '%s' must have exactly one position command interface", joint_name_.c_str());
     return hardware_interface::CallbackReturn::ERROR;
   }
@@ -71,7 +71,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
       joint.state_interfaces[0].name != hardware_interface::HW_IF_POSITION)
   {
     RCLCPP_ERROR(
-      rclcpp::get_logger("ParkerHardwareInterface"),
+      rclcpp::get_logger("ParkerControllerInterface"),
       "Joint '%s' must have exactly one position state interface", joint_name_.c_str());
     return hardware_interface::CallbackReturn::ERROR;
   }
@@ -81,7 +81,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
   hw_position_command_ = std::numeric_limits<double>::quiet_NaN();
 
   RCLCPP_INFO(
-    rclcpp::get_logger("ParkerHardwareInterface"),
+    rclcpp::get_logger("ParkerControllerInterface"),
     "Initialized with host=%s, port=%d, joint=%s",
     host_.c_str(), port_, joint_name_.c_str());
 
@@ -92,7 +92,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_configure(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   RCLCPP_INFO(
-    rclcpp::get_logger("ParkerHardwareInterface"),
+    rclcpp::get_logger("ParkerControllerInterface"),
     "Configuring Parker hardware interface...");
 
   // Create Parker driver instance
@@ -101,13 +101,13 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_configure(
   // Connect to hardware
   if (!parker_->connect()) {
     RCLCPP_ERROR(
-      rclcpp::get_logger("ParkerHardwareInterface"),
+      rclcpp::get_logger("ParkerControllerInterface"),
       "Failed to connect to Parker controller at %s:%d", host_.c_str(), port_);
     return hardware_interface::CallbackReturn::ERROR;
   }
 
   RCLCPP_INFO(
-    rclcpp::get_logger("ParkerHardwareInterface"),
+    rclcpp::get_logger("ParkerControllerInterface"),
     "Connected to Parker controller");
 
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -167,7 +167,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_activate(
   hw_position_command_ = hw_position_state_;
 
   RCLCPP_INFO(
-    rclcpp::get_logger("ParkerHardwareInterface"),
+    rclcpp::get_logger("ParkerControllerInterface"),
     "Activated. Initial position: %.4f mm", hw_position_state_);
 
   return hardware_interface::CallbackReturn::SUCCESS;
@@ -177,7 +177,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
   RCLCPP_INFO(
-    rclcpp::get_logger("ParkerHardwareInterface"),
+    rclcpp::get_logger("ParkerControllerInterface"),
     "Deactivating Parker hardware interface...");
 
   if (parker_) {

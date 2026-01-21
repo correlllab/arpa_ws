@@ -6,7 +6,7 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    position_controller:
+    forward_position_controller:
       type: position_controllers/JointGroupPositionController
 
     # velocity_controller:
@@ -26,7 +26,7 @@ joint_state_broadcaster:
       # - effort
 
 # Position Controller - accepts position commands
-position_controller:
+forward_position_controller:
   ros__parameters:
     joints:
       - linear_actuator_to_linear_actuator_plate_joint

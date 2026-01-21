@@ -9,33 +9,38 @@
         <plugin>parker_controller_interface/ParkerControllerInterface</plugin>
         <param name="host">${host}</param>
         <param name="port">${port}</param>
+        <param name="min_position">100.0</param>
+        <param name="max_position">2000.0</param>
+        <param name="max_velocity">1.0</param>
+        <param name="max_effort">1.0</param>
+
       </hardware>
       
-      <joint name="linear_actuator_joint">
+      <joint name="linear_actuator_to_linear_actuator_plate_joint">
         <!-- State interfaces -->
         <state_interface name="position">
           <param name="initial_value">0.0</param>
         </state_interface>
-        <state_interface name="velocity">
+        <!-- <state_interface name="velocity">
           <param name="initial_value">0.0</param>
         </state_interface>
         <state_interface name="effort">
           <param name="initial_value">0.0</param>
-        </state_interface>
+        </state_interface> -->
         
         <!-- Command interfaces -->
         <command_interface name="position">
           <param name="min">0.0</param>
           <param name="max">0.5</param>
         </command_interface>
-        <command_interface name="velocity">
+        <!-- <command_interface name="velocity">
           <param name="min">-0.1</param>
           <param name="max">0.1</param>
         </command_interface>
         <command_interface name="effort">
           <param name="min">-100.0</param>
           <param name="max">100.0</param>
-        </command_interface>
+        </command_interface> -->
       </joint>
       
     </ros2_control>
