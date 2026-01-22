@@ -141,7 +141,7 @@ def launch_setup(context, *args, **kwargs):
             "controller_spawner_timeout": controller_spawner_timeout,
             "initial_joint_controller": initial_joint_controller,
             "activate_joint_controller": activate_joint_controller,
-            "launch_rviz": launch_rviz,
+            "launch_rviz": "false",
             "launch_dashboard_client": launch_dashboard_client,
             "use_tool_communication": use_tool_communication,
             "tool_parity": tool_parity,

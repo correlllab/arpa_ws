@@ -3,10 +3,13 @@
     attach_link
     origin">
 
+   <xacro:arg name="attach_link" default="" />
+   <xacro:arg name="origin" default="" />
+
   <!-- Include ros2_control xacro macros -->
   <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
 
-  <xacro:macro name="parker_linear_actuator">
+  <xacro:macro name="parker_linear_actuator" params="attach_link origin">
     <link name="linear_actuator_link">
       <visual>
         <geometry>
@@ -56,13 +59,13 @@
       </inertial>
     </link>
 
-    <!-- Prismatic joint for linear actuator movement -->
+    <!-- Prismatic joint for linear actuator movement (0.1-2.0m = 100-2000mm) -->
     <joint name="linear_actuator_to_linear_actuator_plate_joint" type="prismatic">
       <parent link="linear_actuator_link"/>
       <child link="linear_actuator_plate_link"/>
       <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/>
-      <axis xyz="1 0 0"/>
-      <limit lower="-1.845" upper="0.0" effort="100.0" velocity="0.5"/>
+      <axis xyz="-1 0 0"/>
+      <limit lower="0.1" upper="2.0" effort="100.0" velocity="0.5"/>
     </joint>
   
     <!-- Add ros2_control hardware interface -->

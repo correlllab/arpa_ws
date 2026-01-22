@@ -45,7 +45,7 @@ public:
 
   // Motor control
   void init_motor();
-  std::vector<std::string> goto_pose(double user_units);
+  std::vector<std::string> goto_pose(double position_m);
   double get_position();
 
   // Position monitoring
@@ -53,11 +53,13 @@ public:
   void stop_monitoring();
   bool is_moving() const;
   double get_last_position() const;
+  double get_last_velocity() const;
 
 private:
   // Socket communication
-  std::vector<std::string> send_telnet(int sock_fd, const std::string& message);
+  std::vector<std::string> send_telnet(int sock_fd, const std::string& message, bool blocking = true);
   double get_position_from_socket(int sock_fd);
+  double get_velocity_from_socket(int sock_fd);
 
   // Monitoring thread function
   void monitor_position();
@@ -78,6 +80,7 @@ private:
   std::atomic<bool> is_moving_;
   std::atomic<bool> monitor_running_;
   std::atomic<double> last_position_;
+  std::atomic<double> last_velocity_;
   std::thread monitor_thread_;
   std::mutex monitor_sock_mutex_;
 };

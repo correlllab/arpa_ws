@@ -51,13 +51,14 @@
       </inertial>
     </link>
 
-    <!-- Prismatic joint for linear actuator movement -->
+    <!-- Prismatic joint for linear actuator movement (0.1-2.0m = 100-2000mm) -->
+    <!-- NOTE: This macro is deprecated - use parker_linear_actuator from parker_controller_interface instead -->
     <joint name="linear_actuator_to_linear_actuator_plate_joint" type="prismatic">
       <parent link="linear_actuator_link"/>
       <child link="linear_actuator_plate_link"/>
       <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/>
-      <axis xyz="1 0 0"/>
-      <limit lower="-1.845" upper="0.0" effort="100.0" velocity="0.5"/>
+      <axis xyz="-1 0 0"/>
+      <limit lower="0.1" upper="2.0" effort="100.0" velocity="0.5"/>
     </joint>
   </xacro:macro>
 </robot>

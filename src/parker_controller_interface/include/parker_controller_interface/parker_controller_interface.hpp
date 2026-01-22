@@ -74,6 +74,8 @@ private:
   // Joint name
   std::string joint_name_;
 
+  // Track last commanded position to avoid redundant commands
+  double last_commanded_position_;
 };
 
 }  // namespace parker_controller_interface

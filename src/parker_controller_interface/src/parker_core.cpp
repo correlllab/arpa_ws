@@ -24,7 +24,8 @@ ParkerCore::ParkerCore(const std::string& host, int port, int timeout_sec)
   zero_pose_(ENCODER_0_READING / ENCODER_PPU),
   is_moving_(false),
   monitor_running_(false),
-  last_position_(std::nan(""))
+  last_position_(std::nan("")),
+  last_velocity_(std::nan(""))
 {
 }
 
@@ -113,7 +114,7 @@ bool ParkerCore::is_connected() const
   return main_sock_ >= 0;
 }
 
-std::vector<std::string> ParkerCore::send_telnet(int sock_fd, const std::string& message)
+std::vector<std::string> ParkerCore::send_telnet(int sock_fd, const std::string& message, bool blocking)
 {
   std::string msg = message;
   if (msg.size() < 2 || msg.substr(msg.size() - 2) != "\r\n") {
@@ -124,6 +125,11 @@ std::vector<std::string> ParkerCore::send_telnet(int sock_fd, const std::string&
   ssize_t sent = send(sock_fd, msg.c_str(), msg.size(), 0);
   if (sent < 0) {
     std::cerr << "Failed to send message: " << message << std::endl;
+    return {};
+  }
+  // std::cout << "[Sent] " << message << std::endl;
+  // If non-blocking, return immediately without waiting for response
+  if (!blocking) {
     return {};
   }
 
@@ -181,35 +187,41 @@ std::vector<std::string> ParkerCore::send_telnet(int sock_fd, const std::string&
 
 void ParkerCore::init_motor()
 {
+  std::cout << "[Init motor] Sending PROG0..." << std::endl;
   auto prog0_response = send_telnet(main_sock_, "PROG0");
+  std::cout << "[Init motor] PROG0 response lines: " << prog0_response.size() << std::endl;
+  for (const auto& line : prog0_response) {
+    std::cout << "[Init motor] PROG0: " << line << std::endl;
+  }
+
+  std::cout << "[Init motor] Sending DRIVE ON X..." << std::endl;
   auto drive_response = send_telnet(main_sock_, "DRIVE ON X");
+  std::cout << "[Init motor] DRIVE ON X response lines: " << drive_response.size() << std::endl;
+  for (const auto& line : drive_response) {
+    std::cout << "[Init motor] DRIVE ON X: " << line << std::endl;
+  }
 }
 
-std::vector<std::string> ParkerCore::goto_pose(double user_units)
+std::vector<std::string> ParkerCore::goto_pose(double position_m)
 {
-  // Clamp to valid range
-  user_units = std::max(MIN_POSITION_MM, std::min(user_units, MAX_POSITION_MM));
-  double target_user_units = zero_pose_ - user_units;
+  // Input position_m is in meters (range 0.1 to 2.0)
+  // Convert to mm: 0.1m -> 100mm, 0.5m -> 500mm, 2.0m -> 2000mm
+  // Python equivalent: user_units = min(MAX, max(user_units, MIN))
+  double position_mm = position_m * 1000.0;
+
+  // Clamp to valid range [100, 2000] mm
+  position_mm = std::max(MIN_POSITION_MM, std::min(position_mm, MAX_POSITION_MM));
+
+  std::cout << "[goto_pose] Requested: " << position_m << " m -> " << position_mm << " mm" << std::endl;
+
+  // Match Python: target_user_units = self.zero_pose - user_units
+  double target_user_units = zero_pose_ - position_mm;
 
   std::ostringstream cmd_stream;
   cmd_stream << "MOV X " << target_user_units;
   std::string cmd = cmd_stream.str();
 
-  std::cout << "[Goto pose] Sending command: " << cmd << std::endl;
-
-  std::vector<std::string> response;
-  do {
-    response = send_telnet(main_sock_, cmd);
-    std::cout << "[Goto pose] Response size: " << response.size() << std::endl;
-    for (const auto& line : response) {
-      std::cout << "[Goto pose] " << line << std::endl;
-    }
-    if (response.size() > 1) {
-      init_motor();
-      std::cout << "[Goto pose] Re-sending command after re-init: " << cmd << std::endl;
-    }
-  } while (response.empty() || response.size() > 1);
-
+  auto response = send_telnet(main_sock_, cmd, false);
   return response;
 }
 
@@ -225,8 +237,28 @@ double ParkerCore::get_position_from_socket(int sock_fd)
   if (response.size() > 1) {
     try {
       double user_units = std::stod(response[1]);
-      double location = -1.0 * (user_units - zero_pose_);
-      return location;
+      // Python: location = -1*(user_units - self.zero_pose) returns mm
+      double location_mm = -1.0 * (user_units - zero_pose_);
+      // Convert from mm to meters (positive, range 0.1-2.0)
+      double location_m = location_mm / 1000.0;
+      return location_m;
+    } catch (const std::exception& e) {
+      return std::nan("");
+    }
+  }
+  return std::nan("");
+}
+
+double ParkerCore::get_velocity_from_socket(int sock_fd)
+{
+  auto response = send_telnet(sock_fd, "PRINT(P28741*60)");
+
+  if (response.size() > 1) {
+    try {
+      double velocity_mm_per_min = std::stod(response[1]);
+      // Convert from mm/min to m/s
+      double velocity_m_per_s = velocity_mm_per_min / 1000.0 / 60.0;
+      return velocity_m_per_s;
     } catch (const std::exception& e) {
       return std::nan("");
     }
@@ -262,6 +294,11 @@ double ParkerCore::get_last_position() const
   return last_position_;
 }
 
+double ParkerCore::get_last_velocity() const
+{
+  return last_velocity_;
+}
+
 void ParkerCore::monitor_position()
 {
   double last_position = -std::numeric_limits<double>::infinity();
@@ -270,11 +307,14 @@ void ParkerCore::monitor_position()
   while (monitor_running_) {
     try {
       double current_position;
+      double current_velocity;
       {
         std::lock_guard<std::mutex> lock(monitor_sock_mutex_);
         current_position = get_position_from_socket(monitor_sock_);
+        current_velocity = get_velocity_from_socket(monitor_sock_);
       }
       last_position_ = current_position;
+      last_velocity_ = current_velocity;
 
       if (!std::isnan(current_position) && !std::isinf(last_position)) {
         double position_delta = std::abs(current_position - last_position);

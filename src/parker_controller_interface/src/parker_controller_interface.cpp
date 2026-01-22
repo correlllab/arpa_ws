@@ -66,13 +66,12 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  // Validate joint has position state interface
-  if (joint.state_interfaces.size() != 1 ||
-      joint.state_interfaces[0].name != hardware_interface::HW_IF_POSITION)
+  // Validate joint has position and velocity state interfaces
+  if (joint.state_interfaces.size() != 2)
   {
     RCLCPP_ERROR(
       rclcpp::get_logger("ParkerControllerInterface"),
-      "Joint '%s' must have exactly one position state interface", joint_name_.c_str());
+      "Joint '%s' must have exactly two state interfaces (position and velocity)", joint_name_.c_str());
     return hardware_interface::CallbackReturn::ERROR;
   }
 
@@ -118,13 +117,13 @@ ParkerControllerInterface::export_state_interfaces()
 {
   std::vector<hardware_interface::StateInterface> state_interfaces;
 
-  // Export position, velocity, and effort state interfaces
+  // Export position and velocity state interfaces
   state_interfaces.emplace_back(hardware_interface::StateInterface(
     info_.joints[0].name, hardware_interface::HW_IF_POSITION, &hw_position_state_));
-  
-  // state_interfaces.emplace_back(hardware_interface::StateInterface(
-  //   info_.joints[0].name, hardware_interface::HW_IF_VELOCITY, &hw_velocity_state_));
-  
+
+  state_interfaces.emplace_back(hardware_interface::StateInterface(
+    info_.joints[0].name, hardware_interface::HW_IF_VELOCITY, &hw_velocity_state_));
+
   // state_interfaces.emplace_back(hardware_interface::StateInterface(
   //   info_.joints[0].name, hardware_interface::HW_IF_EFFORT, &hw_effort_state_));
 
@@ -165,10 +164,11 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_activate(
   // Read initial position
   hw_position_state_ = parker_->get_position();
   hw_position_command_ = hw_position_state_;
+  last_commanded_position_ = std::numeric_limits<double>::quiet_NaN();
 
   RCLCPP_INFO(
     rclcpp::get_logger("ParkerControllerInterface"),
-    "Activated. Initial position: %.4f mm", hw_position_state_);
+    "Activated. Initial position: %.4f m", hw_position_state_);
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -190,11 +190,16 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_deactivate(
 hardware_interface::return_type ParkerControllerInterface::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // Get position from monitoring thread (non-blocking)
+  // Get position and velocity from monitoring thread (non-blocking)
   double position = parker_->get_last_position();
+  double velocity = parker_->get_last_velocity();
 
   if (!std::isnan(position)) {
     hw_position_state_ = position;
+  }
+
+  if (!std::isnan(velocity)) {
+    hw_velocity_state_ = velocity;
   }
 
   return hardware_interface::return_type::OK;
@@ -203,13 +208,16 @@ hardware_interface::return_type ParkerControllerInterface::read(
 hardware_interface::return_type ParkerControllerInterface::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // Only send command if it has changed significantly
+  // Only send command if target has changed significantly from last command
   if (!std::isnan(hw_position_command_)) {
-    double position_error = std::abs(hw_position_command_ - hw_position_state_);
+    // Check if this is a new command (different from what we last sent)
+    double command_change = std::isnan(last_commanded_position_) ?
+                            1.0 : std::abs(hw_position_command_ - last_commanded_position_);
 
-    // Only command if difference is significant (avoid jitter)
-    if (position_error > 0.1) {  // 0.1mm threshold
+    // Only send if command changed by more than 1mm (0.001m)
+    if (command_change > 0.001) {
       parker_->goto_pose(hw_position_command_);
+      last_commanded_position_ = hw_position_command_;
     }
   }
 
