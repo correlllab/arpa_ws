@@ -8,9 +8,11 @@
 #include <poll.h>
 #include <cstring>
 #include <sstream>
-#include <iostream>
 #include <chrono>
+#include <thread>
 #include <algorithm>
+
+#include <rclcpp/rclcpp.hpp>
 
 namespace parker_controller_interface
 {
@@ -25,7 +27,9 @@ ParkerCore::ParkerCore(const std::string& host, int port, int timeout_sec)
   is_moving_(false),
   monitor_running_(false),
   last_position_(std::nan("")),
-  last_velocity_(std::nan(""))
+  last_velocity_(std::nan("")),
+  last_command_time_(std::chrono::steady_clock::now()),
+  last_commanded_position_(std::nan(""))
 {
 }
 
@@ -39,7 +43,7 @@ bool ParkerCore::connect()
   // Create main socket
   main_sock_ = socket(AF_INET, SOCK_STREAM, 0);
   if (main_sock_ < 0) {
-    std::cerr << "Failed to create main socket" << std::endl;
+    RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "Failed to create main socket");
     return false;
   }
 
@@ -57,14 +61,14 @@ bool ParkerCore::connect()
   server_addr.sin_port = htons(port_);
 
   if (inet_pton(AF_INET, host_.c_str(), &server_addr.sin_addr) <= 0) {
-    std::cerr << "Invalid address: " << host_ << std::endl;
+    RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "Invalid address: %s", host_.c_str());
     ::close(main_sock_);
     main_sock_ = -1;
     return false;
   }
 
   if (::connect(main_sock_, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-    std::cerr << "Failed to connect main socket to " << host_ << ":" << port_ << std::endl;
+    RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "Failed to connect main socket to %s:%d", host_.c_str(), port_);
     ::close(main_sock_);
     main_sock_ = -1;
     return false;
@@ -73,7 +77,7 @@ bool ParkerCore::connect()
   // Create monitor socket
   monitor_sock_ = socket(AF_INET, SOCK_STREAM, 0);
   if (monitor_sock_ < 0) {
-    std::cerr << "Failed to create monitor socket" << std::endl;
+    RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "Failed to create monitor socket");
     ::close(main_sock_);
     main_sock_ = -1;
     return false;
@@ -83,7 +87,7 @@ bool ParkerCore::connect()
   setsockopt(monitor_sock_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
   if (::connect(monitor_sock_, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-    std::cerr << "Failed to connect monitor socket" << std::endl;
+    RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "Failed to connect monitor socket");
     ::close(main_sock_);
     ::close(monitor_sock_);
     main_sock_ = -1;
@@ -91,7 +95,7 @@ bool ParkerCore::connect()
     return false;
   }
 
-  std::cout << "Zero pose set to " << zero_pose_ << " user units." << std::endl;
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "Zero pose set to %f user units.", zero_pose_);
   return true;
 }
 
@@ -124,10 +128,10 @@ std::vector<std::string> ParkerCore::send_telnet(int sock_fd, const std::string&
   // Send message
   ssize_t sent = send(sock_fd, msg.c_str(), msg.size(), 0);
   if (sent < 0) {
-    std::cerr << "Failed to send message: " << message << std::endl;
+    RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "Failed to send message: %s", message.c_str());
     return {};
   }
-  // std::cout << "[Sent] " << message << std::endl;
+  // RCLCPP_INFO_STREAM(rclcpp::get_logger("ParkerCore"), "[Sent] " << message);
   // If non-blocking, return immediately without waiting for response
   if (!blocking) {
     return {};
@@ -144,10 +148,10 @@ std::vector<std::string> ParkerCore::send_telnet(int sock_fd, const std::string&
       if (bytes_read == 0) {
         finished_reading = true;
       } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        std::cout << "Socket read timeout reached message=" << message << std::endl;
+        RCLCPP_WARN(rclcpp::get_logger("ParkerCore"), "Socket read timeout reached message=%s", message.c_str());
         finished_reading = true;
       } else {
-        std::cerr << "Socket read error" << std::endl;
+        RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "Socket read error");
         finished_reading = true;
       }
     } else {
@@ -187,32 +191,59 @@ std::vector<std::string> ParkerCore::send_telnet(int sock_fd, const std::string&
 
 void ParkerCore::init_motor()
 {
-  std::cout << "[Init motor] Sending PROG0..." << std::endl;
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[Init motor] Sending PROG0...");
   auto prog0_response = send_telnet(main_sock_, "PROG0");
-  std::cout << "[Init motor] PROG0 response lines: " << prog0_response.size() << std::endl;
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[Init motor] PROG0 response lines: %zu", prog0_response.size());
   for (const auto& line : prog0_response) {
-    std::cout << "[Init motor] PROG0: " << line << std::endl;
+    RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[Init motor] PROG0: %s", line.c_str());
   }
 
-  std::cout << "[Init motor] Sending DRIVE ON X..." << std::endl;
+  // Wait 500ms between PROG0 and DRIVE ON X to let drive stabilize
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[Init motor] Waiting 500ms before DRIVE ON...");
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  auto initial_move = goto_pose(get_position());
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[Init motor] Sending DRIVE ON X...");
   auto drive_response = send_telnet(main_sock_, "DRIVE ON X");
-  std::cout << "[Init motor] DRIVE ON X response lines: " << drive_response.size() << std::endl;
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[Init motor] DRIVE ON X response lines: %zu", drive_response.size());
   for (const auto& line : drive_response) {
-    std::cout << "[Init motor] DRIVE ON X: " << line << std::endl;
+    RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[Init motor] DRIVE ON X: %s", line.c_str());
   }
 }
 
 std::vector<std::string> ParkerCore::goto_pose(double position_m)
 {
+  std::lock_guard<std::mutex> lock(command_mutex_);
+
   // Input position_m is in meters (range 0.1 to 2.0)
   // Convert to mm: 0.1m -> 100mm, 0.5m -> 500mm, 2.0m -> 2000mm
-  // Python equivalent: user_units = min(MAX, max(user_units, MIN))
   double position_mm = position_m * 1000.0;
 
   // Clamp to valid range [100, 2000] mm
   position_mm = std::max(MIN_POSITION_MM, std::min(position_mm, MAX_POSITION_MM));
+  double clamped_position_m = position_mm / 1000.0;
 
-  std::cout << "[goto_pose] Requested: " << position_m << " m -> " << position_mm << " mm" << std::endl;
+  // Check if position change is significant enough to warrant a command
+  // if (!std::isnan(last_commanded_position_)) {
+  //   double position_delta = std::abs(clamped_position_m - last_commanded_position_);
+  //   if (position_delta < POSITION_COMMAND_THRESHOLD) {
+  //     // Position change too small, skip command
+  //     return {};
+  //   }
+  // }
+
+  // Rate limiting: check time since last command
+  auto now = std::chrono::steady_clock::now();
+  auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_command_time_).count();
+
+  if (elapsed_ms < MIN_COMMAND_INTERVAL_MS) {
+    // Too soon since last command, skip to avoid overwhelming the drive
+    RCLCPP_WARN(rclcpp::get_logger("ParkerCore"),
+                 "[goto_pose] Rate limited: %ld ms since last command (min: %f ms)",
+                 elapsed_ms, MIN_COMMAND_INTERVAL_MS);
+    return {};
+  }
+
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[goto_pose] Requested: %f m -> %f mm", position_m, position_mm);
 
   // Match Python: target_user_units = self.zero_pose - user_units
   double target_user_units = zero_pose_ - position_mm;
@@ -221,7 +252,16 @@ std::vector<std::string> ParkerCore::goto_pose(double position_m)
   cmd_stream << "MOV X " << target_user_units;
   std::string cmd = cmd_stream.str();
 
-  auto response = send_telnet(main_sock_, cmd, false);
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[goto_pose] Sending command: %s", cmd.c_str());
+  
+  // Send command non-blocking to avoid delays in the control loop
+  auto response = send_telnet(main_sock_, cmd, true);
+  
+  RCLCPP_INFO(rclcpp::get_logger("ParkerCore"), "[goto_pose] Command response lines: %zu", response.size());
+  // Update rate limiting state
+  last_command_time_ = now;
+  last_commanded_position_ = clamped_position_m;
+
   return response;
 }
 
@@ -303,18 +343,27 @@ void ParkerCore::monitor_position()
 {
   double last_position = -std::numeric_limits<double>::infinity();
   int stationary_count = 0;
+  int cycle_count = 0;
 
   while (monitor_running_) {
     try {
       double current_position;
-      double current_velocity;
       {
         std::lock_guard<std::mutex> lock(monitor_sock_mutex_);
         current_position = get_position_from_socket(monitor_sock_);
-        current_velocity = get_velocity_from_socket(monitor_sock_);
       }
       last_position_ = current_position;
-      last_velocity_ = current_velocity;
+
+      // Only query velocity every 5th cycle to reduce communication load
+      if (cycle_count % 5 == 0) {
+        double current_velocity;
+        {
+          std::lock_guard<std::mutex> lock(monitor_sock_mutex_);
+          current_velocity = get_velocity_from_socket(monitor_sock_);
+        }
+        last_velocity_ = current_velocity;
+      }
+      cycle_count++;
 
       if (!std::isnan(current_position) && !std::isinf(last_position)) {
         double position_delta = std::abs(current_position - last_position);
@@ -331,18 +380,14 @@ void ParkerCore::monitor_position()
 
       last_position = current_position;
 
-      if (is_moving_) {
-        std::cout << "[Monitor] Pos: " << current_position << ", Moving: "
-                  << (is_moving_ ? "true" : "false") << std::endl;
-      }
-
-      std::this_thread::sleep_for(
-        std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
+      // Sleep for the configured interval (now 500ms instead of 100ms)
+      // std::this_thread::sleep_for(
+      //   std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
 
     } catch (const std::exception& e) {
-      std::cerr << "[Monitor thread] Error: " << e.what() << std::endl;
-      std::this_thread::sleep_for(
-        std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
+      RCLCPP_ERROR(rclcpp::get_logger("ParkerCore"), "[Monitor thread] Error: %s", e.what());
+      // std::this_thread::sleep_for(
+      //   std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
     }
   }
 }

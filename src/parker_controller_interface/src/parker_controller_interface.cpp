@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
@@ -28,8 +29,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
   port_ = info_.hardware_parameters.count("port") ?
           std::stoi(info_.hardware_parameters.at("port")) : DEFAULT_PORT;
 
-  // Create Parker driver instance
-  parker_ = std::make_unique<ParkerCore>(host_, port_);
+  // Don't create ParkerCore here - defer to on_configure() to avoid early connection
 
   // Get physical limits
   min_position_ = std::stod(info_.hardware_parameters["min_position"]);
@@ -92,12 +92,25 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_configure(
 {
   RCLCPP_INFO(
     rclcpp::get_logger("ParkerControllerInterface"),
-    "Configuring Parker hardware interface...");
+    "Configuring Parker hardware interface for %s:%d...", host_.c_str(), port_);
+
+  // Clean up any existing connection first
+  if (parker_) {
+    RCLCPP_WARN(
+      rclcpp::get_logger("ParkerControllerInterface"),
+      "Parker driver already exists, closing existing connection...");
+    parker_->close();
+    parker_.reset();
+  }
 
   // Create Parker driver instance
   parker_ = std::make_unique<ParkerCore>(host_, port_);
 
   // Connect to hardware
+  RCLCPP_INFO(
+    rclcpp::get_logger("ParkerControllerInterface"),
+    "Attempting to connect to Parker controller...");
+
   if (!parker_->connect()) {
     RCLCPP_ERROR(
       rclcpp::get_logger("ParkerControllerInterface"),
@@ -107,7 +120,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_configure(
 
   RCLCPP_INFO(
     rclcpp::get_logger("ParkerControllerInterface"),
-    "Connected to Parker controller");
+    "Successfully connected to Parker controller");
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -155,11 +168,29 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_activate(
     rclcpp::get_logger("ParkerControllerInterface"),
     "Activating parker controller interface...");
 
+  // Add delay after connection before sending any commands
+  // This gives the Parker drive time to stabilize after socket connections
+  RCLCPP_INFO(
+    rclcpp::get_logger("ParkerControllerInterface"),
+    "Waiting 1 second for drive to stabilize after connection...");
+  // std::this_thread::sleep_for(std::chrono::seconds(1));
+
   // Initialize motor
   parker_->init_motor();
 
-  // Start position monitoring
+  // Wait for drive to complete initialization before starting monitoring
+  // The E33 "Missing Torque Update" error suggests the drive needs time
+  // to complete its internal setup after DRIVE ON X
+  RCLCPP_INFO(
+    rclcpp::get_logger("ParkerControllerInterface"),
+    "Waiting 2 seconds for drive initialization to complete...");
+  // std::this_thread::sleep_for(std::chrono::seconds(2));
+
+  // Start position monitoring (on separate socket)
   parker_->start_monitoring();
+
+  // Wait a bit before first position query
+  // std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   // Read initial position
   hw_position_state_ = parker_->get_position();
@@ -187,6 +218,36 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_deactivate(
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
+hardware_interface::CallbackReturn ParkerControllerInterface::on_cleanup(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  RCLCPP_INFO(
+    rclcpp::get_logger("ParkerControllerInterface"),
+    "Cleaning up Parker hardware interface...");
+
+  if (parker_) {
+    parker_->close();
+    parker_.reset();
+  }
+
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
+hardware_interface::CallbackReturn ParkerControllerInterface::on_error(
+  const rclcpp_lifecycle::State & /*previous_state*/)
+{
+  RCLCPP_ERROR(
+    rclcpp::get_logger("ParkerControllerInterface"),
+    "Parker hardware interface error, cleaning up...");
+
+  if (parker_) {
+    parker_->close();
+    parker_.reset();
+  }
+
+  return hardware_interface::CallbackReturn::SUCCESS;
+}
+
 hardware_interface::return_type ParkerControllerInterface::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
@@ -195,6 +256,9 @@ hardware_interface::return_type ParkerControllerInterface::read(
   double velocity = parker_->get_last_velocity();
 
   if (!std::isnan(position)) {
+    if(std::isnan(last_commanded_position_)) {
+      last_commanded_position_ = position;
+    }
     hw_position_state_ = position;
   }
 
@@ -208,14 +272,20 @@ hardware_interface::return_type ParkerControllerInterface::read(
 hardware_interface::return_type ParkerControllerInterface::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
+  if(std::isnan(last_commanded_position_)) {
+    return hardware_interface::return_type::OK;
+  }
+
   // Only send command if target has changed significantly from last command
   if (!std::isnan(hw_position_command_)) {
     // Check if this is a new command (different from what we last sent)
-    double command_change = std::isnan(last_commanded_position_) ?
-                            1.0 : std::abs(hw_position_command_ - last_commanded_position_);
+    double command_change = std::abs(hw_position_command_ - last_commanded_position_);
 
     // Only send if command changed by more than 1mm (0.001m)
     if (command_change > 0.001) {
+      RCLCPP_ERROR(
+        rclcpp::get_logger("ParkerControllerInterface"),
+        "Sending new position command: %.4f m", hw_position_command_);
       parker_->goto_pose(hw_position_command_);
       last_commanded_position_ = hw_position_command_;
     }

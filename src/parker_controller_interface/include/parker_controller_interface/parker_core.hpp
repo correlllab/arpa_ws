@@ -7,6 +7,7 @@
 #include <atomic>
 #include <mutex>
 #include <cmath>
+#include <chrono>
 
 namespace parker_controller_interface
 {
@@ -16,13 +17,17 @@ constexpr const char* DEFAULT_HOST = "192.168.100.1";
 constexpr int DEFAULT_PORT = 5002;
 constexpr int TIMEOUT_SEC = 5;
 constexpr double DELAY_BETWEEN_CMDS = 0.2;
-constexpr double POSITION_CHECK_INTERVAL = 0.1;
+constexpr double POSITION_CHECK_INTERVAL = 0.5;  // Increased from 0.1 to reduce communication load
 constexpr double MOVEMENT_THRESHOLD = 0.001;
 constexpr double ENCODER_0_READING = -517891070.0;
 constexpr double ENCODER_PPU = 26214.4;
 constexpr int STATIONARY_THRESHOLD = 5;
 constexpr double MIN_POSITION_MM = 100.0;
 constexpr double MAX_POSITION_MM = 2000.0;
+
+// Rate limiting constants
+constexpr double MIN_COMMAND_INTERVAL_MS = 100.0;  // Minimum 100ms between MOV commands
+constexpr double POSITION_COMMAND_THRESHOLD = 0.001;  // Only send command if position change > 1mm
 
 class ParkerCore
 {
@@ -83,6 +88,11 @@ private:
   std::atomic<double> last_velocity_;
   std::thread monitor_thread_;
   std::mutex monitor_sock_mutex_;
+
+  // Rate limiting state
+  std::chrono::steady_clock::time_point last_command_time_;
+  double last_commanded_position_;
+  std::mutex command_mutex_;
 };
 
 }  // namespace parker_controller_interface
