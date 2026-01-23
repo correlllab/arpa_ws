@@ -42,5 +42,9 @@ joint_trajectory_controller:
       - position
       - velocity
     state_publish_rate: 100.0
-    action_monitor_rate: 20.0
+    action_monitor_rate: 1.0
     allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.3
+      goal_time: 0.0
+      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.5, goal: 0.01 }

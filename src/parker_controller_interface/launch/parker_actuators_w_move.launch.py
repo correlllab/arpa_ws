@@ -142,7 +142,7 @@ def generate_launch_description():
         ],
     )
     delayed_control_node = TimerAction(
-        period=5.0,
+        period=2.5,
         actions=[control_node],
     )
     nodes.append(delayed_control_node)

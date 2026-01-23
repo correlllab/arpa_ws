@@ -336,13 +336,13 @@ void ParkerCore::monitor_position()
                   << (is_moving_ ? "true" : "false") << std::endl;
       }
 
-      std::this_thread::sleep_for(
-        std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
+      // std::this_thread::sleep_for(
+      //   std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
 
     } catch (const std::exception& e) {
       std::cerr << "[Monitor thread] Error: " << e.what() << std::endl;
-      std::this_thread::sleep_for(
-        std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
+      // std::this_thread::sleep_for(
+      //   std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
     }
   }
 }

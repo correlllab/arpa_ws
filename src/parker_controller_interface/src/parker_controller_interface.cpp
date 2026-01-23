@@ -215,7 +215,7 @@ hardware_interface::return_type ParkerControllerInterface::write(
                             1.0 : std::abs(hw_position_command_ - last_commanded_position_);
 
     // Only send if command changed by more than 1mm (0.001m)
-    if (command_change > 0.001) {
+    if (command_change > 0.25) {
       parker_->goto_pose(hw_position_command_);
       last_commanded_position_ = hw_position_command_;
     }
