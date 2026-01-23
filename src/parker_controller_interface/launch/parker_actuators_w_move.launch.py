@@ -61,7 +61,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "robot_controller",
-            default_value="forward_position_controller",
+            default_value="joint_trajectory_controller",
             description="Robot controller to start.",
         )
     )
@@ -142,7 +142,7 @@ def generate_launch_description():
         ],
     )
     delayed_control_node = TimerAction(
-        period=10.0,
+        period=5.0,
         actions=[control_node],
     )
     nodes.append(delayed_control_node)
@@ -246,14 +246,12 @@ def generate_launch_description():
     ompl_planning_yaml = load_yaml("parker_controller_interface", "config/ompl_planning.yaml")
     ompl_planning_pipeline_config["move_group"].update(ompl_planning_yaml)
 
-    # Trajectory Execution Configuration
-    controllers_yaml = load_yaml("parker_controller_interface", "config/moveit_controllers.yaml")
-    # the scaled_joint_trajectory_controller does not work on fake hardware
-    
-    moveit_controllers = {
-        "moveit_simple_controller_manager": controllers_yaml,
-        "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
-    }
+    moveit_controllers_yaml = load_yaml(
+        "parker_controller_interface",
+        os.path.join("config", "moveit_controllers.yaml"),
+    )
+
+    moveit_controllers = {"moveit_simple_controller_manager": moveit_controllers_yaml}
 
     trajectory_execution = {
         "moveit_manage_controllers": False,
@@ -271,6 +269,19 @@ def generate_launch_description():
         "publish_transforms_updates": True,
     }
 
+    moveit_controller_params = {
+        "moveit_controller_manager": "moveit_simple_controller_manager/MoveItSimpleControllerManager",
+
+        "moveit_simple_controller_manager.controller_names": ["joint_trajectory_controller"],
+
+        "moveit_simple_controller_manager.joint_trajectory_controller.type": "FollowJointTrajectory",
+        "moveit_simple_controller_manager.joint_trajectory_controller.action_ns": "follow_joint_trajectory",
+        "moveit_simple_controller_manager.joint_trajectory_controller.default": True,
+        "moveit_simple_controller_manager.joint_trajectory_controller.joints": [
+            "linear_actuator_to_linear_actuator_plate_joint"
+        ],
+    }
+
     # Start the actual move_group node/action server
     move_group_node = Node(
         package="moveit_ros_move_group",
@@ -284,7 +295,7 @@ def generate_launch_description():
             robot_description_planning,
             ompl_planning_pipeline_config,
             trajectory_execution,
-            moveit_controllers,
+            moveit_controller_params,
             planning_scene_monitor_parameters,
             {"use_sim_time": False},
         ],

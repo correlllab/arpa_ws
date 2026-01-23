@@ -5,7 +5,7 @@
       <joint name="linear_actuator_to_linear_actuator_plate_joint"/>
     </group>
     <group_state name="actuator_home" group="parker_linear_actuator">
-      <joint name="linear_actuator_to_linear_actuator_plate_joint" value="-1.12"/>
+      <joint name="linear_actuator_to_linear_actuator_plate_joint" value="0.9"/>
     </group_state>
     <virtual_joint name="world" type="fixed" parent_frame="world" child_link="${prefix}floor_link"/>
     <disable_collisions link1="${prefix}linear_actuator_link" link2="${prefix}linear_actuator_plate_link" reason="Adjacent"/>

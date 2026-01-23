@@ -1,14 +1,9 @@
-# No trajectory controllers - using position controller directly
-# MoveIt will plan but not execute trajectories
-controller_names: [forward_position_controller]
+controller_names:
+  - parker_linear_actuator
 
-# controller_names:
-#   - parker_linear_actuator
-
-# # Parker linear actuator controller
-# parker_linear_actuator:
-#   action_ns: follow_joint_trajectory
-#   type: FollowJointTrajectory
-#   default: true
-#   joints:
-#     - linear_actuator_to_linear_actuator_plate_joint
+parker_linear_actuator:
+  type: FollowJointTrajectory
+  action_ns: /joint_trajectory_controller/follow_joint_trajectory
+  default: true
+  joints:
+    - linear_actuator_to_linear_actuator_plate_joint

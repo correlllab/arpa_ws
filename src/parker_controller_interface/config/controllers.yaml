@@ -6,11 +6,11 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
-    forward_position_controller:
-      type: position_controllers/JointGroupPositionController
+    # forward_position_controller:
+    #   type: position_controllers/JointGroupPositionController
 
-    # joint_trajectory_controller:
-    #   type: joint_trajectory_controller/JointTrajectoryController
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
 
 # Joint State Broadcaster - publishes joint states to /joint_states
 joint_state_broadcaster:
@@ -21,18 +21,7 @@ joint_state_broadcaster:
       - position
 
 # Position Controller - accepts position commands
-forward_position_controller:
-  ros__parameters:
-    joints:
-      - linear_actuator_to_linear_actuator_plate_joint
-    command_interfaces:
-      - position
-    state_interfaces:
-      - position
-      - velocity
-
-
-# joint_trajectory_controller:
+# forward_position_controller:
 #   ros__parameters:
 #     joints:
 #       - linear_actuator_to_linear_actuator_plate_joint
@@ -41,6 +30,17 @@ forward_position_controller:
 #     state_interfaces:
 #       - position
 #       - velocity
-#     state_publish_rate: 300.0
-#     action_monitor_rate: 20.0
-#     allow_partial_joints_goal: false
+
+
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - linear_actuator_to_linear_actuator_plate_joint
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 100.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
