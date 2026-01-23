@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, RegisterEventHandler, TimerAction
 from launch.conditions import IfCondition
-from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 
 from launch_ros.actions import Node
@@ -61,7 +61,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "robot_controller",
-            default_value="joint_trajectory_controller",
+            default_value="forward_position_controller",
             description="Robot controller to start.",
         )
     )
@@ -122,6 +122,16 @@ def generate_launch_description():
 
     nodes = []
 
+    # Robot state publisher launches immediately
+    robot_state_pub_node = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="both",
+        parameters=[robot_description],
+    )
+    nodes.append(robot_state_pub_node)
+
+    # ros2_control_node with 10 second delay
     control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
@@ -131,15 +141,11 @@ def generate_launch_description():
             ("~/robot_description", "/robot_description"),
         ],
     )
-    nodes.append(control_node)
-
-    robot_state_pub_node = Node(
-        package="robot_state_publisher",
-        executable="robot_state_publisher",
-        output="both",
-        parameters=[robot_description],
+    delayed_control_node = TimerAction(
+        period=10.0,
+        actions=[control_node],
     )
-    nodes.append(robot_state_pub_node)
+    nodes.append(delayed_control_node)
 
 
 
@@ -149,7 +155,15 @@ def generate_launch_description():
         executable="spawner",
         arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
     )
-    nodes.append(joint_state_broadcaster_spawner)
+
+    # Delay joint_state_broadcaster_spawner until after control_node starts
+    delay_joint_state_broadcaster_after_control_node = RegisterEventHandler(
+        event_handler=OnProcessStart(
+            target_action=control_node,
+            on_start=[joint_state_broadcaster_spawner],
+        )
+    )
+    nodes.append(delay_joint_state_broadcaster_after_control_node)
 
     
 
