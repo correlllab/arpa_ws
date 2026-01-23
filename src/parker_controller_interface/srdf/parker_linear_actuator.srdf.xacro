@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot xmlns:xacro="http://wiki.ros.org/xacro" name="parker_linear_actuator">
+
+  <xacro:arg name="name" default=""/>
+  <xacro:arg name="prefix" default="" />
+
+  <xacro:include filename="$(find parker_controller_interface)/srdf/parker_linear_actuator_macro.srdf.xacro"/>
+
+  <xacro:parker_linear_actuator_only name="" prefix="$(arg prefix)"/>
+
+</robot>

@@ -30,12 +30,14 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
 
   // Create Parker driver instance
   parker_ = std::make_unique<ParkerCore>(host_, port_);
-
+  RCLCPP_ERROR(
+    rclcpp::get_logger("ParkerControllerInterface"),
+    "CREATED PARKER CORE OBJECT");
   // Get physical limits
   min_position_ = std::stod(info_.hardware_parameters["min_position"]);
   max_position_ = std::stod(info_.hardware_parameters["max_position"]);
   max_velocity_ = std::stod(info_.hardware_parameters["max_velocity"]);
-  max_effort_ = std::stod(info_.hardware_parameters["max_effort"]);
+  // max_effort_ = std::stod(info_.hardware_parameters["max_effort"]);
 
   // Initialize state and command variables
   hw_position_state_ = std::numeric_limits<double>::quiet_NaN();
@@ -43,7 +45,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
   hw_effort_state_ = std::numeric_limits<double>::quiet_NaN();
   hw_position_command_ = std::numeric_limits<double>::quiet_NaN();
   hw_velocity_command_ = std::numeric_limits<double>::quiet_NaN();
-  hw_effort_command_ = std::numeric_limits<double>::quiet_NaN();
+  // hw_effort_command_ = std::numeric_limits<double>::quiet_NaN();
 
   // Validate configuration - expect exactly one joint
   if (info_.joints.size() != 1) {
@@ -94,9 +96,6 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_configure(
     rclcpp::get_logger("ParkerControllerInterface"),
     "Configuring Parker hardware interface...");
 
-  // Create Parker driver instance
-  parker_ = std::make_unique<ParkerCore>(host_, port_);
-
   // Connect to hardware
   if (!parker_->connect()) {
     RCLCPP_ERROR(
@@ -104,6 +103,9 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_configure(
       "Failed to connect to Parker controller at %s:%d", host_.c_str(), port_);
     return hardware_interface::CallbackReturn::ERROR;
   }
+
+  // Initialize motor
+  parker_->init_motor();
 
   RCLCPP_INFO(
     rclcpp::get_logger("ParkerControllerInterface"),
@@ -155,8 +157,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_activate(
     rclcpp::get_logger("ParkerControllerInterface"),
     "Activating parker controller interface...");
 
-  // Initialize motor
-  parker_->init_motor();
+  
 
   // Start position monitoring
   parker_->start_monitoring();
@@ -208,6 +209,10 @@ hardware_interface::return_type ParkerControllerInterface::read(
 hardware_interface::return_type ParkerControllerInterface::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
+
+  RCLCPP_ERROR(
+    rclcpp::get_logger("ParkerControllerInterface"),
+    "Commanded position: %.4f m", hw_position_command_);
   // Only send command if target has changed significantly from last command
   if (!std::isnan(hw_position_command_)) {
     // Check if this is a new command (different from what we last sent)
@@ -216,7 +221,10 @@ hardware_interface::return_type ParkerControllerInterface::write(
 
     // Only send if command changed by more than 1mm (0.001m)
     if (command_change > 0.001) {
-      parker_->goto_pose(hw_position_command_);
+  //     parker_->goto_pose(hw_position_command_);
+      RCLCPP_WARN(
+      rclcpp::get_logger("ParkerControllerInterface"),
+      "Commanded position: %.4f m", hw_position_command_);
       last_commanded_position_ = hw_position_command_;
     }
   }

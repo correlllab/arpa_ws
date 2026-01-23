@@ -78,7 +78,7 @@ install(TARGETS ${PROJECT_NAME}
   RUNTIME DESTINATION bin
 )
 
-install(DIRECTORY urdf config launch
+install(DIRECTORY urdf config srdf launch
   DESTINATION share/${PROJECT_NAME}
 )
 
