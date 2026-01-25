@@ -11,6 +11,8 @@
 
 namespace parker_controller_interface
 {
+  rclcpp::Clock steady_clock{RCL_STEADY_TIME};
+
 hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
   const hardware_interface::HardwareInfo & info)
 {
@@ -37,13 +39,17 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
   max_velocity_ = std::stod(info_.hardware_parameters["max_velocity"]);
   max_effort_ = std::stod(info_.hardware_parameters["max_effort"]);
 
+  // Get controller type: "POS" for position-only, "VEL" for velocity control
+  // controller_type_ = info_.hardware_parameters.count("controller_type") ?
+  //                    info_.hardware_parameters.at("controller_type") : "POS";
+  controller_type_ = "POS";
   // Initialize state and command variables
   hw_position_state_ = std::numeric_limits<double>::quiet_NaN();
   hw_velocity_state_ = std::numeric_limits<double>::quiet_NaN();
-  hw_effort_state_ = std::numeric_limits<double>::quiet_NaN();
+  // hw_effort_state_ = std::numeric_limits<double>::quiet_NaN();
   hw_position_command_ = std::numeric_limits<double>::quiet_NaN();
   hw_velocity_command_ = std::numeric_limits<double>::quiet_NaN();
-  hw_effort_command_ = std::numeric_limits<double>::quiet_NaN();
+  // hw_effort_command_ = std::numeric_limits<double>::quiet_NaN();
 
   // Validate configuration - expect exactly one joint
   if (info_.joints.size() != 1) {
@@ -56,13 +62,12 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
   const auto & joint = info_.joints[0];
   joint_name_ = joint.name;
 
-  // Validate joint has position command interface
-  if (joint.command_interfaces.size() != 1 ||
-      joint.command_interfaces[0].name != hardware_interface::HW_IF_POSITION)
+  // Validate joint has position and velocity command interfaces
+  if (joint.command_interfaces.size() != 2)
   {
     RCLCPP_ERROR(
       rclcpp::get_logger("ParkerControllerInterface"),
-      "Joint '%s' must have exactly one position command interface", joint_name_.c_str());
+      "Joint '%s' must have exactly two command interfaces (position and velocity)", joint_name_.c_str());
     return hardware_interface::CallbackReturn::ERROR;
   }
 
@@ -75,15 +80,15 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_init(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  // Initialize state
-  hw_position_state_ = std::numeric_limits<double>::quiet_NaN();
-  hw_position_command_ = std::numeric_limits<double>::quiet_NaN();
-
   RCLCPP_INFO(
     rclcpp::get_logger("ParkerControllerInterface"),
     "Initialized with host=%s, port=%d, joint=%s",
     host_.c_str(), port_, joint_name_.c_str());
 
+
+
+  last_write_time_ = std::chrono::steady_clock::now();
+  magic_five_counter_ = 0;
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -139,8 +144,8 @@ ParkerControllerInterface::export_command_interfaces()
   command_interfaces.emplace_back(hardware_interface::CommandInterface(
     info_.joints[0].name, hardware_interface::HW_IF_POSITION, &hw_position_command_));
   
-  // command_interfaces.emplace_back(hardware_interface::CommandInterface(
-  //   info_.joints[0].name, hardware_interface::HW_IF_VELOCITY, &hw_velocity_command_));
+  command_interfaces.emplace_back(hardware_interface::CommandInterface(
+    info_.joints[0].name, hardware_interface::HW_IF_VELOCITY, &hw_velocity_command_));
   
   // command_interfaces.emplace_back(hardware_interface::CommandInterface(
   //   info_.joints[0].name, hardware_interface::HW_IF_EFFORT, &hw_effort_command_));
@@ -164,7 +169,7 @@ hardware_interface::CallbackReturn ParkerControllerInterface::on_activate(
   // Read initial position
   hw_position_state_ = parker_->get_position();
   hw_position_command_ = hw_position_state_;
-  last_commanded_position_ = std::numeric_limits<double>::quiet_NaN();
+  last_commanded_position_ = hw_position_state_;
 
   RCLCPP_INFO(
     rclcpp::get_logger("ParkerControllerInterface"),
@@ -202,23 +207,80 @@ hardware_interface::return_type ParkerControllerInterface::read(
     hw_velocity_state_ = velocity;
   }
 
+  // ROS LOG FOR READ POSITION AND VELOCITY
+  RCLCPP_INFO_THROTTLE(
+    rclcpp::get_logger("ParkerControllerInterface"), steady_clock, 250,
+    "Read position: %.4f m, velocity: %.4f m/s", position, velocity);
+
   return hardware_interface::return_type::OK;
 }
 
 hardware_interface::return_type ParkerControllerInterface::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  // Only send command if target has changed significantly from last command
-  if (!std::isnan(hw_position_command_)) {
-    // Check if this is a new command (different from what we last sent)
-    double command_change = std::isnan(last_commanded_position_) ?
-                            1.0 : std::abs(hw_position_command_ - last_commanded_position_);
+  // Only send at a fixed rate
+  if (std::chrono::steady_clock::now() - last_write_time_ <
+      std::chrono::milliseconds(200))
+  {
+    return hardware_interface::return_type::OK;
+  }
+  last_write_time_ = std::chrono::steady_clock::now();
 
-    // Only send if command changed by more than 1mm (0.001m)
-    if (command_change > 0.25) {
+  if (std::isnan(hw_position_command_)) {
+    return hardware_interface::return_type::OK;
+  }
+
+  if (controller_type_ == "VEL") {
+    // Velocity control with position feedback (P-controller)
+    if (!std::isnan(hw_position_state_)) {
+      double position_error = hw_position_command_ - hw_position_state_;
+
+      // Feedforward velocity from trajectory + proportional correction
+      double Kp = 2.0;
+      double feedforward_velocity = std::isnan(hw_velocity_command_) ? 0.0 : hw_velocity_command_;
+      double commanded_velocity = feedforward_velocity + (Kp * position_error);
+
+      // Clamp to velocity limits (m/s)
+      double max_vel = 0.5;
+      commanded_velocity = std::max(-max_vel, std::min(commanded_velocity, max_vel));
+
+      // Convert to mm/s for Parker
+      double velocity_mm_s = std::abs(commanded_velocity) * 1000.0;
+
+      // Deadband to prevent jitter (5mm/s minimum)
+      constexpr double deadband_mm_s = 5.0;
+
+      if (velocity_mm_s < deadband_mm_s) {
+        parker_->jog_off();
+      } else if (commanded_velocity > 0) {
+        parker_->jog_reverse(velocity_mm_s);
+      } else {
+        parker_->jog_forward(velocity_mm_s);
+      }
+
+      RCLCPP_INFO(
+        rclcpp::get_logger("ParkerControllerInterface"),
+        "[VEL] Pos cmd: %.4f, State: %.4f, Err: %.4f, Vel: %.4f m/s",
+        hw_position_command_, hw_position_state_, position_error, commanded_velocity);
+    }
+  } else {
+      if(hw_position_command_ == last_commanded_position_) {
+          magic_five_counter_++;
+          if(magic_five_counter_ > 5) {
+              return hardware_interface::return_type::OK;
+          }
+      } else {
+          magic_five_counter_ = 0;
+      }
+
+      parker_->set_velocity(hw_velocity_command_);
       parker_->goto_pose(hw_position_command_);
       last_commanded_position_ = hw_position_command_;
-    }
+
+      RCLCPP_INFO(
+        rclcpp::get_logger("ParkerControllerInterface"),
+        "[POS] Sending position: %.4f m, velocity: %.4f m/s",
+        hw_position_command_, hw_velocity_command_);
   }
 
   return hardware_interface::return_type::OK;

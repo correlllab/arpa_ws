@@ -2,6 +2,7 @@
 import socket
 import time
 import threading
+import random
 
 
 # -------------------------
@@ -13,13 +14,12 @@ TIMEOUT = 5                  # Socket timeout in seconds
 DELAY_BETWEEN_CMDS = 0.2     # seconds to wait after each command
 POSITION_CHECK_INTERVAL = 0.1  # seconds between position checks
 MOVEMENT_THRESHOLD = 0.0001   # minimum change to consider as movement
-ENCODER_0_READING = -572820424
+ENCODER_0_READING = -517830855
 ENCODER_PPU = 26214.4
 STATIONARY_THRESHOLD = 5  # Number of consecutive stationary readings
 MIN_POSITION_MM = 100.0  # Minimum valid position in mm
-MAX_POSITION_MM = 2000.0  # Maximum valid position in mm
-
-
+MAX_POSITION_MM = 2000.0  # Maximum valid position in 
+MAX_VEL = 1000.0
 
 # -------------------------
 # Socket-based client class
@@ -60,8 +60,8 @@ class SocketTelnetClient:
         if self._monitor_thread:
             self._monitor_thread.join(timeout=2.0)
         self._monitor_sock.close()
-        
-    def send_telnet(self, sock: socket.socket, message: str) -> list[str]:
+
+    def send_telnet(self, sock: socket.socket, message: str, blocking=True) -> list[str]:
         """
         Send a string message over the specified socket and read the response.
         Ensures the message ends with CRLF before sending.
@@ -70,6 +70,8 @@ class SocketTelnetClient:
         if not message.endswith("\r\n"):
             message = message + "\r\n"
         sock.sendall(message.encode("ascii"))
+        if not blocking:
+            return []
 
         # Read response until finished
         response = ""
@@ -97,8 +99,22 @@ class SocketTelnetClient:
         prog0_response = self.send_telnet(self.main_sock, "PROG0")
         # print(f"[Init motor]{prog0_response}")
         drive_response = self.send_telnet(self.main_sock, "DRIVE ON X")
+
+        # acc_response = self.send_telnet(self.main_sock, "JOG ACC X 500")
+        # dec_response = self.send_telnet(self.main_sock, "JOG DEC X 500")
+
+
         # print(f"[Init motor]{drive_response}")
 
+    def set_velocity(self, velocity_mm_s: float):
+        dir_cmd = None
+        if velocity_mm_s == 0:
+            dir_cmd = "JOG OFF X"
+        elif velocity_mm_s < 0:
+            dir_cmd = "JOG REV X"
+        elif velocity_mm_s > 0:
+            dir_cmd = "JOG FWD X"
+        
     def goto_pose(self, user_units) -> list[str]:
         user_units = float(user_units)
         user_units = min(MAX_POSITION_MM, max(user_units, MIN_POSITION_MM))
@@ -154,9 +170,7 @@ class SocketTelnetClient:
 
                 last_position = current_position
 
-                # Only print when moving
-                if self.is_moving:
-                    print(f"[Monitor] Pos: {current_position:.4f}, Moving: {self.is_moving}")
+                print(f"[Monitor] Pos: {current_position:.4f}, Moving: {self.is_moving}")
 
                 time.sleep(POSITION_CHECK_INTERVAL)
 
@@ -177,35 +191,196 @@ class SocketTelnetClient:
         except:
             pass
 
+    def set_velocity(self, velocity_m_s: float):
+        velocity_mm_s = abs(velocity_m_s) * 1000.0
+        cmd = f"VEL {velocity_mm_s}"
+        self.send_telnet(self.main_sock, cmd, blocking=False)
+
+    def measure_throughput(self, n_seconds: float) -> dict:
+        """
+        Measure message throughput by sending random commands and waiting for responses.
+
+        Args:
+            n_seconds: Duration to run the test in seconds
+
+        Returns:
+            Dictionary with throughput statistics
+        """
+        # Define the message types to send
+        i = 10
+        def get_random_message():
+            nonlocal i
+            #msg_type = random.choice(['goto_pose', 'init_motor', 'monitoring'])
+            # msg_type = random.choice(['goto_pose'])
+            msg_type = random.choice(['velocity'])
+
+            if msg_type == 'goto_pose':
+                position_mm = min(i*10, 2000)
+                i+=1
+                if position_mm == 2000:
+                    return "done", 'done'
+                position_mm = min(MAX_POSITION_MM, max(position_mm, MIN_POSITION_MM))
+                target = self.zero_pose - position_mm
+                return f"MOV X {target}", 'goto_pose'
+            elif msg_type == 'init_motor':
+                cmd = random.choice(["PROG0", "DRIVE ON X"])
+                return cmd, 'init_motor'
+            elif msg_type == 'velocity':
+                velocity = random.uniform(-MAX_VEL, MAX_VEL)
+                cmd = f"VEL {velocity}"
+                return cmd, 'velocity'
+            else:  # monitoring
+                cmd = random.choice([
+                    "PRINT(P12290/P12375)",  # position
+                    "PRINT(P28741*60)",       # velocity
+                ])
+                return cmd, 'monitoring'
+
+        start_time = time.time()
+        end_time = start_time + n_seconds
+
+        total_count = 0
+        success_count = 0
+        error_count = 0
+        counts_by_type = {'goto_pose': 0, 'init_motor': 0, 'monitoring': 0}
+        latencies = []
+
+        print(f"[Throughput] Starting {n_seconds}s throughput test...")
+
+        while time.time() < end_time:
+            msg, msg_type = get_random_message()
+            if msg == "done":
+                break
+            msg_start = time.time()
+
+            try:
+                response = self.send_telnet(self.main_sock, msg, blocking=False)
+                msg_end = time.time()
+
+                latencies.append(msg_end - msg_start)
+                success_count += 1
+                counts_by_type[msg_type] += 1
+            except Exception as e:
+                error_count += 1
+                print(f"[Throughput] Error: {e}")
+
+            total_count += 1
+
+        elapsed = time.time() - start_time
+        avg_latency = sum(latencies) / len(latencies) if latencies else 0
+        min_latency = min(latencies) if latencies else 0
+        max_latency = max(latencies) if latencies else 0
+
+        results = {
+            'duration_seconds': elapsed,
+            'total_messages': total_count,
+            'successful_pairs': success_count,
+            'errors': error_count,
+            'messages_per_second': success_count / elapsed if elapsed > 0 else 0,
+            'avg_latency_ms': avg_latency * 1000,
+            'min_latency_ms': min_latency * 1000,
+            'max_latency_ms': max_latency * 1000,
+            'counts_by_type': counts_by_type,
+        }
+
+        print(f"\n[Throughput] Results:")
+        print(f"  Duration: {elapsed:.2f}s")
+        print(f"  Successful message/response pairs: {success_count}")
+        print(f"  Errors: {error_count}")
+        print(f"  Throughput: {results['messages_per_second']:.2f} msg/s")
+        print(f"  Latency (avg/min/max): {avg_latency*1000:.1f}ms / {min_latency*1000:.1f}ms / {max_latency*1000:.1f}ms")
+        print(f"  By type: {counts_by_type}")
+
+        return results
+
+
+
 # -------------------------
 # Main script
 # -------------------------
 if __name__ == "__main__":
     client = SocketTelnetClient()
     client.init_motor()
+    time.sleep(1)
     client.start_monitoring()
-    time.sleep(3)
-    inp = ""
-    try:
-        while inp.lower() != "q":
-            valid_input = False
-            while not valid_input:
-                inp = input("\nEnter user_units to move to (or 'q' to quit): ")
-                if inp.lower() == "q" or inp.isnumeric():
-                    valid_input = True
-                else:
-                    print("Invalid input")
+    client.send_telnet(client.main_sock, f"STP 500", blocking=True)
+    client.send_telnet(client.main_sock, f"MOV X {client.zero_pose - 100}", blocking=True)
+    client.send_telnet(client.main_sock, f"STP 0", blocking=True)
+
+
+    input("Press Enter to start test moves...")
+
+
+    # client.send_telnet(client.main_sock, f"MOV X {client.zero_pose - 1900}", blocking=False)
+    # time.sleep(1)
+    # client.send_telnet(client.main_sock, f"VEL 0", blocking=False)
+
+    # client.measure_throughput(5)
+    import numpy as np
+
+    low, high = 0.1, 1.9
+
+
+    t = np.linspace(0, 1, 1000)
+    
+
+    # Smooth ramp up then ramp down (cosine easing): starts at low, peaks at high (middle), ends at low
+
+    v_range = np.concatenate((
+        np.linspace(0.0, 1.0, 250, endpoint=False),
+        np.linspace(1.0, 0.0, 250, endpoint=True),
+    ))
+    v_range *= 500
+    print(v_range)
+
+    y_range = low + (high - low) * 0.5 * (1 - np.cos(2 * np.pi * t))
+    y_range = y_range[:len(y_range)//2]
+    print(len(v_range))
+    print(len(y_range))
+    assert len(y_range) == len(v_range)
+    for y,v in zip(y_range, v_range):
+        target = y*1000
+        print(target)
+        if y == y_range[-1]:
+            client.send_telnet(client.main_sock, f"STP 500", blocking=True)
+        # client.send_telnet(client.main_sock, f"ABORT 0", blocking=False)
+        client.send_telnet(client.main_sock, f"VEL {v}", blocking=False)
+        # print(f"s{}")
+        client.send_telnet(client.main_sock, f"MOV X {client.zero_pose - target}", blocking=False)
+        
+        time.sleep(0.01)
+
+    # client.send_telnet(client.main_sock, f"MOV X {client.zero_pose - 1800}", blocking=False)
+    # time.sleep(1)
+    # print("SENDING NEXT")
+    # client.send_telnet(client.main_sock, f"MOV X {client.zero_pose - 100}", blocking=False)
+
+    # time.sleep(2)
+    # 
+    # input("press Enter to continue...")
+    # client.measure_throughput(10)
+    # time.sleep(3)
+    # inp = ""
+    # try:
+    #     while inp.lower() != "q":
+    #         valid_input = False
+    #         while not valid_input:
+    #             inp = input("\nEnter user_units to move to (or 'q' to quit): ")
+    #             if inp.lower() == "q" or inp.isnumeric():
+    #                 valid_input = True
+    #             else:
+    #                 print("Invalid input")
                 
-            if inp.lower() != "q":                
-                resp = client.goto_pose(inp)
+    #         if inp.lower() != "q":                
+    #             resp = client.goto_pose(inp)
                 
-                # Wait for movement to complete
-            while client.is_moving:
-                time.sleep(0.01)
-            print("Movement complete!")
-    except KeyboardInterrupt:
-        print("\nInterrupted by user")
-    except Exception as e:
-        print(f"Error during command execution: {e}")
-    finally:
-        client.close()
+    #             # Wait for movement to complete
+    #         while client.is_moving:
+    #             time.sleep(0.01)
+    #         print("Movement complete!")
+    # except KeyboardInterrupt:
+    #     print("\nInterrupted by user")
+    # except Exception as e:
+    #     print(f"Error during command execution: {e}")
+    # finally:
+    #     client.close()

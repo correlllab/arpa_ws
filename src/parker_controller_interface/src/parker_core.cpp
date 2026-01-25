@@ -22,7 +22,6 @@ ParkerCore::ParkerCore(const std::string& host, int port, int timeout_sec)
   main_sock_(-1),
   monitor_sock_(-1),
   zero_pose_(ENCODER_0_READING / ENCODER_PPU),
-  is_moving_(false),
   monitor_running_(false),
   last_position_(std::nan("")),
   last_velocity_(std::nan(""))
@@ -194,12 +193,31 @@ void ParkerCore::init_motor()
     std::cout << "[Init motor] PROG0: " << line << std::endl;
   }
 
-  std::cout << "[Init motor] Sending DRIVE ON X..." << std::endl;
   auto drive_response = send_telnet(main_sock_, "DRIVE ON X");
   std::cout << "[Init motor] DRIVE ON X response lines: " << drive_response.size() << std::endl;
   for (const auto& line : drive_response) {
     std::cout << "[Init motor] DRIVE ON X: " << line << std::endl;
   }
+
+  auto stp_response = send_telnet(main_sock_, "STP 0");
+  std::cout << "[Init motor] STP 0 response lines: " << stp_response.size() << std::endl;
+  for (const auto& line : stp_response) {
+    std::cout << "[Init motor] STP 0: " << line << std::endl;
+  }
+
+}
+
+std::vector<std::string> ParkerCore::set_velocity(double velocity_m_per_s)
+{
+  double velocity_mm_per_sec = std::abs(velocity_m_per_s) * 1000.0;
+
+  std::string cmd = "VEL " + std::to_string(velocity_mm_per_sec);
+
+  // Print Sent Command
+  // std::cout << "[set_velocity] Sending command: " << cmd << std::endl;
+
+  auto response = send_telnet(main_sock_, cmd, false);
+  return response;
 }
 
 std::vector<std::string> ParkerCore::goto_pose(double position_m)
@@ -212,7 +230,7 @@ std::vector<std::string> ParkerCore::goto_pose(double position_m)
   // Clamp to valid range [100, 2000] mm
   position_mm = std::max(MIN_POSITION_MM, std::min(position_mm, MAX_POSITION_MM));
 
-  std::cout << "[goto_pose] Requested: " << position_m << " m -> " << position_mm << " mm" << std::endl;
+  // std::cout << "[goto_pose] Requested: " << position_m << " m -> " << position_mm << " mm" << std::endl;
 
   // Match Python: target_user_units = self.zero_pose - user_units
   double target_user_units = zero_pose_ - position_mm;
@@ -221,8 +239,32 @@ std::vector<std::string> ParkerCore::goto_pose(double position_m)
   cmd_stream << "MOV X " << target_user_units;
   std::string cmd = cmd_stream.str();
 
+  // Print Sent Command
+  // std::cout << "[goto_pose] Sending command: " << cmd << std::endl;
+
   auto response = send_telnet(main_sock_, cmd, false);
   return response;
+}
+
+void ParkerCore::jog_forward(double velocity_mm_per_s)
+{
+  // Set JOG velocity and start forward jog
+  std::string vel_cmd = "JOG VEL X " + std::to_string(velocity_mm_per_s);
+  send_telnet(main_sock_, vel_cmd, false);
+  send_telnet(main_sock_, "JOG FWD X", false);
+}
+
+void ParkerCore::jog_reverse(double velocity_mm_per_s)
+{
+  // Set JOG velocity and start reverse jog
+  std::string vel_cmd = "JOG VEL X " + std::to_string(velocity_mm_per_s);
+  send_telnet(main_sock_, vel_cmd, false);
+  send_telnet(main_sock_, "JOG REV X", false);
+}
+
+void ParkerCore::jog_off()
+{
+  send_telnet(main_sock_, "JOG OFF X", false);
 }
 
 double ParkerCore::get_position()
@@ -284,11 +326,6 @@ void ParkerCore::stop_monitoring()
   }
 }
 
-bool ParkerCore::is_moving() const
-{
-  return is_moving_;
-}
-
 double ParkerCore::get_last_position() const
 {
   return last_position_;
@@ -301,8 +338,6 @@ double ParkerCore::get_last_velocity() const
 
 void ParkerCore::monitor_position()
 {
-  double last_position = -std::numeric_limits<double>::infinity();
-  int stationary_count = 0;
 
   while (monitor_running_) {
     try {
@@ -316,33 +351,13 @@ void ParkerCore::monitor_position()
       last_position_ = current_position;
       last_velocity_ = current_velocity;
 
-      if (!std::isnan(current_position) && !std::isinf(last_position)) {
-        double position_delta = std::abs(current_position - last_position);
-        if (position_delta > MOVEMENT_THRESHOLD) {
-          is_moving_ = true;
-          stationary_count = 0;
-        } else {
-          stationary_count++;
-          if (stationary_count >= STATIONARY_THRESHOLD) {
-            is_moving_ = false;
-          }
-        }
-      }
+      // std::cout << "[Monitor] Pos: " << current_position << std::endl;
 
-      last_position = current_position;
-
-      if (is_moving_) {
-        std::cout << "[Monitor] Pos: " << current_position << ", Moving: "
-                  << (is_moving_ ? "true" : "false") << std::endl;
-      }
-
-      // std::this_thread::sleep_for(
-      //   std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
+      std::this_thread::sleep_for(
+        std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL_MS)));
 
     } catch (const std::exception& e) {
       std::cerr << "[Monitor thread] Error: " << e.what() << std::endl;
-      // std::this_thread::sleep_for(
-      //   std::chrono::milliseconds(static_cast<int>(POSITION_CHECK_INTERVAL * 1000)));
     }
   }
 }

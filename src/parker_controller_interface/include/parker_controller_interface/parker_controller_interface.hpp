@@ -76,6 +76,12 @@ private:
 
   // Track last commanded position to avoid redundant commands
   double last_commanded_position_;
+
+  // Control mode: "POS" for position-only, "VEL" for velocity control with P-feedback
+  std::string controller_type_;
+
+  std::chrono::steady_clock::time_point last_write_time_;
+  int magic_five_counter_;
 };
 
 }  // namespace parker_controller_interface

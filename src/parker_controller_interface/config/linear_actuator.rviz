@@ -7,7 +7,7 @@ Panels:
         - /Global Options1
         - /Status1
       Splitter Ratio: 0.5
-    Tree Height: 497
+    Tree Height: 442
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -105,7 +105,7 @@ Visualization Manager:
                 {}
       Update Interval: 0
       Value: true
-    - Acceleration_Scaling_Factor: 0.1
+    - Acceleration_Scaling_Factor: 1
       Class: moveit_rviz_plugin/MotionPlanning
       Enabled: true
       Move Group Namespace: ""
@@ -224,7 +224,7 @@ Visualization Manager:
         Show Robot Collision: false
         Show Robot Visual: true
       Value: true
-      Velocity_Scaling_Factor: 0.1
+      Velocity_Scaling_Factor: 1
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -259,24 +259,24 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: -0.09000047296285629
+      Pitch: 0.07499954104423523
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 5.965002536773682
+      Yaw: 4.709997653961182
     Saved: ~
 Window Geometry:
-  "":
-    collapsed: false
-  " - Trajectory Slider":
-    collapsed: false
   Displays:
     collapsed: false
   Height: 1545
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd0000000100000000000001c9000005b3fc0200000004fb000000100044006900730070006c006100790073010000003b00000272000000c700fffffffb0000000a0056006900650077007301000002b3000001b6000000a000fffffffb000000280020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000003f00fffffffbffffffff010000046f0000017f0000016900ffffff000008df000005b300000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  MotionPlanning:
+    collapsed: false
+  MotionPlanning - Trajectory Slider:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000001c9000005b3fc0200000005fb000000100044006900730070006c006100790073010000003b0000023b000000c700fffffffb0000000a00560069006500770073010000027c0000018f000000a000fffffffb000000280020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000000000000000fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000003f00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e00670100000411000001dd0000016900ffffff00000590000005b300000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
-  Width: 2734
-  X: 166
-  Y: 112
+  Width: 1887
+  X: 1835
+  Y: 94

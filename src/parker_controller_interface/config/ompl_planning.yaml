@@ -57,4 +57,4 @@ parker_linear_actuator:
   planner_configs:
     - RRTConnectkConfigDefault
     - PRMkConfigDefault
-  longest_valid_segment_fraction: 0.25
+  longest_valid_segment_fraction: 0.01

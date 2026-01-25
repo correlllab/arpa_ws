@@ -11,9 +11,8 @@
         <param name="port">${port}</param>
         <param name="min_position">100.0</param>
         <param name="max_position">2000.0</param>
-        <param name="max_velocity">1.0</param>
-        <param name="max_effort">1.0</param>
-
+        <param name="max_velocity">0.1</param>
+        <param name="max_effort">0.1</param>
       </hardware>
       
       <joint name="linear_actuator_to_linear_actuator_plate_joint">
@@ -30,13 +29,15 @@
         
         <!-- Command interfaces (in meters, 0.1-2.0m = 100-2000mm) -->
         <command_interface name="position">
-          <param name="min">0.1</param>
-          <param name="max">2.0</param>
+          <param name="min">0.2</param>
+          <param name="max">1.9</param>
         </command_interface>
-        <!-- <command_interface name="velocity">
+        <command_interface name="velocity">
           <param name="min">-0.1</param>
           <param name="max">0.1</param>
         </command_interface>
+        
+        <!--
         <command_interface name="effort">
           <param name="min">-100.0</param>
           <param name="max">100.0</param>
