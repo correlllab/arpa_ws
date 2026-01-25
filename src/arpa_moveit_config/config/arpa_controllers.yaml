@@ -18,9 +18,6 @@ controller_manager:
     joint_trajectory_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
-    joint_trajectory_controller_arm:
-      type: joint_trajectory_controller/JointTrajectoryController
-
     scaled_joint_trajectory_controller:
       type: ur_controllers/ScaledJointTrajectoryController
 
@@ -51,7 +48,7 @@ controller_manager:
     tcp_pose_broadcaster:
       type: pose_broadcaster/PoseBroadcaster
 
-    linear_actuator_controller:
+    parker_linear_actuator:
       type: joint_trajectory_controller/JointTrajectoryController
 
 
@@ -102,41 +99,13 @@ joint_trajectory_controller:
     constraints:
       stopped_velocity_tolerance: 0.2
       goal_time: 0.0
-      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.10, goal: 0.001 }
+      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.25, goal: 0.002 }
       shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
       shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
       elbow_joint: { trajectory: 0.2, goal: 0.1 }
       wrist_1_joint: { trajectory: 0.2, goal: 0.1 }
       wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
       wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
-
-joint_trajectory_controller_arm:
-  ros__parameters:
-    joints:
-      - shoulder_pan_joint
-      - shoulder_lift_joint
-      - elbow_joint
-      - wrist_1_joint
-      - wrist_2_joint
-      - wrist_3_joint
-    command_interfaces:
-      - position
-    state_interfaces:
-      - position
-      - velocity
-    state_publish_rate: 100.0
-    action_monitor_rate: 20.0
-    allow_partial_joints_goal: false
-    constraints:
-      stopped_velocity_tolerance: 0.2
-      goal_time: 0.0
-      shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
-      shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
-      elbow_joint: { trajectory: 0.2, goal: 0.1 }
-      wrist_1_joint: { trajectory: 0.2, goal: 0.1 }
-      wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
-      wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
-
 
 scaled_joint_trajectory_controller:
   ros__parameters:
@@ -159,6 +128,7 @@ scaled_joint_trajectory_controller:
     constraints:
       stopped_velocity_tolerance: 0.2
       goal_time: 0.0
+      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.25, goal: 0.002 }
       shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
       shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
       elbow_joint: { trajectory: 0.2, goal: 0.1 }
@@ -232,18 +202,20 @@ tcp_pose_broadcaster:
     tf:
       child_frame_id: tool0_controller
 
-linear_actuator_controller:
+parker_linear_actuator:
   ros__parameters:
     joints:
       - linear_actuator_to_linear_actuator_plate_joint
     command_interfaces:
       - position
+      - velocity
     state_interfaces:
       - position
       - velocity
-    state_publish_rate: 100.0
+    state_publish_rate: 50.0
     action_monitor_rate: 20.0
-    allow_partial_joints_goal: true
+    allow_partial_joints_goal: false
     constraints:
-      stopped_velocity_tolerance: 0.2
+      stopped_velocity_tolerance: 0.005
       goal_time: 0.0
+      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.5, goal: 0.005 }

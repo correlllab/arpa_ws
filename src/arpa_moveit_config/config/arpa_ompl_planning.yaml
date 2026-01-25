@@ -85,7 +85,7 @@ ur16e_on_gantry:
     - PRMstarkConfigDefault
   longest_valid_segment_fraction: 0.01
 
-linear_actuator_axis:
+parker_linear_actuator:
   planner_configs:
     - RRTConnectkConfigDefault
     - PRMkConfigDefault
