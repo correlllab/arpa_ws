@@ -49,9 +49,9 @@ RUN source /opt/ros/humble/setup.bash && \
 WORKDIR /root/ros2_ws
 RUN mkdir -p src
 
-COPY src/arpa_behavior_trees/ src/arpa_behavior_trees/
+# COPY src/arpa_behavior_trees/ src/arpa_behavior_trees/
 COPY src/arpa_description/ src/arpa_description/
-COPY src/ur_manipulation/ src/ur_manipulation/
+# COPY src/ur_manipulation/ src/ur_manipulation/
 COPY src/Universal_Robots_ROS2_Driver/ src/Universal_Robots_ROS2_Driver/
 COPY src/Universal_Robots_ROS2_Gazebo_Simulation/ src/Universal_Robots_ROS2_Gazebo_Simulation/
 

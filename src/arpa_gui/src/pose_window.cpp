@@ -145,13 +145,13 @@ void PoseWindow::setupUI()
     auto *prismaticSliderLayout = new QHBoxLayout;
 
     m_prismatic_slider = new QSlider(Qt::Horizontal);
-    m_prismatic_slider->setMinimum(0);
-    m_prismatic_slider->setMaximum(1845);
-    m_prismatic_slider->setValue(0);
+    m_prismatic_slider->setMinimum(100);   // 0.1m = 100mm
+    m_prismatic_slider->setMaximum(2000);  // 2.0m = 2000mm
+    m_prismatic_slider->setValue(100);
     m_prismatic_slider->setTickInterval(100);
     m_prismatic_slider->setTickPosition(QSlider::TicksBelow);
 
-    m_prismatic_value = new QLineEdit("0.000");
+    m_prismatic_value = new QLineEdit("0.100");
     m_prismatic_value->setReadOnly(true);
     m_prismatic_value->setFixedWidth(80);
     m_prismatic_value->setAlignment(Qt::AlignRight);
@@ -573,8 +573,8 @@ void PoseWindow::planPose()
 
 void PoseWindow::planLinearActuator()
 {
-    // Get linear actuator target from slider (convert to negative position for joint limits -1.845 to 0)
-    double linear_actuator_target = -static_cast<double>(m_prismatic_slider->value()) / 1000.0;
+    // Get linear actuator target from slider (joint limits 0.1 to 2.0m = 100 to 2000mm)
+    double linear_actuator_target = static_cast<double>(m_prismatic_slider->value()) / 1000.0;
     logStatus(QString("Planning linear actuator to: %1 m").arg(linear_actuator_target, 0, 'f', 3));
 
     auto req = std::make_shared<arpa_control::srv::PlanLinearActuator::Request>();
@@ -786,9 +786,9 @@ void PoseWindow::goHome()
 
 void PoseWindow::onPrismaticChanged(int value)
 {
-    // Convert slider value to negative position (joint limits are -1.845 to 0)
-    double position_m = -static_cast<double>(value) / 1000.0;
-    m_prismatic_value->setText(QString::number(-position_m, 'f', 3));
+    // Convert slider value to position (joint limits 0.1 to 2.0m = 100 to 2000mm)
+    double position_m = static_cast<double>(value) / 1000.0;
+    m_prismatic_value->setText(QString::number(position_m, 'f', 3));
 
     std_msgs::msg::Float64MultiArray cmd;
     cmd.data.push_back(position_m);

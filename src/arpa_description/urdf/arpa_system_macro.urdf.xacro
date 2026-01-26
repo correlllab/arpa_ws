@@ -3,42 +3,13 @@
 
   <!-- Sub-components -->
   <xacro:include filename="$(find arpa_description)/urdf/gantry.xacro"/>
-  <xacro:include filename="$(find arpa_description)/urdf/linear_actuator.xacro"/>
-  <xacro:include filename="$(find arpa_description)/urdf/linear_actuator_ros2_control.xacro"/>
+  <!-- Linear actuator from parker_controller_interface (0.1-2.0m range, includes visual and ros2_control) -->
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator_macro.urdf.xacro" />
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
   <xacro:include filename="$(find arpa_description)/urdf/tool_holder.xacro"/>
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
-
-
-  <!-- <xacro:arg name="tf_prefix" default="" />
-  <xacro:arg name="joint_limit_params" default="$(find ur_description)/config/$(arg ur_type)/joint_limits.yaml"/>
-  <xacro:arg name="kinematics_params" default="$(find ur_description)/config/$(arg ur_type)/default_kinematics.yaml"/>
-  <xacro:arg name="physical_params" default="$(find ur_description)/config/$(arg ur_type)/physical_parameters.yaml"/>
-  <xacro:arg name="visual_params" default="$(find ur_description)/config/$(arg ur_type)/visual_parameters.yaml"/>
-  <xacro:arg name="transmission_hw_interface" default=""/>
-  <xacro:arg name="safety_limits" default="false"/>
-  <xacro:arg name="safety_pos_margin" default="0.15"/>
-  <xacro:arg name="safety_k_position" default="20"/>
-  <xacro:arg name="mock_sensor_commands" default="false" /> -->
-
-  <!--When using gazebo simulations absolute paths are necessary.-->
-  <!-- <xacro:arg name="force_abs_paths" default="false" /> -->
-
-  <!-- initial position for simulations (Mock Hardware, Gazebo, Ignition) -->
-  <!-- <xacro:arg name="initial_positions_file" default="$(find ur_description)/config/initial_positions.yaml"/> -->
-
-  <!-- convert to property to use substitution in function -->
-  <!-- <xacro:property name="initial_positions_file" default="$(arg initial_positions_file)"/> -->
-
-
-  <!--
-    ARPA system macro
-    Exposes UR parameters so your wrapper/launch can pass:
-      - robot_ip
-      - script/recipes (indirectly via generate_ros2_control_tag path)
-      - use_fake_hardware
-      - safety settings
-      - *and* which UR model config files to use
-  -->
+  <xacro:include filename="$(find arpa_moveit_config)/config/arpa_system.ros2_control.xacro" />
+  <!-- Macro definition -->
   <xacro:macro name="arpa_system_macro" params="
     name
     tf_prefix
@@ -48,7 +19,7 @@
     kinematics_parameters_file
     physical_parameters_file
     visual_parameters_file
-    generate_ros2_control_tag:=true
+    generate_ros2_control_tag:=false
     transmission_hw_interface:=hardware_interface/PositionJointInterface
     safety_limits:=false
     safety_pos_margin:=0.15
@@ -95,14 +66,14 @@
       <origin xyz="0 0 1.9419" rpy="0 0 0"/>
     </joint>
 
-    <xacro:linear_actuator/>
-
     <!-- Fixed transform from gantry_link to linear_actuator_link -->
-    <joint name="gantry_to_linear_actuator" type="fixed">
+    <!-- <joint name="gantry_to_linear_actuator" type="fixed">
       <parent link="gantry_link"/>
       <child link="linear_actuator_link"/>
       <origin xyz="0 0 -0.11375" rpy="0 0 0"/>
-    </joint>
+    </joint> -->
+
+    <xacro:parker_linear_actuator attach_link="gantry_link" origin="0 0 -0.11375 0 0 0"/>
 
     <link name="arm_mount_plate">
       <visual>
@@ -155,6 +126,7 @@
         physical_parameters_file="${physical_parameters_file}"
         visual_parameters_file="${visual_parameters_file}"
         transmission_hw_interface="${transmission_hw_interface}"
+        generate_ros2_control_tag="true"
         safety_limits="${safety_limits}"
         safety_pos_margin="${safety_pos_margin}"
         safety_k_position="${safety_k_position}"
@@ -188,6 +160,17 @@
 
     <!-- Tool holder on tool0 -->
     <xacro:tool_holder parent_link="tool0"/>
+
+    <!-- Gazebo ros2_control plugin - required for controller_manager in simulation -->
+    <xacro:if value="${sim_gazebo}">
+      <gazebo>
+        <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+          <robot_param>robot_description</robot_param>
+          <robot_param_node>robot_state_publisher</robot_param_node>
+          <parameters>$(find arpa_moveit_config)/config/arpa_controllers.yaml</parameters>
+        </plugin>
+      </gazebo>
+    </xacro:if>
 
   </xacro:macro>
 
