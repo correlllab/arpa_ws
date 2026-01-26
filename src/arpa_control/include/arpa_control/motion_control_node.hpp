@@ -28,12 +28,14 @@
 
 #include <string>
 #include <mutex>
+#include <thread>
 
 
 class MotionControlNode : public rclcpp::Node
 {
 public:
   MotionControlNode(rclcpp::NodeOptions options);
+  ~MotionControlNode();
   void init();
   void initMoveGroup();
   std::shared_ptr<rclcpp::Node> getPlanSpinNode();
@@ -94,6 +96,11 @@ private:
   std::vector<std::string> m_arm_padding_links;
   rclcpp::TimerBase::SharedPtr m_init_timer;
   bool m_robot_state_ready = false;
+
+  // Dedicated node and thread for MoveGroupInterface
+  rclcpp::Node::SharedPtr m_move_group_node;
+  rclcpp::executors::SingleThreadedExecutor::SharedPtr m_move_group_executor;
+  std::thread m_move_group_thread;
 };
 
 #endif // __MOTION_CONTROL_NODE__
