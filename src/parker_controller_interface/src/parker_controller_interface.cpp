@@ -208,7 +208,7 @@ hardware_interface::return_type ParkerControllerInterface::read(
   }
 
   // ROS LOG FOR READ POSITION AND VELOCITY
-  RCLCPP_INFO_THROTTLE(
+  RCLCPP_DEBUG_THROTTLE(
     rclcpp::get_logger("ParkerControllerInterface"), steady_clock, 250,
     "Read position: %.4f m, velocity: %.4f m/s", position, velocity);
 
