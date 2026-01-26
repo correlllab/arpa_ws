@@ -81,7 +81,6 @@ force_torque_sensor_broadcaster:
 joint_trajectory_controller:
   ros__parameters:
     joints:
-      - linear_actuator_to_linear_actuator_plate_joint
       - shoulder_pan_joint
       - shoulder_lift_joint
       - elbow_joint
@@ -99,7 +98,6 @@ joint_trajectory_controller:
     constraints:
       stopped_velocity_tolerance: 0.2
       goal_time: 0.0
-      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.25, goal: 0.002 }
       shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
       shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
       elbow_joint: { trajectory: 0.2, goal: 0.1 }
@@ -110,7 +108,6 @@ joint_trajectory_controller:
 scaled_joint_trajectory_controller:
   ros__parameters:
     joints:
-      - linear_actuator_to_linear_actuator_plate_joint
       - shoulder_pan_joint
       - shoulder_lift_joint
       - elbow_joint
@@ -128,7 +125,6 @@ scaled_joint_trajectory_controller:
     constraints:
       stopped_velocity_tolerance: 0.2
       goal_time: 0.0
-      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.25, goal: 0.002 }
       shoulder_pan_joint: { trajectory: 0.2, goal: 0.1 }
       shoulder_lift_joint: { trajectory: 0.2, goal: 0.1 }
       elbow_joint: { trajectory: 0.2, goal: 0.1 }

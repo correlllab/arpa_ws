@@ -122,7 +122,7 @@ def launch_setup(context, *args, **kwargs):
 
     ur_driver = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [ur_robot_driver_pkg_share, "/launch/ur_control.launch.py"]
+            [arpa_bringup_pkg_share, "/launch/arpa_control.launch.py"]
         ),
         launch_arguments={
             "ur_type": ur_type,
@@ -286,7 +286,7 @@ def launch_setup(context, *args, **kwargs):
         arpa_motion_control,
         arpa_gui,
         arpa_depth,
-        ethernet_motor_interface_node,
+        # ethernet_motor_interface_node,
         static_tf_world_to_floor
     ]
 
@@ -414,7 +414,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "controller_spawner_timeout",
-            default_value="10",
+            default_value="30",
             description="Timeout used when spawning controllers.",
         )
     )
@@ -429,6 +429,7 @@ def generate_launch_description():
                 "forward_position_controller",
                 "freedrive_mode_controller",
                 "passthrough_trajectory_controller",
+                "parker_linear_actuator"
             ],
             description="Initially loaded robot controller.",
         )

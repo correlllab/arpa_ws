@@ -126,7 +126,7 @@
         physical_parameters_file="${physical_parameters_file}"
         visual_parameters_file="${visual_parameters_file}"
         transmission_hw_interface="${transmission_hw_interface}"
-        generate_ros2_control_tag="false"
+        generate_ros2_control_tag="true"
         safety_limits="${safety_limits}"
         safety_pos_margin="${safety_pos_margin}"
         safety_k_position="${safety_k_position}"
@@ -160,37 +160,6 @@
 
     <!-- Tool holder on tool0 -->
     <xacro:tool_holder parent_link="tool0"/>
-
-    <!-- ros2_control tag for the whole system -->
-    <xacro:arpa_system_ros2_control
-        name="${name}"
-        tf_prefix="${tf_prefix}"
-        use_fake_hardware="${use_fake_hardware}"
-        fake_sensor_commands="${fake_sensor_commands}"
-        sim_gazebo="${sim_gazebo}"
-        sim_ignition="${sim_ignition}"
-        headless_mode="${headless_mode}"
-        initial_positions="${xacro.load_yaml(initial_positions_file)}"
-        use_tool_communication="${use_tool_communication}"
-        tool_voltage="${tool_voltage}"
-        tool_parity="${tool_parity}"
-        tool_baud_rate="${tool_baud_rate}"
-        tool_stop_bits="${tool_stop_bits}"
-        tool_rx_idle_chars="${tool_rx_idle_chars}"
-        tool_tx_idle_chars="${tool_tx_idle_chars}"
-        tool_device_name="${tool_device_name}"
-        tool_tcp_port="${tool_tcp_port}"
-        robot_ip="${robot_ip}"
-        script_filename="${script_filename}"
-        output_recipe_filename="${output_recipe_filename}"
-        input_recipe_filename="${input_recipe_filename}"
-        reverse_ip="${reverse_ip}"
-        script_command_port="${script_command_port}"
-        reverse_port="${reverse_port}"
-        script_sender_port="${script_sender_port}"
-        trajectory_port="${trajectory_port}"
-
-    />
 
     <!-- Gazebo ros2_control plugin - required for controller_manager in simulation -->
     <xacro:if value="${sim_gazebo}">
