@@ -84,7 +84,8 @@
       </visual>
       <collision>
         <geometry>
-          <cylinder radius=".01" length="0.12"/>
+          <!-- <cylinder radius=".01" length="0.12"/> -->
+          <cylinder radius=".01" length="0.29"/>
         </geometry>
       </collision>
       <inertial>
@@ -96,7 +97,9 @@
     <joint name="center_to_tool_head_joint" type="fixed">
       <parent link="tool_center_link"/>
       <child link="tool_head_link"/>
-      <origin xyz="0.06 0 0.175" rpy="0 ${pi/2.} 0"/>
+      <!-- <origin xyz="0.06 0 0.175" rpy="0 ${pi/2.} 0"/> -->
+      <origin xyz="0.145 0 0.175" rpy="0 ${pi/2.} 0"/>
+
     </joint>
 
   </xacro:macro>

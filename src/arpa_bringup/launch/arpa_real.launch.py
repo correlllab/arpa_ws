@@ -286,7 +286,7 @@ def launch_setup(context, *args, **kwargs):
         arpa_motion_control,
         arpa_gui,
         arpa_depth,
-        # ethernet_motor_interface_node,
+        ethernet_motor_interface_node,
         static_tf_world_to_floor
     ]
 
