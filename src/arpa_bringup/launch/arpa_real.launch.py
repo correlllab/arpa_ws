@@ -4,7 +4,8 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import OpaqueFunction, DeclareLaunchArgument
+from launch.actions import OpaqueFunction, DeclareLaunchArgument, TimerAction
+
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch.actions import IncludeLaunchDescription
@@ -206,6 +207,11 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
+    arpa_moveit_launch_delayed = TimerAction(
+        period=5.0,
+        actions=[arpa_moveit_launch]
+    )
+
     arpa_motion_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             get_package_share_directory("arpa_control") + "/launch/arpa_motion_control.launch.py"
@@ -279,10 +285,14 @@ def launch_setup(context, *args, **kwargs):
         arguments=["0", "0", "0", "0", "0", "0", "world", "floor_link"]
     )
 
+
+
+
     return [
         ur_driver,
         ur_rest_api,
-        arpa_moveit_launch,
+        # arpa_moveit_launch,
+        arpa_moveit_launch_delayed,
         arpa_motion_control,
         arpa_gui,
         arpa_depth,
