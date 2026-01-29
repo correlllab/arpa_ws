@@ -103,6 +103,9 @@
     <disable_collisions link1="${prefix}linear_actuator_plate_link" link2="${prefix}pillar_right_link" reason="Never"/>
     <disable_collisions link1="${prefix}linear_actuator_plate_link" link2="${prefix}right_leg_link" reason="Never"/>
     <disable_collisions link1="${prefix}linear_actuator_plate_link" link2="${prefix}shoulder_link" reason="Never"/>
+    <disable_collisions link1="${prefix}linear_actuator_link" link2="${prefix}linear_actuator_plate_link" reason="Adjacent"/>
+    <disable_collisions link1="${prefix}linear_actuator_link" link2="${prefix}actuator_motor_link" reason="Adjacent"/>
+    <disable_collisions link1="${prefix}linear_actuator_plate_link" link2="${prefix}actuator_motor_link" reason="Adjacent"/>
     <disable_collisions link1="${prefix}pillar_left_link" link2="${prefix}pillar_right_link" reason="Never"/>
     <disable_collisions link1="${prefix}pillar_left_link" link2="${prefix}right_leg_link" reason="Never"/>
     <disable_collisions link1="${prefix}pillar_left_link" link2="${prefix}shoulder_link" reason="Never"/>
