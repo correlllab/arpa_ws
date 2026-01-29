@@ -438,7 +438,10 @@ def launch_setup(context, *args, **kwargs):
 
     nodes_to_start = [
         control_node,
-        ur_control_node,
+        TimerAction(
+            period=5.0,
+            actions=[ur_control_node],
+        ),
         dashboard_client_node,
         robot_state_helper_node,
         tool_communication_node,
