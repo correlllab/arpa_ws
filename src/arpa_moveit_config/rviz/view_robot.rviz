@@ -4,10 +4,10 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /MotionPlanning1
         - /MotionPlanning1/Planned Path1
         - /TF1/Tree1
         - /EE_PC1/Topic1
+        - /AccumulatedPC1
         - /AccumulatedPC1/Topic1
       Splitter Ratio: 0.38088443875312805
     Tree Height: 883
@@ -410,8 +410,6 @@ Visualization Manager:
           Value: false
         shoulder_link:
           Value: false
-        target_pose:
-          Value: true
         tool0:
           Value: true
         tool0_controller:
@@ -479,8 +477,6 @@ Visualization Manager:
               pillar_right_link:
                 right_leg_link:
                   {}
-            target_pose:
-              {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -527,14 +523,14 @@ Visualization Manager:
       Channel Name: rgb
       Class: rviz_default_plugins/PointCloud2
       Color: 255; 255; 255
-      Color Transformer: Intensity
+      Color Transformer: RGB8
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 2.3418044513795437e-38
+      Max Intensity: 2.3049986465648202e-38
       Min Color: 0; 0; 0
-      Min Intensity: 1.8654505546631262e-40
+      Min Intensity: 7.390027711309788e-40
       Name: AccumulatedPC
       Position Transformer: XYZ
       Selectable: true
@@ -555,7 +551,7 @@ Visualization Manager:
       Enabled: true
       Name: RecordedPoses
       Namespaces:
-        recorded_poses: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -609,7 +605,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.187255382537842
+      Distance: 3.576913356781006
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -624,10 +620,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.14979678392410278
+      Pitch: 0.2897963523864746
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.895399570465088
+      Yaw: 5.255423545837402
     Saved: ~
 Window Geometry:
   Displays:
