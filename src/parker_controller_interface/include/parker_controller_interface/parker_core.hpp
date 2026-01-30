@@ -60,6 +60,8 @@ public:
   double get_last_position() const;
   double get_last_velocity() const;
 
+  void halt_motion();
+
 private:
   // Socket communication
   std::vector<std::string> send_telnet(int sock_fd, const std::string& message, bool blocking = true);

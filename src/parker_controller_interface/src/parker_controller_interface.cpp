@@ -264,11 +264,23 @@ hardware_interface::return_type ParkerControllerInterface::write(
         hw_position_command_, hw_position_state_, position_error, commanded_velocity);
     }
   } else {
-      if(hw_position_command_ == last_commanded_position_) {
-          magic_five_counter_++;
-          if(magic_five_counter_ > 5) {
-              return hardware_interface::return_type::OK;
+      if(hw_position_command_ == last_commanded_position_)
+      {
+        if(magic_five_counter_ >= 6)
+        {
+          return hardware_interface::return_type::OK;
+        }
+        magic_five_counter_++; 
+        if(magic_five_counter_ > 5)
+        {
+          if(magic_five_counter_ == 6)
+          {
+            // send true stop
+            parker_->halt_motion();
+            RCLCPP_INFO(rclcpp::get_logger("ParkerControllerInterface"), "Sending HALT command");
           }
+          return hardware_interface::return_type::OK;
+        }
       } else {
           magic_five_counter_ = 0;
       }

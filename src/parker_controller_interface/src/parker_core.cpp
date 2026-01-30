@@ -362,4 +362,8 @@ void ParkerCore::monitor_position()
   }
 }
 
+void ParkerCore::halt_motion()
+{
+  send_telnet(main_sock_, "HALT", false);
+}  
 }  // namespace parker_controller_interface
