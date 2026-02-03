@@ -3,27 +3,15 @@
   <!-- Materials (pillar_gray, gantry_gray, camera_black, etc.) defined in gantry.xacro via default_materials -->
 
   <!--
-    Macro to attach a tool holder to a parent link (default: tool0)
+    Macro to attach a tool holder and camera to a parent link (default: tool0)
     Usage:
-      <xacro:tool_holder parent_link="tool0"/>
-
-    How the nut runner gets into the simulation:
-    The runner is part of the single robot URDF (arpa_system.urdf.xacro).
-    Launch runs xacro -> robot_state_publisher gets full description -> spawn_entity
-    spawns the whole robot "ur" into Gazebo. The runner is one link in that tree;
-    there is no separate spawn. Its pose in sim is exactly runner_mount_xyz + runner_mount_rpy
-    (joint block_to_runner_joint). Rebuild arpa_description after changing this file.
+      <xacro:tool_holder parent_link="tool0" sim_gazebo="true"/>
   -->
   <xacro:macro name="tool_holder" params="
       parent_link
       block_mesh:='$(find arpa_description)/meshes/tool_holder.stl'
       block_origin_xyz:='-0.0055 -0.0055 -0.006'
       block_origin_rpy:='${pi/2.} ${3*pi/2.} 0'
-      runner_mesh:='$(find arpa_description)/meshes/realrunner.stl'
-      runner_origin_xyz:='0.0445 -0.0055 -0.006'
-      runner_origin_rpy:='0 0 ${pi}' 
-      runner_mount_xyz:='0.08 0 -0.025'
-      runner_mount_rpy:='0 ${pi} ${pi/2.}'
       mass:=0.5
       scale:='1.0 1.0 1.0'
       sim_gazebo:=false">
@@ -59,177 +47,6 @@
       <child link="tool_holder_link"/>
       <origin xyz="${block_origin_xyz}" rpy="${block_origin_rpy}"/>
     </joint>
-
-    <!-- Nut runner tool (below block) -->
-    <link name="runner_link">
-      <visual>
-        <geometry>
-          <mesh filename="file://${runner_mesh}" scale="${scale}"/>
-        </geometry>
-        <origin xyz="${runner_origin_xyz}" rpy="${runner_origin_rpy}"/>
-        <material name="grey">
-          <color rgba="0.5 0.5 0.5 1.0"/>
-        </material>
-      </visual>
-      <collision>
-        <geometry>
-          <mesh filename="file://${runner_mesh}" scale="${scale}"/>
-        </geometry>
-        <origin xyz="${runner_origin_xyz}" rpy="${runner_origin_rpy}"/>
-      </collision>
-      <inertial>
-        <mass value="${mass}"/>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <inertia ixx="0.0001" ixy="0.0" ixz="0.0"
-                 iyy="0.0001" iyz="0.0"
-                 izz="0.0001"/>
-      </inertial>
-    </link>
-
-    <joint name="block_to_runner_joint" type="fixed">
-      <parent link="tool_holder_link"/>
-      <child link="runner_link"/>
-      <origin xyz="${runner_mount_xyz}" rpy="${runner_mount_rpy}"/>
-    </joint>
-
-    <link name="tool_head_link">
-      <visual>
-        <geometry>
-          <cylinder radius=".005" length="0.1"/>
-        </geometry>
-        <origin xyz="0 0 0"/>
-        <material name="gantry_gray"/>
-      </visual>
-      <collision>
-        <geometry>
-          <cylinder radius=".01" length="0.12"/>
-        </geometry>
-      </collision>
-      <inertial>
-        <mass value="5.0"/>
-        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
-      </inertial>
-    </link>
-
-    <joint name="runner_to_tool_head_joint" type="fixed">
-      <parent link="runner_link"/>
-      <child link="tool_head_link"/>
-      <origin xyz="0.06 0 0.175" rpy="0 ${pi/2.} 0"/>
-    </joint>
-
-    <!-- RealSense Camera Link (mounted on tool head) -->
-    <link name="ee_cam_link">
-      <visual>
-        <geometry>
-          <box size="0.025 0.09 0.025"/>
-        </geometry>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <material name="camera_black"/>
-      </visual>
-      <collision>
-        <geometry>
-          <box size="0.025 0.09 0.025"/>
-        </geometry>
-      </collision>
-      <inertial>
-        <mass value="0.1"/>
-        <inertia ixx="0.0001" ixy="0.0" ixz="0.0"
-                 iyy="0.0001" iyz="0.0"
-                 izz="0.0001"/>
-      </inertial>
-    </link>
-
-    <!-- Camera mount joint (positioned back toward runner to reduce forearm/tool_head collisions) -->
-    <joint name="tool_head_to_camera" type="fixed">
-      <parent link="tool_head_link"/>
-      <child link="ee_cam_link"/>
-      <origin xyz="0 -0.04 0.02" rpy="-1.5708 0 -1.5708"/>
-    </joint>
-
-    <!-- RGB Camera Optical Frame -->
-    <link name="ee_cam_color_optical_frame"/>
-
-    <joint name="ee_cam_to_color_optical" type="fixed">
-      <parent link="ee_cam_link"/>
-      <child link="ee_cam_color_optical_frame"/>
-      <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
-    </joint>
-
-    <!-- Depth Camera Optical Frame -->
-    <link name="ee_cam_depth_optical_frame"/>
-
-    <joint name="ee_cam_to_depth_optical" type="fixed">
-      <parent link="ee_cam_link"/>
-      <child link="ee_cam_depth_optical_frame"/>
-      <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
-    </joint>
-
-    <!-- Gazebo plugins for camera (only in simulation) -->
-    <xacro:if value="${sim_gazebo}">
-      <!-- RGB Camera Plugin -->
-      <gazebo reference="ee_cam_link">
-        <sensor name="ee_cam_color_sensor" type="camera">
-          <update_rate>30</update_rate>
-          <camera name="ee_cam_color">
-            <horizontal_fov>1.047198</horizontal_fov>  <!-- ~60 degrees -->
-            <image>
-              <width>640</width>
-              <height>480</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.02</near>
-              <far>3.0</far>
-            </clip>
-          </camera>
-          <plugin name="ee_cam_color_plugin" filename="libgazebo_ros_camera.so">
-            <ros>
-              <namespace>/realsense/ee_cam</namespace>
-              <remapping>image_raw:=color/image_raw</remapping>
-              <remapping>image_depth:=depth/image_raw</remapping>
-              <remapping>camera_info:=color/camera_info</remapping>
-              <remapping>camera_info_depth:=depth/camera_info</remapping>
-            </ros>
-            <camera_name>ee_cam</camera_name>
-            <frame_name>ee_cam_color_optical_frame</frame_name>
-            <hack_baseline>0.0</hack_baseline>
-            <min_depth>0.0</min_depth>
-            <max_depth>3.0</max_depth>
-          </plugin>
-        </sensor>
-      </gazebo>
-
-      <!-- Depth Camera Plugin -->
-      <gazebo reference="ee_cam_link">
-        <sensor name="ee_cam_depth_sensor" type="depth">
-          <update_rate>30</update_rate>
-          <camera name="ee_cam_depth">
-            <horizontal_fov>1.047198</horizontal_fov>  <!-- ~60 degrees -->
-            <image>
-              <width>640</width>
-              <height>480</height>
-              <format>R8G8B8</format>
-            </image>
-            <clip>
-              <near>0.02</near>
-              <far>3.0</far>
-            </clip>
-          </camera>
-          <plugin name="ee_cam_depth_plugin" filename="libgazebo_ros_depth_camera.so">
-            <ros>
-              <namespace>/realsense/ee_cam</namespace>
-              <remapping>image_raw:=depth/image_raw</remapping>
-              <remapping>camera_info:=depth/camera_info</remapping>
-            </ros>
-            <camera_name>ee_cam</camera_name>
-            <frame_name>ee_cam_depth_optical_frame</frame_name>
-            <hack_baseline>0.0</hack_baseline>
-            <min_depth>0.0</min_depth>
-            <max_depth>3.0</max_depth>
-          </plugin>
-        </sensor>
-      </gazebo>
-    </xacro:if>
 
   </xacro:macro>
 

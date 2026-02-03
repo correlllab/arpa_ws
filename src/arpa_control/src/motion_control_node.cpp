@@ -2,6 +2,7 @@
 #include <chrono>
 #include <future>
 #include <cmath>
+#include <thread>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -73,7 +74,7 @@ void MotionControlNode::initMoveGroup()
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() START");
 
-  m_move_group->startStateMonitor(1.0);
+  m_move_group->startStateMonitor(3.0);  // Increased timeout to 3 seconds for better reliability
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   m_move_group->setPlanningPipelineId("move_group");
   m_move_group->setPlanningTime(5.0);
@@ -89,9 +90,18 @@ void MotionControlNode::initMoveGroup()
 bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
 {
   // Get current robot state as IK seed (biases solution toward current config)
+  // Retry up to 3 times if state is not available
   auto robot_state = m_move_group->getCurrentState();
+  int retries = 0;
+  while (!robot_state && retries < 3) {
+    RCLCPP_WARN(get_logger(), "Failed to get current robot state, retrying... (attempt %d/3)", retries + 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    robot_state = m_move_group->getCurrentState();
+    retries++;
+  }
+  
   if (!robot_state) {
-    RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
+    RCLCPP_ERROR(get_logger(), "Failed to get current robot state after 3 retries");
     return false;
   }
 
