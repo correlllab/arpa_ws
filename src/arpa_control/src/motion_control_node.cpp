@@ -49,7 +49,7 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
   m_arm_padding = this->get_parameter("arm_padding").as_double();
-  m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "tool_center_link", "tool_head_link"};
+  m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "tool_head_link"};
   for(auto link : m_arm_padding_links) {
     m_arm_padding_map[link] = m_arm_padding;
   }

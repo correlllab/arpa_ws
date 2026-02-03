@@ -53,7 +53,6 @@ force_torque_sensor_broadcaster:
 joint_trajectory_controller:
   ros__parameters:
     joints:
-      - linear_actuator_to_linear_actuator_plate_joint
       - shoulder_pan_joint
       - shoulder_lift_joint
       - elbow_joint
@@ -82,7 +81,6 @@ joint_trajectory_controller:
 scaled_joint_trajectory_controller:
   ros__parameters:
     joints:
-      - linear_actuator_to_linear_actuator_plate_joint
       - shoulder_pan_joint
       - shoulder_lift_joint
       - elbow_joint

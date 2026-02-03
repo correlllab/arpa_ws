@@ -23,12 +23,13 @@ static const std::vector<QString> JOINT_DISPLAY_NAMES = {
 
 PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     : m_node(node),
-      m_tf_buffer(node->get_clock())
+      m_tf_buffer(node->get_clock()),
+      m_sequence_running(false)
 {
     // Initialize TF listener after buffer is constructed
     m_tf_listener = std::make_shared<tf2_ros::TransformListener>(m_tf_buffer);
     setWindowTitle("ARPA Robot Control Panel");
-    setMinimumSize(500, 800);
+    setMinimumSize(800, 800);  // Wider to accommodate right panel
 
     m_current_joint_values.resize(6, 0.0);
 
@@ -50,6 +51,17 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
         "/joint_states", 10,
         std::bind(&PoseWindow::jointStateCallback, this, std::placeholders::_1));
 
+    // Subscribe to BT status and feedback
+    m_bt_status_sub = m_node->create_subscription<std_msgs::msg::String>(
+        "/bt_status", 10,
+        std::bind(&PoseWindow::btStatusCallback, this, std::placeholders::_1));
+    m_bt_feedback_sub = m_node->create_subscription<std_msgs::msg::String>(
+        "/bt_feedback", 10,
+        std::bind(&PoseWindow::btFeedbackCallback, this, std::placeholders::_1));
+
+    // Client for screw sequence service
+    m_run_screw_sequence_client = m_node->create_client<std_srvs::srv::Trigger>("run_screw_sequence");
+
     // Set default home pose
     m_home_pose.position.x = 0.020;
     m_home_pose.position.y = -0.177;
@@ -67,13 +79,21 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     m_update_timer->start(100); // Update at 10Hz
 
     logStatus("ARPA Control Panel initialized");
+    logBtStatus("BT Status Monitor initialized - waiting for updates...");
 }
 
 void PoseWindow::setupUI()
 {
-    auto *mainLayout = new QVBoxLayout;
-    mainLayout->setSpacing(10);
-    mainLayout->setContentsMargins(15, 15, 15, 15);
+    // ============ MAIN HORIZONTAL SPLIT LAYOUT ============
+    auto *mainHLayout = new QHBoxLayout;
+    mainHLayout->setSpacing(10);
+    mainHLayout->setContentsMargins(10, 10, 10, 10);
+
+    // ============ LEFT PANEL (existing controls in scroll area) ============
+    auto *leftWidget = new QWidget;
+    auto *leftLayout = new QVBoxLayout(leftWidget);
+    leftLayout->setSpacing(10);
+    leftLayout->setContentsMargins(5, 5, 5, 5);
 
     // ============ CURRENT POSE GROUP ============
     m_current_pose_group = new QGroupBox("Current End-Effector Pose");
@@ -118,7 +138,7 @@ void PoseWindow::setupUI()
     currentPoseLayout->addWidget(new QLabel("rad"), 1, 8);
 
     m_current_pose_group->setLayout(currentPoseLayout);
-    mainLayout->addWidget(m_current_pose_group);
+    leftLayout->addWidget(m_current_pose_group);
 
     // ============ JOINT STATES GROUP ============
     m_joint_states_group = new QGroupBox("Joint States");
@@ -137,7 +157,7 @@ void PoseWindow::setupUI()
     }
 
     m_joint_states_group->setLayout(jointLayout);
-    mainLayout->addWidget(m_joint_states_group);
+    leftLayout->addWidget(m_joint_states_group);
 
     // ============ PRISMATIC CONTROL GROUP ============
     m_prismatic_group = new QGroupBox("Linear Actuator Control");
@@ -168,7 +188,7 @@ void PoseWindow::setupUI()
     prismaticOuterLayout->addWidget(m_plan_linear_actuator_btn);
 
     m_prismatic_group->setLayout(prismaticOuterLayout);
-    mainLayout->addWidget(m_prismatic_group);
+    leftLayout->addWidget(m_prismatic_group);
 
     // ============ TARGET POSE GROUP ============
     m_target_pose_group = new QGroupBox("Relative Motion (Deltas from Current Pose)");
@@ -223,7 +243,7 @@ void PoseWindow::setupUI()
     targetLayout->addRow("Orientation Delta (rad):", orientLayout);
 
     m_target_pose_group->setLayout(targetLayout);
-    mainLayout->addWidget(m_target_pose_group);
+    leftLayout->addWidget(m_target_pose_group);
 
     // ============ CONTROL BUTTONS ============
     auto *buttonGroup = new QGroupBox("Control");
@@ -255,7 +275,7 @@ void PoseWindow::setupUI()
     buttonLayout->addWidget(m_stop_btn, 4, 0, 1, 2);
 
     buttonGroup->setLayout(buttonLayout);
-    mainLayout->addWidget(buttonGroup);
+    leftLayout->addWidget(buttonGroup);
 
     // ============ STATUS LOG ============
     m_status_group = new QGroupBox("Status Log");
@@ -268,10 +288,48 @@ void PoseWindow::setupUI()
 
     statusLayout->addWidget(m_status_log);
     m_status_group->setLayout(statusLayout);
-    mainLayout->addWidget(m_status_group);
+    leftLayout->addWidget(m_status_group);
 
-    mainLayout->addStretch();
-    setLayout(mainLayout);
+    leftLayout->addStretch();
+
+    // Put left content in scroll area
+    auto *leftScrollArea = new QScrollArea;
+    leftScrollArea->setWidget(leftWidget);
+    leftScrollArea->setWidgetResizable(true);
+    leftScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    leftScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    leftScrollArea->setMinimumWidth(480);
+
+    mainHLayout->addWidget(leftScrollArea, 1);  // stretch factor 1
+
+    // ============ RIGHT PANEL (BT Status Monitor) ============
+    auto *rightWidget = new QWidget;
+    auto *rightLayout = new QVBoxLayout(rightWidget);
+    rightLayout->setSpacing(10);
+    rightLayout->setContentsMargins(5, 5, 5, 5);
+
+    // Create Sequence button at top
+    m_create_sequence_btn = new QPushButton("Create Sequence");
+    m_create_sequence_btn->setMinimumHeight(50);
+    m_create_sequence_btn->setToolTip("Move robot to each of 5 screw locations, waiting 4 seconds at each");
+    rightLayout->addWidget(m_create_sequence_btn);
+
+    // BT Status Monitor group
+    m_bt_status_group = new QGroupBox("BT Status Monitor");
+    auto *btStatusLayout = new QVBoxLayout;
+
+    m_bt_status_monitor = new QTextEdit;
+    m_bt_status_monitor->setReadOnly(true);
+    m_bt_status_monitor->setLineWrapMode(QTextEdit::WidgetWidth);
+
+    btStatusLayout->addWidget(m_bt_status_monitor);
+    m_bt_status_group->setLayout(btStatusLayout);
+    rightLayout->addWidget(m_bt_status_group, 1);  // stretch factor 1 to fill space
+
+    rightWidget->setFixedWidth(300);
+    mainHLayout->addWidget(rightWidget, 0);  // stretch factor 0 (fixed width)
+
+    setLayout(mainHLayout);
 }
 
 void PoseWindow::setupConnections()
@@ -283,6 +341,7 @@ void PoseWindow::setupConnections()
     connect(m_home_btn, &QPushButton::clicked, this, &PoseWindow::goHome);
     connect(m_update_depth_btn, &QPushButton::clicked, this, &PoseWindow::updateDepth);
     connect(m_test_btn, &QPushButton::clicked, this, &PoseWindow::testMoveUp);
+    connect(m_create_sequence_btn, &QPushButton::clicked, this, &PoseWindow::onCreateSequenceClicked);
 
     // Use lambda to avoid calling onFrameChanged during startup when TF isn't ready
     connect(m_source_frame_selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -795,4 +854,90 @@ void PoseWindow::onPrismaticChanged(int value)
     m_linear_actuator_pub->publish(cmd);
 
     RCLCPP_DEBUG(m_node->get_logger(), "Linear actuator manual command: %.3f m", position_m);
+}
+
+void PoseWindow::logBtStatus(const QString &message, bool isError)
+{
+    QString timestamp = QDateTime::currentDateTime().toString("hh:mm:ss");
+    QString coloredMsg;
+
+    if (isError) {
+        coloredMsg = QString("<span style='color: #e74c3c;'>[%1] %2</span>").arg(timestamp, message);
+    } else if (message.contains("SUCCESS")) {
+        coloredMsg = QString("<span style='color: #2ecc71;'>[%1] %2</span>").arg(timestamp, message);
+    } else if (message.contains("RUNNING")) {
+        coloredMsg = QString("<span style='color: #3498db;'>[%1] %2</span>").arg(timestamp, message);
+    } else if (message.contains("FAILURE")) {
+        coloredMsg = QString("<span style='color: #e74c3c;'>[%1] %2</span>").arg(timestamp, message);
+    } else {
+        coloredMsg = QString("<span style='color: #ecf0f1;'>[%1] %2</span>").arg(timestamp, message);
+    }
+
+    m_bt_status_monitor->append(coloredMsg);
+
+    // Auto-scroll to bottom
+    QScrollBar *sb = m_bt_status_monitor->verticalScrollBar();
+    sb->setValue(sb->maximum());
+}
+
+void PoseWindow::btStatusCallback(const std_msgs::msg::String::SharedPtr msg)
+{
+    QString status = QString::fromStdString(msg->data);
+    QMetaObject::invokeMethod(this, [this, status]() {
+        logBtStatus(QString("BT Status: %1").arg(status));
+    }, Qt::QueuedConnection);
+}
+
+void PoseWindow::btFeedbackCallback(const std_msgs::msg::String::SharedPtr msg)
+{
+    QString feedback = QString::fromStdString(msg->data);
+    QMetaObject::invokeMethod(this, [this, feedback]() {
+        logBtStatus(QString("BT Feedback: %1").arg(feedback));
+    }, Qt::QueuedConnection);
+}
+
+void PoseWindow::onBtStatusReceived(const QString &status)
+{
+    logBtStatus(status);
+}
+
+void PoseWindow::onCreateSequenceClicked()
+{
+    if (m_sequence_running) {
+        logStatus("Sequence already running", true);
+        logBtStatus("Sequence already running - please wait", true);
+        return;
+    }
+
+    if (!m_run_screw_sequence_client->wait_for_service(std::chrono::seconds(1))) {
+        logStatus("run_screw_sequence service not available", true);
+        logBtStatus("Service not available - is bt_executor_node running?", true);
+        return;
+    }
+
+    m_sequence_running = true;
+    m_create_sequence_btn->setEnabled(false);
+    m_create_sequence_btn->setText("Running...");
+
+    logStatus("Starting screw sequence...");
+    logBtStatus("Starting screw sequence - visiting 5 screw locations");
+
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    m_run_screw_sequence_client->async_send_request(request,
+        [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+            auto result = future.get();
+            QMetaObject::invokeMethod(this, [this, result]() {
+                m_sequence_running = false;
+                m_create_sequence_btn->setEnabled(true);
+                m_create_sequence_btn->setText("Create Sequence");
+
+                if (result->success) {
+                    logStatus("Screw sequence completed successfully!");
+                    logBtStatus("Sequence completed successfully!");
+                } else {
+                    logStatus("Screw sequence failed: " + QString::fromStdString(result->message), true);
+                    logBtStatus("Sequence failed: " + QString::fromStdString(result->message), true);
+                }
+            }, Qt::QueuedConnection);
+        });
 }

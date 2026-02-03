@@ -15,12 +15,14 @@
 #include <QProgressBar>
 #include <QTextEdit>
 #include <QCheckBox>
+#include <QScrollArea>
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -51,6 +53,8 @@ private slots:
     void updateCurrentPose();
     void onPrismaticChanged(int value);
     void testMoveUp();
+    void onCreateSequenceClicked();
+    void onBtStatusReceived(const QString &status);
 
 private:
     void setupUI();
@@ -59,7 +63,10 @@ private:
     void populateFrameList();
     void onFrameChanged();
     void logStatus(const QString &message, bool isError = false);
+    void logBtStatus(const QString &message, bool isError = false);
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void btStatusCallback(const std_msgs::msg::String::SharedPtr msg);
+    void btFeedbackCallback(const std_msgs::msg::String::SharedPtr msg);
 
     // ROS node
     rclcpp::Node::SharedPtr m_node;
@@ -107,6 +114,12 @@ private:
     QTextEdit *m_status_log;
     QGroupBox *m_status_group;
 
+    // ============ BT STATUS MONITOR (right panel) ============
+    QTextEdit *m_bt_status_monitor;
+    QGroupBox *m_bt_status_group;
+    QPushButton *m_create_sequence_btn;
+    bool m_sequence_running;
+
     // Frame tracking
     std::string m_source_frame;
     std::string m_target_frame;
@@ -126,6 +139,11 @@ private:
     rclcpp::Client<arpa_control::srv::StopMotion>::SharedPtr m_stop_client;
     // Linear actuator controller - dual mode: manual slider + MoveIt 7-DOF planning
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_linear_actuator_pub;
+
+    // BT Status Monitor subscriptions and clients
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_bt_status_sub;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_bt_feedback_sub;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_run_screw_sequence_client;
 };
 
 #endif // __ARPA_GUI_POSE_WINDOW_HPP__

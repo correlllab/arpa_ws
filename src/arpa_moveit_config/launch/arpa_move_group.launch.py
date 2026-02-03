@@ -7,7 +7,7 @@ from ur_moveit_config.launch_common import load_yaml
 from launch_ros.parameter_descriptions import ParameterValue
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import (
     Command,
@@ -100,6 +100,27 @@ def launch_setup(context, *args, **kwargs):
         "robot_description": ParameterValue(robot_description_content, value_type=str)
     }
 
+    # Warn if arpa_description source is newer than install (xacro uses install path)
+    warn_actions = []
+    try:
+        desc_pkg = context.perform_substitution(description_package)
+        if desc_pkg == "arpa_description":
+            from ament_index_python.packages import get_package_share_directory
+            install_share = get_package_share_directory("arpa_description")
+            prefix_paths = os.environ.get("COLCON_PREFIX_PATH", "")
+            if prefix_paths:
+                ws_root = os.path.dirname(prefix_paths.split(os.pathsep)[0])
+                source_xacro = os.path.join(ws_root, "src", "arpa_description", "urdf", "tool_holder.xacro")
+                install_xacro = os.path.join(install_share, "urdf", "tool_holder.xacro")
+                if os.path.isfile(source_xacro) and os.path.isfile(install_xacro):
+                    if os.path.getmtime(source_xacro) > os.path.getmtime(install_xacro):
+                        warn_actions.append(LogInfo(
+                            msg="[arpa_description] Source is newer than install; nut runner pose may be stale. "
+                                "Run: colcon build --packages-select arpa_description && source install/setup.bash"
+                        ))
+    except Exception:
+        pass
+
     # MoveIt Configuration
     robot_description_semantic_content = Command(
         [
@@ -119,7 +140,9 @@ def launch_setup(context, *args, **kwargs):
             " ",
         ]
     )
-    robot_description_semantic = {"robot_description_semantic": robot_description_semantic_content}
+    robot_description_semantic = {
+        "robot_description_semantic": ParameterValue(robot_description_semantic_content, value_type=str)
+    }
 
     publish_robot_description_semantic = {
         "publish_robot_description_semantic": _publish_robot_description_semantic
@@ -240,7 +263,7 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
-    nodes_to_start = [move_group_node, rviz_node, servo_node]
+    nodes_to_start = warn_actions + [move_group_node, rviz_node, servo_node]
 
     return nodes_to_start
 

@@ -3,6 +3,7 @@ from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterValue
 from launch import LaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution
@@ -41,12 +42,13 @@ def generate_launch_description():
     # ------------------------------------------------------------
 
     # 1. Robot State Publisher — reads the generated URDF and publishes TFs
+    robot_description_content = Command(["xacro ", urdf_path])
     robot_state_publisher = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
         name="robot_state_publisher",
         output="screen",
-        parameters=[{"robot_description": Command(["xacro ", urdf_path])}],
+        parameters=[{"robot_description": ParameterValue(robot_description_content, value_type=str)}],
     )
 
     # # 2. Joint State Publisher — provides simulated joint states
@@ -77,7 +79,7 @@ def generate_launch_description():
         launch_arguments={
             "ur_type": "ur16e",
             "description_package": "arpa_description",
-            "description_file": urdf_path,   # your gantry + UR combo
+            "description_file": "arpa_system.urdf.xacro",
             "origin": "ur_base_link",
             "use_fake_hardware": "true",
             "launch_rviz": "false",
