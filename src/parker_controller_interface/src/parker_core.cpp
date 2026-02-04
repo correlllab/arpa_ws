@@ -21,10 +21,12 @@ ParkerCore::ParkerCore(const std::string& host, int port, int timeout_sec)
   timeout_sec_(timeout_sec),
   main_sock_(-1),
   monitor_sock_(-1),
+  estop_sock_(-1),
   zero_pose_(ENCODER_0_READING / ENCODER_PPU),
   monitor_running_(false),
   last_position_(std::nan("")),
-  last_velocity_(std::nan(""))
+  last_velocity_(std::nan("")),
+  command_worker_running_(false)
 {
 }
 
@@ -90,13 +92,52 @@ bool ParkerCore::connect()
     return false;
   }
 
+  //connect estop socket
+  estop_sock_ = socket(AF_INET, SOCK_STREAM, 0);
+  if (estop_sock_ < 0) {
+    std::cerr << "Failed to create estop socket" << std::endl;
+    ::close(main_sock_);
+    ::close(monitor_sock_);
+    main_sock_ = -1;
+    monitor_sock_ = -1;
+    return false;
+  }
+  setsockopt(estop_sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(estop_sock_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  if (::connect(estop_sock_, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    std::cerr << "Failed to connect estop socket" << std::endl;
+    ::close(main_sock_);
+    ::close(monitor_sock_);
+    ::close(estop_sock_);
+    main_sock_ = -1;
+    monitor_sock_ = -1;
+    estop_sock_ = -1;
+    return false;
+  }
+
   std::cout << "Zero pose set to " << zero_pose_ << " user units." << std::endl;
+
+  // Start command queue worker thread
+  command_worker_running_ = true;
+  command_worker_thread_ = std::thread(&ParkerCore::process_command_queue, this);
+  std::cout << "[ParkerCore] Command queue worker thread started." << std::endl;
+
   return true;
 }
 
 void ParkerCore::close()
 {
   stop_monitoring();
+
+  // Stop command queue worker thread
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    command_worker_running_ = false;
+  }
+  command_queue_cv_.notify_all();
+  if (command_worker_thread_.joinable()) {
+    command_worker_thread_.join();
+  }
 
   if (main_sock_ >= 0) {
     ::close(main_sock_);
@@ -105,6 +146,10 @@ void ParkerCore::close()
   if (monitor_sock_ >= 0) {
     ::close(monitor_sock_);
     monitor_sock_ = -1;
+  }
+  if (estop_sock_ >= 0) {
+    ::close(estop_sock_);
+    estop_sock_ = -1;
   }
 }
 
@@ -199,28 +244,58 @@ void ParkerCore::init_motor()
     std::cout << "[Init motor] DRIVE ON X: " << line << std::endl;
   }
 
-  auto stp_response = send_telnet(main_sock_, "STP 0");
-  std::cout << "[Init motor] STP 0 response lines: " << stp_response.size() << std::endl;
-  for (const auto& line : stp_response) {
-    std::cout << "[Init motor] STP 0: " << line << std::endl;
-  }
+
+  // send_telnet(main_sock_, "MBUF ON");
+  // send_telnet(main_sock_, "DIM MBUF (10)");
+  // send_telnet(main_sock_, "LOOK ON");
+
 
 }
 
-std::vector<std::string> ParkerCore::set_velocity(double velocity_m_per_s)
+void ParkerCore::set_stp(double stp){
+  std::string cmd = "STP " + std::to_string(stp);
+
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    command_queue_.push({cmd, false});
+  }
+  command_queue_cv_.notify_one();
+  std::cout << "[Set STP] Queued: " << cmd << std::endl;
+  // send_telnet(main_sock_, cmd, false);
+}
+
+
+void ParkerCore::set_velocity(double velocity_m_per_s)
 {
   double velocity_mm_per_sec = std::abs(velocity_m_per_s) * 1000.0;
 
   std::string cmd = "VEL " + std::to_string(velocity_mm_per_sec);
+  // std::string cmd = "FOV " + std::to_string(velocity_mm_per_sec);
 
-  // Print Sent Command
-  // std::cout << "[set_velocity] Sending command: " << cmd << std::endl;
 
-  auto response = send_telnet(main_sock_, cmd, false);
-  return response;
+  // Enqueue command for async processing (non-blocking send, queue provides ordering)
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    command_queue_.push({cmd, false});
+  }
+  command_queue_cv_.notify_one();
+  // send_telnet(main_sock_, cmd, false);
+
 }
 
-std::vector<std::string> ParkerCore::goto_pose(double position_m)
+void ParkerCore::set_inmotion_params()
+{
+  set_stp(0);
+}
+
+void ParkerCore::set_final_motion_params()
+{
+  set_stp(100);
+  set_velocity(0.5);
+}
+
+
+void ParkerCore::goto_pose(double position_m)
 {
   // Input position_m is in meters (range 0.1 to 2.0)
   // Convert to mm: 0.1m -> 100mm, 0.5m -> 500mm, 2.0m -> 2000mm
@@ -230,8 +305,6 @@ std::vector<std::string> ParkerCore::goto_pose(double position_m)
   // Clamp to valid range [100, 2000] mm
   position_mm = std::max(MIN_POSITION_MM, std::min(position_mm, MAX_POSITION_MM));
 
-  // std::cout << "[goto_pose] Requested: " << position_m << " m -> " << position_mm << " mm" << std::endl;
-
   // Match Python: target_user_units = self.zero_pose - user_units
   double target_user_units = zero_pose_ - position_mm;
 
@@ -239,38 +312,48 @@ std::vector<std::string> ParkerCore::goto_pose(double position_m)
   cmd_stream << "MOV X " << target_user_units;
   std::string cmd = cmd_stream.str();
 
-  // Print Sent Command
-  // std::cout << "[goto_pose] Sending command: " << cmd << std::endl;
+  // Enqueue command for async processing (non-blocking send, queue provides ordering)
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    command_queue_.push({cmd, false});
+  }
+  command_queue_cv_.notify_one();
 
-  auto response = send_telnet(main_sock_, cmd, false);
-  return response;
 }
 
 void ParkerCore::jog_forward(double velocity_mm_per_s)
 {
   // Set JOG velocity and start forward jog
   std::string vel_cmd = "JOG VEL X " + std::to_string(velocity_mm_per_s);
-  send_telnet(main_sock_, vel_cmd, false);
-  send_telnet(main_sock_, "JOG FWD X", false);
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    command_queue_.push({vel_cmd, false});
+    command_queue_.push({"JOG FWD X", false});
+  }
+  command_queue_cv_.notify_one();
 }
 
 void ParkerCore::jog_reverse(double velocity_mm_per_s)
 {
   // Set JOG velocity and start reverse jog
   std::string vel_cmd = "JOG VEL X " + std::to_string(velocity_mm_per_s);
-  send_telnet(main_sock_, vel_cmd, false);
-  send_telnet(main_sock_, "JOG REV X", false);
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    command_queue_.push({vel_cmd, false});
+    command_queue_.push({"JOG REV X", false});
+  }
+  command_queue_cv_.notify_one();
 }
 
 void ParkerCore::jog_off()
 {
-  send_telnet(main_sock_, "JOG OFF X", false);
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    command_queue_.push({"JOG OFF X", false});
+  }
+  command_queue_cv_.notify_one();
 }
 
-double ParkerCore::get_position()
-{
-  return get_position_from_socket(main_sock_);
-}
 
 double ParkerCore::get_position_from_socket(int sock_fd)
 {
@@ -362,8 +445,95 @@ void ParkerCore::monitor_position()
   }
 }
 
-void ParkerCore::halt_motion()
+void ParkerCore::process_command_queue()
 {
-  send_telnet(main_sock_, "HALT", false);
-}  
-}  // namespace parker_controller_interface
+  while (true) {
+    Command cmd;
+    {
+      std::unique_lock<std::mutex> lock(command_queue_mutex_);
+      command_queue_cv_.wait(lock, [this] {
+        std::cout << "[Command queue] Waiting for commands..." << std::endl;
+        return !command_queue_.empty() || !command_worker_running_;
+      });
+
+      if (!command_worker_running_ && command_queue_.empty()) {
+        std::cout << "[Command queue] Worker thread stopping (no more commands and not running)." << std::endl;
+
+        break;
+      }
+
+      if (!command_queue_.empty()) {
+        cmd = command_queue_.front();
+        command_queue_.pop();
+      } else {
+        continue;
+      }
+    }
+
+    // Process command outside lock - send with blocking to ensure delivery
+    try {
+      std::cout << "[Command queue] Processing command: " << cmd.cmd << std::endl;
+      // send_telnet(main_sock_, cmd.cmd, cmd.blocking);
+      // send_telnet(main_sock_, cmd.cmd, true);
+      // Use estop socket for CLEAR STREAM, SET, and CLR commands
+      if (cmd.cmd.find("CLEAR STREAM") != std::string::npos ||
+          cmd.cmd.find("SET") != std::string::npos ||
+          cmd.cmd.find("CLR") != std::string::npos) {
+        send_telnet(estop_sock_, cmd.cmd, true);
+      } else {
+        send_telnet(main_sock_, cmd.cmd, true);
+      }
+
+
+    } catch (const std::exception& e) {
+      std::cerr << "[Command queue] Error sending command: " << e.what() << std::endl;
+    }
+  }
+  std::cout << "[ParkerCore] Command queue worker thread stopped." << std::endl;
+}
+
+
+void ParkerCore::set_force_stop()
+{
+  // Clear the command queue to prevent pending commands from executing
+  size_t queue_size = 0;
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    queue_size = command_queue_.size();
+    std::queue<Command> empty;
+    std::swap(command_queue_, empty);
+    // command_queue_.push({"CLEAR STREAM", false});
+
+    //set the kill all moves bit
+    // command_queue_.push({"SET 522", false});
+    command_queue_.push({"SET 8467", false});
+
+  }
+  command_queue_cv_.notify_one();
+  std::cout << "[Force Stop] Cleared " << queue_size << " commands from queue. Queued SET." << std::endl;
+}
+
+void ParkerCore::clear_force_stop()
+{
+  // Clear the kill all moves bit
+  {
+    std::lock_guard<std::mutex> lock(command_queue_mutex_);
+    // command_queue_.push({"CLEAR STREAM", false});
+    command_queue_.push({"CLR 522", false});
+    command_queue_.push({"CLR 8467", false});
+
+    
+  }
+  command_queue_cv_.notify_one();
+  std::cout << "[Clear Force Stop] Queued CLR." << std::endl;
+}
+
+void ParkerCore::quick_stop()
+{
+  set_force_stop();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  clear_force_stop();
+}
+
+
+}    // namespace parker_controller_interface

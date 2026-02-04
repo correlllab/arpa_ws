@@ -6,6 +6,9 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <functional>
 #include <cmath>
 
 namespace parker_controller_interface
@@ -45,9 +48,9 @@ public:
 
   // Motor control
   void init_motor();
-  std::vector<std::string> set_velocity(double velocity_m_per_s);
-  std::vector<std::string> goto_pose(double position_m);
-  double get_position();
+  void set_velocity(double velocity_m_per_s);
+  void goto_pose(double position_m);
+  void set_stp(double stp);
 
   // JOG mode control (for continuous velocity control)
   void jog_forward(double velocity_mm_per_s);
@@ -60,7 +63,13 @@ public:
   double get_last_position() const;
   double get_last_velocity() const;
 
-  void halt_motion();
+
+  void set_force_stop();
+  void clear_force_stop();
+  void quick_stop();
+  void set_inmotion_params();
+  void set_final_motion_params();
+
 
 private:
   // Socket communication
@@ -71,6 +80,15 @@ private:
   // Monitoring thread function
   void monitor_position();
 
+  // Command queue worker thread function
+  void process_command_queue();
+
+  // Command structure for queuing
+  struct Command {
+    std::string cmd;
+    bool blocking;
+  };
+
   // Connection parameters
   std::string host_;
   int port_;
@@ -79,6 +97,7 @@ private:
   // Socket file descriptors
   int main_sock_;
   int monitor_sock_;
+  int estop_sock_;
 
   // Zero pose reference
   double zero_pose_;
@@ -89,6 +108,13 @@ private:
   std::atomic<double> last_velocity_;
   std::thread monitor_thread_;
   std::mutex monitor_sock_mutex_;
+
+  // Command queue state
+  std::queue<Command> command_queue_;
+  std::mutex command_queue_mutex_;
+  std::condition_variable command_queue_cv_;
+  std::atomic<bool> command_worker_running_;
+  std::thread command_worker_thread_;
 };
 
 }  // namespace parker_controller_interface

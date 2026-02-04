@@ -76,6 +76,7 @@ private:
 
   // Track last commanded position to avoid redundant commands
   double last_commanded_position_;
+  double last_commanded_velocity_;
 
   // Control mode: "POS" for position-only, "VEL" for velocity control with P-feedback
   std::string controller_type_;
