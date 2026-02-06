@@ -236,15 +236,15 @@ hardware_interface::return_type ParkerControllerInterface::write(
   }
   last_write_time_ = std::chrono::steady_clock::now();
 
-  RCLCPP_INFO(
-    rclcpp::get_logger("ParkerControllerInterface"),
-    "[WRITE] \n\n");
+  // RCLCPP_INFO(
+  //   rclcpp::get_logger("ParkerControllerInterface"),
+  //   "[WRITE] \n\n");
 
   //log commanded position and velocity
-  RCLCPP_INFO(
-        rclcpp::get_logger("ParkerControllerInterface"),
-        "[WRITE] Pos cmd: %.4f, State: %.4f, Vel: %.4f m/s",
-        hw_position_command_, hw_position_state_, hw_velocity_command_);
+  // RCLCPP_INFO(
+  //       rclcpp::get_logger("ParkerControllerInterface"),
+  //       "[WRITE] Pos cmd: %.4f, State: %.4f, Vel: %.4f m/s",
+  //       hw_position_command_, hw_position_state_, hw_velocity_command_);
 
   
   // Guard against NaN commands
@@ -263,10 +263,10 @@ hardware_interface::return_type ParkerControllerInterface::write(
   }
 
   //log valid command
-  RCLCPP_INFO(
-        rclcpp::get_logger("ParkerControllerInterface"),
-        "[WRITE] Valid Command Recived: Velocity: %.4f, Position: %.4f",
-         hw_velocity_command_, hw_position_command_);
+  // RCLCPP_INFO(
+  //       rclcpp::get_logger("ParkerControllerInterface"),
+  //       "[WRITE] Valid Command Recived: Velocity: %.4f, Position: %.4f",
+  //        hw_velocity_command_, hw_position_command_);
 
 
   //measure command attributes
@@ -276,18 +276,18 @@ hardware_interface::return_type ParkerControllerInterface::write(
   double abs_velocity = std::abs(hw_velocity_command_);
   bool send_move = true;
 
-  RCLCPP_INFO(
-        rclcpp::get_logger("ParkerControllerInterface"),
-        "[WRITE] Command attributes: (%.4f -> %.4f) at vel %.4f cmd_change: %.4f, position_change: %.4f, abs_velocity: %.4f",
-         last_commanded_position_, hw_position_command_, hw_velocity_command_, cmd_change, position_change, abs_velocity);
+  // RCLCPP_INFO(
+  //       rclcpp::get_logger("ParkerControllerInterface"),
+  //       "[WRITE] Command attributes: (%.4f -> %.4f) at vel %.4f cmd_change: %.4f, position_change: %.4f, abs_velocity: %.4f",
+  //        last_commanded_position_, hw_position_command_, hw_velocity_command_, cmd_change, position_change, abs_velocity);
 
   //if command hasnt changed sufficently
   if(cmd_change < 0.0001 || position_change < 0.0001 || abs_velocity < 0.001){
     //dont increment or send beyond 5
-    RCLCPP_INFO(
-      rclcpp::get_logger("ParkerControllerInterface"),
-      "[WRITE] Position command unchanged: (%.4f -> %.4f) velocity: %.4f counter: %d",
-      last_commanded_position_, hw_position_command_, hw_velocity_command_, magic_five_counter_);
+    // RCLCPP_INFO(
+    //   rclcpp::get_logger("ParkerControllerInterface"),
+    //   "[WRITE] Position command unchanged: (%.4f -> %.4f) velocity: %.4f counter: %d",
+    //   last_commanded_position_, hw_position_command_, hw_velocity_command_, magic_five_counter_);
     if(magic_five_counter_ >= 5){
       send_move = false;
     } else {
@@ -296,10 +296,10 @@ hardware_interface::return_type ParkerControllerInterface::write(
         if(magic_five_counter_ == 1){
           parker_->set_final_motion_params();
           final_motion_params = true;
-          RCLCPP_INFO(
-            rclcpp::get_logger("ParkerControllerInterface"),
-            "[WRITE] Set final motion params counter: %d", 
-            magic_five_counter_);
+          // RCLCPP_INFO(
+          //   rclcpp::get_logger("ParkerControllerInterface"),
+          //   "[WRITE] Set final motion params counter: %d", 
+          //   magic_five_counter_);
         } else if (magic_five_counter_ == 5){
           // parker_ -> quick_stop();
           // RCLCPP_INFO(
@@ -317,17 +317,17 @@ hardware_interface::return_type ParkerControllerInterface::write(
     if (magic_five_counter_ > 0){
       parker_->set_inmotion_params();
       magic_five_counter_ = 0;
-      RCLCPP_INFO(
-        rclcpp::get_logger("ParkerControllerInterface"),
-        "[WRITE] Position command changed: (%.4f -> %.4f) vel: %.4f, resetting counter: %.4d",
-         last_commanded_position_, hw_position_command_, hw_velocity_command_, magic_five_counter_);
+      // RCLCPP_INFO(
+      //   rclcpp::get_logger("ParkerControllerInterface"),
+      //   "[WRITE] Position command changed: (%.4f -> %.4f) vel: %.4f, resetting counter: %.4d",
+      //    last_commanded_position_, hw_position_command_, hw_velocity_command_, magic_five_counter_);
     }
 
     //if the postion has changed sufficently but the velocity is zero something is wrong
     if (hw_velocity_command_ == 0){
-      RCLCPP_INFO(
-        rclcpp::get_logger("ParkerControllerInterface"),
-        "[WRITE[CONCERN]] Velocity command is zero: (%.4f) but position changed (%.8f -> %.8f)\n\n", hw_velocity_command_, last_commanded_position_, hw_position_command_);
+      // RCLCPP_INFO(
+      //   rclcpp::get_logger("ParkerControllerInterface"),
+      //   "[WRITE[CONCERN]] Velocity command is zero: (%.4f) but position changed (%.8f -> %.8f)\n\n", hw_velocity_command_, last_commanded_position_, hw_position_command_);
         // hw_velocity_command_ = last_commanded_velocity_;
         send_move = false;
     } else {
@@ -336,16 +336,16 @@ hardware_interface::return_type ParkerControllerInterface::write(
   }
   if (send_move) {
      parker_->goto_pose(hw_position_command_);
-      RCLCPP_INFO(
-        rclcpp::get_logger("ParkerControllerInterface"),
-        "\n\n[GOTO_POSE] Sending position: %.4f m, velocity: %.4f m/s magic_five_counter_: %d, last_commanded_position_: %.4f, last_commanded_velocity_: %.4f, final_motion_params: %s\n\n",
-        hw_position_command_, hw_velocity_command_, magic_five_counter_, last_commanded_position_, last_commanded_velocity_, final_motion_params ? "true" : "false");
+      // RCLCPP_INFO(
+      //   rclcpp::get_logger("ParkerControllerInterface"),
+      //   "\n\n[GOTO_POSE] Sending position: %.4f m, velocity: %.4f m/s magic_five_counter_: %d, last_commanded_position_: %.4f, last_commanded_velocity_: %.4f, final_motion_params: %s\n\n",
+      //   hw_position_command_, hw_velocity_command_, magic_five_counter_, last_commanded_position_, last_commanded_velocity_, final_motion_params ? "true" : "false");
     last_commanded_position_ = hw_position_command_;
     last_commanded_velocity_ = final_motion_params ? 500.0/1000.0 : hw_velocity_command_;
   }
-  RCLCPP_INFO(
-    rclcpp::get_logger("ParkerControllerInterface"),
-    "[WRITE] \n\n");
+  // RCLCPP_INFO(
+  //   rclcpp::get_logger("ParkerControllerInterface"),
+  //   "[WRITE] \n\n");
   return hardware_interface::return_type::OK;
 }
 

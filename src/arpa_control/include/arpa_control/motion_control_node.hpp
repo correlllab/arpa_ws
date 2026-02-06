@@ -21,6 +21,7 @@
 #include "std_srvs/srv/trigger.hpp"
 #include <moveit_msgs/msg/constraints.hpp>
 #include <moveit_msgs/msg/joint_constraint.hpp>
+#include <moveit_msgs/msg/orientation_constraint.hpp>
 
 
 // lidar

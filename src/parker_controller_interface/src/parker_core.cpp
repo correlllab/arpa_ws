@@ -452,12 +452,12 @@ void ParkerCore::process_command_queue()
     {
       std::unique_lock<std::mutex> lock(command_queue_mutex_);
       command_queue_cv_.wait(lock, [this] {
-        std::cout << "[Command queue] Waiting for commands..." << std::endl;
+        // std::cout << "[Command queue] Waiting for commands..." << std::endl;
         return !command_queue_.empty() || !command_worker_running_;
       });
 
       if (!command_worker_running_ && command_queue_.empty()) {
-        std::cout << "[Command queue] Worker thread stopping (no more commands and not running)." << std::endl;
+        // std::cout << "[Command queue] Worker thread stopping (no more commands and not running)." << std::endl;
 
         break;
       }
@@ -472,7 +472,7 @@ void ParkerCore::process_command_queue()
 
     // Process command outside lock - send with blocking to ensure delivery
     try {
-      std::cout << "[Command queue] Processing command: " << cmd.cmd << std::endl;
+      // std::cout << "[Command queue] Processing command: " << cmd.cmd << std::endl;
       // send_telnet(main_sock_, cmd.cmd, cmd.blocking);
       // send_telnet(main_sock_, cmd.cmd, true);
       // Use estop socket for CLEAR STREAM, SET, and CLR commands
@@ -496,10 +496,10 @@ void ParkerCore::process_command_queue()
 void ParkerCore::set_force_stop()
 {
   // Clear the command queue to prevent pending commands from executing
-  size_t queue_size = 0;
+  // size_t queue_size = 0;
   {
     std::lock_guard<std::mutex> lock(command_queue_mutex_);
-    queue_size = command_queue_.size();
+    // queue_size = command_queue_.size();
     std::queue<Command> empty;
     std::swap(command_queue_, empty);
     // command_queue_.push({"CLEAR STREAM", false});
@@ -510,7 +510,7 @@ void ParkerCore::set_force_stop()
 
   }
   command_queue_cv_.notify_one();
-  std::cout << "[Force Stop] Cleared " << queue_size << " commands from queue. Queued SET." << std::endl;
+  // std::cout << "[Force Stop] Cleared " << queue_size << " commands from queue. Queued SET." << std::endl;
 }
 
 void ParkerCore::clear_force_stop()
@@ -525,7 +525,7 @@ void ParkerCore::clear_force_stop()
     
   }
   command_queue_cv_.notify_one();
-  std::cout << "[Clear Force Stop] Queued CLR." << std::endl;
+  // std::cout << "[Clear Force Stop] Queued CLR." << std::endl;
 }
 
 void ParkerCore::quick_stop()

@@ -97,13 +97,49 @@ void MotionControlNode::initMoveGroup()
 
   m_move_group->startStateMonitor(1.0);
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
+  // m_move_group->setPlannerId("RRTstarkConfigDefault");
   m_move_group->setPlanningPipelineId("move_group");
-  m_move_group->setPlanningTime(5.0);
-  m_move_group->setNumPlanningAttempts(10);
+  m_move_group->setPlanningTime(25);//(5.0);
+  m_move_group->setNumPlanningAttempts(50);//(10);
   m_move_group->setMaxVelocityScalingFactor(0.1);
   m_move_group->setMaxAccelerationScalingFactor(0.1);
   m_move_group->setGoalPositionTolerance(0.01);
-  m_move_group->setGoalOrientationTolerance(0.01); 
+  m_move_group->setGoalOrientationTolerance(0.01);
+
+  // Replanning settings 
+  m_move_group->allowReplanning(true);
+  m_move_group->setReplanAttempts(3);
+  m_move_group->setReplanDelay(1.0);  // seconds between replans
+
+  // Allow sensor updates during planning
+  m_move_group->allowLooking(true);
+
+  // Orientation constraint: keep tool pointing down during motion
+  // Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
+  // moveit_msgs::msg::Constraints path_constraints;
+  // moveit_msgs::msg::OrientationConstraint ocm;
+  // ocm.link_name = m_move_group->getEndEffectorLink();
+  // ocm.header.frame_id = "floor_link";
+  // // Quaternion (xyzw): [0.7071068, 0.7071068, 0, 0]
+  // ocm.orientation.x = 0.7071068;
+  // ocm.orientation.y = 0.7071068;
+  // ocm.orientation.z = 0.0;
+  // ocm.orientation.w = 0.0;
+  // ocm.absolute_x_axis_tolerance = 2*3.14;  // radians of allowed deviation (~29°)
+  // ocm.absolute_y_axis_tolerance = 2*3.14;
+  // ocm.absolute_z_axis_tolerance = 2*3.14; // free rotation around Z (tool axis)
+  // ocm.weight = 1.0;
+  // path_constraints.orientation_constraints.push_back(ocm);
+  // m_move_group->setPathConstraints(path_constraints);
+
+  // Other useful settings (commented out for reference)
+  // m_move_group->setGoalJointTolerance(0.01);           // joint-space tolerance (radians)
+  // m_move_group->setGoalTolerance(0.01);                // sets position, orientation, AND joint tolerances
+  // m_move_group->setWorkspace(-1.0, -2.0, 0.5, 3.0, 2.0, 2.0);  // bounding box for end-effector
+  // m_move_group->setPoseReferenceFrame("floor_link");   // frame for pose targets
+  // m_move_group->setEndEffectorLink("tool0");           // which link to plan for
+  // m_move_group->setSupportSurfaceName("table");        // for pick/place operations
+  // m_move_group->clearPathConstraints();                // remove constraints
 
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() END");
 }
