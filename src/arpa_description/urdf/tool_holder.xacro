@@ -8,7 +8,7 @@
   -->
   <xacro:macro name="tool_holder" params="
       parent_link
-      mesh_filename:='$(find arpa_description)/meshes/tool_holder.stl'
+      mesh_filename:='$(find arpa_description)/meshes/tool_holder_v2.stl'
       mass:=0.5
       origin_xyz:='-0.0055 -0.0055 -.006'
       origin_rpy:='${pi/2.} ${3*pi/2.} 0'
