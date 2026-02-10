@@ -90,3 +90,12 @@ parker_linear_actuator:
     - RRTConnectkConfigDefault
     - PRMkConfigDefault
   longest_valid_segment_fraction: 0.01
+
+joint_weights:
+  linear_actuator_to_linear_actuator_plate_joint: 0.001
+  shoulder_pan_joint: 1.0
+  shoulder_lift_joint: 1.0
+  elbow_joint: 1.0
+  wrist_1_joint: 1.0
+  wrist_2_joint: 1.0
+  wrist_3_joint: 1.0
