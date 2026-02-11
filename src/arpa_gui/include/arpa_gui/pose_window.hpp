@@ -118,6 +118,7 @@ private:
     QTextEdit *m_bt_status_monitor;
     QGroupBox *m_bt_status_group;
     QPushButton *m_create_sequence_btn;
+    QComboBox *m_strategy_selector;
     bool m_sequence_running;
 
     // Frame tracking
@@ -144,6 +145,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_bt_status_sub;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_bt_feedback_sub;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_run_screw_sequence_client;
+    rclcpp::AsyncParametersClient::SharedPtr m_bt_param_client;
 };
 
 #endif // __ARPA_GUI_POSE_WINDOW_HPP__

@@ -184,22 +184,42 @@ void MotionControlNode::planToPoseCallback(
   static_transform.transform.rotation = target_pose_in_planning_frame.pose.orientation;
   m_static_transform_broadcaster->sendTransform(static_transform);
 
-  if (!configureForPlanning(target_pose_in_planning_frame.pose)) {
-    response->success = false;
-    response->message = "Failed to configure for planning";
-    return;
-  }
+  if (request->use_cartesian) {
+    // Cartesian path planning: straight-line motion to target
+    RCLCPP_INFO(get_logger(), "Using Cartesian (straight-line) path planning");
 
-  bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
-  if (success)
-  {
+    m_move_group->setStartStateToCurrentState();
+
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose_in_planning_frame.pose);
+
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    const double eef_step = 0.005;  // 5mm interpolation resolution
+    const double jump_threshold = 0.0;  // Disable jump detection
+    double fraction = m_move_group->computeCartesianPath(
+        waypoints, eef_step, jump_threshold, trajectory);
+
+    if (fraction >= 0.95) {
+      m_current_plan.trajectory_ = trajectory;
+      response->success = true;
+      response->message = "Cartesian planning successful (fraction: " + std::to_string(fraction) + ")";
+      RCLCPP_INFO(get_logger(), "Cartesian path computed: %.1f%% achieved", fraction * 100.0);
+    } else {
+      response->success = false;
+      response->message = "Cartesian planning failed (only " + std::to_string(fraction * 100.0) + "% achieved)";
+      RCLCPP_ERROR(get_logger(), "Cartesian path only achieved %.1f%%", fraction * 100.0);
+    }
+  } else {
+    // Standard sampling-based planning (RRTConnect)
+    if (!configureForPlanning(target_pose_in_planning_frame.pose)) {
+      response->success = false;
+      response->message = "Failed to configure for planning";
+      return;
+    }
+
+    bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
     response->success = success;
-    response->message = response->success ? "Planning successful" : "Planning failed";
-  }
-  else
-  {
-    response->success = false;
-    response->message = "Planning failed";
+    response->message = success ? "Planning successful" : "Planning failed";
   }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
 }

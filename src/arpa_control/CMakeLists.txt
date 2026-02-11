@@ -8,6 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
+find_package(moveit_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -22,7 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ExecutePlan.srv"
   "srv/StopMotion.srv"
   "srv/GetPointCloud.srv"
-  DEPENDENCIES geometry_msgs sensor_msgs
+  DEPENDENCIES geometry_msgs sensor_msgs moveit_msgs
 )
 
 include_directories(

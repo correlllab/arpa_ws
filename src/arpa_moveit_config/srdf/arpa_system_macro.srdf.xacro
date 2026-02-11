@@ -129,6 +129,7 @@
     <disable_collisions link1="${prefix}ee_cam_link" link2="${prefix}tool_head_link" reason="Adjacent"/>
     <disable_collisions link1="${prefix}ee_cam_link" link2="${prefix}wrist_1_link" reason="Default"/>
     <disable_collisions link1="${prefix}battery_link" link2="${prefix}ee_cam_link" reason="Default"/>
+    <disable_collisions link1="${prefix}battery_link" link2="${prefix}tool_holder_link" reason="Adjacent"/>
     <disable_collisions link1="${prefix}tool_head_link" link2="${prefix}tool_holder_link" reason="Never"/>
     <disable_collisions link1="${prefix}tool_head_link" link2="${prefix}forearm_link" reason="Default"/>
     <disable_collisions link1="${prefix}tool_head_link" link2="${prefix}wrist_1_link" reason="Never"/>

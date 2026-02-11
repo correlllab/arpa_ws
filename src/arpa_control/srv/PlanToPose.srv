@@ -1,5 +1,6 @@
 geometry_msgs/PoseStamped target_pose
 bool use_cartesian
+moveit_msgs/Constraints path_constraints
 ---
 bool success
 string message

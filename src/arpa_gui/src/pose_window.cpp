@@ -62,6 +62,9 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     // Client for screw sequence service
     m_run_screw_sequence_client = m_node->create_client<std_srvs::srv::Trigger>("run_screw_sequence");
 
+    // Parameter client for bt_executor_node (to set transfer_strategy)
+    m_bt_param_client = std::make_shared<rclcpp::AsyncParametersClient>(m_node, "bt_executor_node");
+
     // Set default home pose
     m_home_pose.position.x = 0.020;
     m_home_pose.position.y = -0.177;
@@ -308,10 +311,20 @@ void PoseWindow::setupUI()
     rightLayout->setSpacing(10);
     rightLayout->setContentsMargins(5, 5, 5, 5);
 
-    // Create Sequence button at top
+    // Transfer strategy selector
+    auto *strategyLayout = new QHBoxLayout;
+    strategyLayout->addWidget(new QLabel("Transfer Strategy:"));
+    m_strategy_selector = new QComboBox;
+    m_strategy_selector->addItem("Linear Actuator (fast)", "linear_actuator");
+    m_strategy_selector->addItem("Constrained Box (experimental)", "constrained");
+    m_strategy_selector->setToolTip("How the robot moves between screw locations in XY");
+    strategyLayout->addWidget(m_strategy_selector, 1);
+    rightLayout->addLayout(strategyLayout);
+
+    // Create Sequence button
     m_create_sequence_btn = new QPushButton("Create Sequence");
     m_create_sequence_btn->setMinimumHeight(50);
-    m_create_sequence_btn->setToolTip("Move robot to each of 5 screw locations, waiting 4 seconds at each");
+    m_create_sequence_btn->setToolTip("Move robot to each of 5 screw locations");
     rightLayout->addWidget(m_create_sequence_btn);
 
     // BT Status Monitor group
@@ -919,25 +932,34 @@ void PoseWindow::onCreateSequenceClicked()
     m_create_sequence_btn->setEnabled(false);
     m_create_sequence_btn->setText("Running...");
 
-    logStatus("Starting screw sequence...");
-    logBtStatus("Starting screw sequence - visiting 5 screw locations");
+    // Get selected strategy from dropdown
+    QString strategy = m_strategy_selector->currentData().toString();
+    logStatus(QString("Starting screw sequence with strategy: %1").arg(strategy));
+    logBtStatus(QString("Starting screw sequence - strategy: %1").arg(m_strategy_selector->currentText()));
 
-    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-    m_run_screw_sequence_client->async_send_request(request,
-        [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
-            auto result = future.get();
-            QMetaObject::invokeMethod(this, [this, result]() {
-                m_sequence_running = false;
-                m_create_sequence_btn->setEnabled(true);
-                m_create_sequence_btn->setText("Create Sequence");
+    // Set the transfer_strategy parameter on bt_executor_node before calling the service
+    auto param = rclcpp::Parameter("transfer_strategy", strategy.toStdString());
+    m_bt_param_client->set_parameters({param},
+        [this](std::shared_future<std::vector<rcl_interfaces::msg::SetParametersResult>> future) {
+            (void)future;  // We don't need to check the result strictly
+            // Now call the service
+            auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+            m_run_screw_sequence_client->async_send_request(request,
+                [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+                    auto result = future.get();
+                    QMetaObject::invokeMethod(this, [this, result]() {
+                        m_sequence_running = false;
+                        m_create_sequence_btn->setEnabled(true);
+                        m_create_sequence_btn->setText("Create Sequence");
 
-                if (result->success) {
-                    logStatus("Screw sequence completed successfully!");
-                    logBtStatus("Sequence completed successfully!");
-                } else {
-                    logStatus("Screw sequence failed: " + QString::fromStdString(result->message), true);
-                    logBtStatus("Sequence failed: " + QString::fromStdString(result->message), true);
-                }
-            }, Qt::QueuedConnection);
+                        if (result->success) {
+                            logStatus("Screw sequence completed successfully!");
+                            logBtStatus("Sequence completed successfully!");
+                        } else {
+                            logStatus("Screw sequence failed: " + QString::fromStdString(result->message), true);
+                            logBtStatus("Sequence failed: " + QString::fromStdString(result->message), true);
+                        }
+                    }, Qt::QueuedConnection);
+                });
         });
 }
