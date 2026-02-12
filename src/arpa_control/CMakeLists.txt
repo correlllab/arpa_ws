@@ -9,6 +9,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_msgs REQUIRED)
+find_package(shape_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -35,6 +36,8 @@ add_executable(motion_control_node src/motion_control_node.cpp)
 ament_target_dependencies(motion_control_node
   rclcpp
   moveit_ros_planning_interface
+  moveit_msgs
+  shape_msgs
   geometry_msgs
   sensor_msgs
   std_srvs

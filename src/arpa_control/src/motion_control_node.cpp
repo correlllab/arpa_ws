@@ -6,6 +6,10 @@
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <Eigen/Geometry>
+#include <moveit_msgs/msg/position_constraint.hpp>
+#include <moveit_msgs/msg/bounding_volume.hpp>
+#include <shape_msgs/msg/solid_primitive.hpp>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -52,6 +56,9 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_use_depth = false;
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
+  this->declare_parameter("use_corridor_constraint", false);  // if true, constrain RRT to corridor; off by default (causes plan rejections)
+  this->declare_parameter("corridor_padding", 0.02);   // extra length (m) at each end of corridor
+  this->declare_parameter("corridor_cross_section", 0.12);  // half-width (m) perpendicular to segment
   m_arm_padding = this->get_parameter("arm_padding").as_double();
   m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "tool_head_link"};
   for(auto link : m_arm_padding_links) {
@@ -283,14 +290,82 @@ void MotionControlNode::planToPoseCallback(
     }
     RCLCPP_INFO(get_logger(), "[DEBUG_H4] branch=rrt");
     // #endregion
-    // Standard sampling-based planning (RRTConnect)
+    m_move_group->setStartStateToCurrentState();
+
+    // Optional: constrain RRT to corridor (cuboid between current EE and target); off by default
+    const bool use_corridor = this->get_parameter("use_corridor_constraint").as_bool();
+    if (use_corridor) {
+      auto robot_state = m_move_group->getCurrentState();
+      if (robot_state) {
+        const std::string ee_link = m_move_group->getEndEffectorLink();
+        Eigen::Isometry3d ee_tf = robot_state->getGlobalLinkTransform(ee_link);
+        Eigen::Vector3d start_pos = ee_tf.translation();
+        Eigen::Vector3d end_pos(
+          target_pose_in_planning_frame.pose.position.x,
+          target_pose_in_planning_frame.pose.position.y,
+          target_pose_in_planning_frame.pose.position.z);
+        Eigen::Vector3d diff = end_pos - start_pos;
+        double seg_len = diff.norm();
+        if (seg_len >= 1e-6) {
+          const double padding = this->get_parameter("corridor_padding").as_double();
+          const double cross = this->get_parameter("corridor_cross_section").as_double();
+          Eigen::Vector3d dir = diff / seg_len;
+          double length_along = seg_len + 2.0 * padding;
+          Eigen::Vector3d mid = start_pos + 0.5 * diff;
+          Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
+
+          moveit_msgs::msg::PositionConstraint pos_constraint;
+          pos_constraint.header.frame_id = planning_frame;
+          pos_constraint.link_name = ee_link;
+          pos_constraint.target_point_offset.x = 0.0;
+          pos_constraint.target_point_offset.y = 0.0;
+          pos_constraint.target_point_offset.z = 0.0;
+          pos_constraint.weight = 1.0;
+
+          shape_msgs::msg::SolidPrimitive box;
+          box.type = shape_msgs::msg::SolidPrimitive::BOX;
+          box.dimensions.resize(3);
+          box.dimensions[0] = length_along;
+          box.dimensions[1] = 2.0 * cross;
+          box.dimensions[2] = 2.0 * cross;
+
+          geometry_msgs::msg::Pose box_pose;
+          box_pose.position.x = mid.x();
+          box_pose.position.y = mid.y();
+          box_pose.position.z = mid.z();
+          box_pose.orientation.x = quat.x();
+          box_pose.orientation.y = quat.y();
+          box_pose.orientation.z = quat.z();
+          box_pose.orientation.w = quat.w();
+
+          pos_constraint.constraint_region.primitives.push_back(box);
+          pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
+
+          moveit_msgs::msg::Constraints path_constraints;
+          path_constraints.position_constraints.push_back(pos_constraint);
+          m_move_group->setPathConstraints(path_constraints);
+          RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
+        }
+      }
+    }
+
     if (!configureForPlanning(target_pose_in_planning_frame.pose)) {
+      m_move_group->clearPathConstraints();
       response->success = false;
       response->message = "Failed to configure for planning";
       return;
     }
 
     bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+    if (!success) {
+      // Fallback: retry once without corridor constraint (path may have been invalid due to tight corridor)
+      m_move_group->clearPathConstraints();
+      RCLCPP_INFO(get_logger(), "RRT with corridor failed, retrying without path constraints");
+      if (configureForPlanning(target_pose_in_planning_frame.pose)) {
+        success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+      }
+    }
+    m_move_group->clearPathConstraints();
     response->success = success;
     response->message = success ? "Planning successful" : "Planning failed";
   }
