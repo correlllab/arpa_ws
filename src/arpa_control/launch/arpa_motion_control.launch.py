@@ -157,6 +157,13 @@ def launch_setup(context, *args, **kwargs):
         )
     }
 
+    screw_file = LaunchConfiguration(
+        "screw_file",
+        default=PathJoinSubstitution([
+            FindPackageShare("ur16e_rest"), "scripts", "Screw Locations.yaml"
+        ]),
+    )
+
     motion_control_node = Node(
         package="arpa_control",
         executable="motion_control_node",
@@ -170,7 +177,22 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    nodes_to_start = [motion_control_node]
+    # BT executor: constrained drop-down sequence (3 cm above -> 3 cm down -> 4 s wait -> 3 cm up -> constrained transfer)
+    bt_executor_node = Node(
+        package="arpa_bt_executor",
+        executable="bt_executor_node",
+        name="bt_executor_node",
+        output="screen",
+        parameters=[
+            {"screw_file": screw_file},
+            {"frame_id": "base_link"},
+            {"transfer_strategy": "constrained"},
+            {"z_offset_m": 0.03},
+            {"wait_seconds": 4},
+        ],
+    )
+
+    nodes_to_start = [motion_control_node, bt_executor_node]
 
     return nodes_to_start
 
@@ -274,6 +296,15 @@ def generate_launch_description():
             description="Prefix of the joint names, useful for "
             "multi-robot setup. If changed than also joint names in the controllers' configuration "
             "have to be updated.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "screw_file",
+            default_value=PathJoinSubstitution([
+                FindPackageShare("ur16e_rest"), "scripts", "Screw Locations.yaml"
+            ]),
+            description="Full path to Screw Locations.yaml. Default: ur16e_rest share.",
         )
     )
 

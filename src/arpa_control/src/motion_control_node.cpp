@@ -3,6 +3,9 @@
 #include <future>
 #include <cmath>
 #include <thread>
+#include <fstream>
+#include <sstream>
+#include <cstdlib>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -105,13 +108,13 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
     return false;
   }
 
-  // Compute IK to convert pose to joint values
+  // Compute IK to convert pose to joint values (longer timeout for RRT/transfer poses)
   const auto* joint_model_group = robot_state->getJointModelGroup(m_move_group->getName());
   bool ik_success = robot_state->setFromIK(
       joint_model_group,
       target_pose,
       m_move_group->getEndEffectorLink(),
-      0.1);  // timeout in seconds
+      2.0);  // timeout in seconds (was 0.1; 2.0 helps for 7-DOF transfer targets)
 
   if (!ik_success) {
     RCLCPP_ERROR(get_logger(), "IK failed for target pose");
@@ -151,13 +154,15 @@ void MotionControlNode::planToPoseCallback(
     }
   }
 
-  // Transform pose to the MoveIt planning frame
+  // Transform pose to the MoveIt planning frame (use current time for lookup to avoid sim/wall clock mismatch)
   std::string planning_frame = m_move_group->getPlanningFrame();
+  geometry_msgs::msg::PoseStamped target_pose_for_tf = request->target_pose;
+  target_pose_for_tf.header.stamp = this->now();
   geometry_msgs::msg::PoseStamped target_pose_in_planning_frame;
 
   try {
     target_pose_in_planning_frame = m_tf_buffer->transform(
-      request->target_pose, planning_frame, tf2::durationFromSec(1.0));
+      target_pose_for_tf, planning_frame, tf2::durationFromSec(1.0));
   } catch (const tf2::TransformException & ex) {
     RCLCPP_ERROR(this->get_logger(), "Could not transform pose from '%s' to '%s': %s",
                  request->target_pose.header.frame_id.c_str(),
@@ -173,6 +178,22 @@ void MotionControlNode::planToPoseCallback(
               target_pose_in_planning_frame.pose.position.y,
               target_pose_in_planning_frame.pose.position.z);
 
+  // #region agent log
+  {
+    std::ostringstream o;
+    o << "{\"hypothesisId\":\"H3,H5\",\"location\":\"motion_control:planToPoseCallback\",\"message\":\"plan_request\",\"data\":{\"use_cartesian\":"
+      << (request->use_cartesian ? "true" : "false") << ",\"planning_frame\":\"" << planning_frame << "\"}";
+    o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+    const char* p = std::getenv("DEBUG_LOG_PATH");
+    std::string log_path = p ? p : "/root/ros2_ws/.cursor/debug.log";
+    std::ofstream f(log_path, std::ios::app);
+    if (f) f << o.str();
+  }
+  RCLCPP_INFO(get_logger(), "[DEBUG_H3] use_cartesian=%s planning_frame=%s",
+              request->use_cartesian ? "true" : "false", planning_frame.c_str());
+  // #endregion
+
   // Publish static transform for visualization
   geometry_msgs::msg::TransformStamped static_transform;
   static_transform.header.stamp = now();
@@ -184,11 +205,34 @@ void MotionControlNode::planToPoseCallback(
   static_transform.transform.rotation = target_pose_in_planning_frame.pose.orientation;
   m_static_transform_broadcaster->sendTransform(static_transform);
 
+  // [Checklist 1] When use_cartesian is true, use computeCartesianPath() for straight-line motion (no RRT).
   if (request->use_cartesian) {
-    // Cartesian path planning: straight-line motion to target
-    RCLCPP_INFO(get_logger(), "Using Cartesian (straight-line) path planning");
+    // Cartesian path planning: straight-line motion to target.
+    // Uses full planning scene (gantry, pillars, battery, arm links) for collision checking - no self-collision
+    // or gantry collision. Fix gantry (linear actuator) at current position so only the arm moves - straightforward
+    // motion, no redundant solutions.
+    RCLCPP_INFO(get_logger(), "Using Cartesian (straight-line) path planning with gantry fixed");
 
     m_move_group->setStartStateToCurrentState();
+
+    // Constrain linear actuator to current position so IK uses only the arm (6 DOF) along the path
+    const std::string gantry_joint = "linear_actuator_to_linear_actuator_plate_joint";
+    moveit_msgs::msg::Constraints path_constraints;
+    auto robot_state = m_move_group->getCurrentState();
+    if (robot_state && robot_state->getRobotModel()->hasJointModel(gantry_joint)) {
+      const double* pos = robot_state->getJointPositions(gantry_joint);
+      if (pos) {
+        moveit_msgs::msg::JointConstraint jc;
+        jc.joint_name = gantry_joint;
+        jc.position = pos[0];
+        jc.tolerance_above = 1e-6;
+        jc.tolerance_below = 1e-6;
+        jc.weight = 1.0;
+        path_constraints.joint_constraints.push_back(jc);
+        m_move_group->setPathConstraints(path_constraints);
+        RCLCPP_INFO(get_logger(), "Gantry fixed at %.3f for Cartesian path", pos[0]);
+      }
+    }
 
     std::vector<geometry_msgs::msg::Pose> waypoints;
     waypoints.push_back(target_pose_in_planning_frame.pose);
@@ -199,6 +243,22 @@ void MotionControlNode::planToPoseCallback(
     double fraction = m_move_group->computeCartesianPath(
         waypoints, eef_step, jump_threshold, trajectory);
 
+    m_move_group->clearPathConstraints();
+
+    // #region agent log
+    {
+      std::ostringstream o;
+      o << "{\"hypothesisId\":\"H3,H4\",\"location\":\"motion_control:cartesian_result\",\"message\":\"cartesian_path_result\",\"data\":{\"fraction\":"
+        << fraction << ",\"branch\":\"cartesian\"}";
+      o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+      const char* lp = std::getenv("DEBUG_LOG_PATH");
+      std::string log_path = lp ? lp : "/root/ros2_ws/.cursor/debug.log";
+      std::ofstream f(log_path, std::ios::app);
+      if (f) f << o.str();
+    }
+    RCLCPP_INFO(get_logger(), "[DEBUG_H4] branch=cartesian fraction=%.2f", fraction);
+    // #endregion
     if (fraction >= 0.95) {
       m_current_plan.trajectory_ = trajectory;
       response->success = true;
@@ -210,6 +270,19 @@ void MotionControlNode::planToPoseCallback(
       RCLCPP_ERROR(get_logger(), "Cartesian path only achieved %.1f%%", fraction * 100.0);
     }
   } else {
+    // #region agent log
+    {
+      std::ostringstream o;
+      o << "{\"hypothesisId\":\"H3,H4\",\"location\":\"motion_control:rrt_branch\",\"message\":\"planning_branch\",\"data\":{\"branch\":\"rrt\"}";
+      o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+      const char* lp = std::getenv("DEBUG_LOG_PATH");
+      std::string log_path = lp ? lp : "/root/ros2_ws/.cursor/debug.log";
+      std::ofstream f(log_path, std::ios::app);
+      if (f) f << o.str();
+    }
+    RCLCPP_INFO(get_logger(), "[DEBUG_H4] branch=rrt");
+    // #endregion
     // Standard sampling-based planning (RRTConnect)
     if (!configureForPlanning(target_pose_in_planning_frame.pose)) {
       response->success = false;
@@ -263,16 +336,28 @@ void MotionControlNode::planToJointCallback(
               request->joint5,
               request->joint6);
 
-  std::vector<double> joint_values;
-  joint_values.push_back(request->joint1);
-  joint_values.push_back(request->joint2);
-  joint_values.push_back(request->joint3);
-  joint_values.push_back(request->joint4);
-  joint_values.push_back(request->joint5);
-  joint_values.push_back(request->joint6);
-  
-  // // Now plan in joint space
-  m_move_group->setJointValueTarget(joint_values);
+  // ur16e_on_gantry has 7 joints; PlanToJoint provides 6 arm joints. Keep linear actuator at current position.
+  auto robot_state = m_move_group->getCurrentState();
+  if (!robot_state) {
+    RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
+    response->success = false;
+    response->message = "Failed to get current robot state";
+    return;
+  }
+
+  std::map<std::string, double> joint_targets;
+  const double* gantry_pos = robot_state->getJointPositions("linear_actuator_to_linear_actuator_plate_joint");
+  if (gantry_pos) {
+    joint_targets["linear_actuator_to_linear_actuator_plate_joint"] = gantry_pos[0];
+  }
+  joint_targets["shoulder_pan_joint"] = request->joint1;
+  joint_targets["shoulder_lift_joint"] = request->joint2;
+  joint_targets["elbow_joint"] = request->joint3;
+  joint_targets["wrist_1_joint"] = request->joint4;
+  joint_targets["wrist_2_joint"] = request->joint5;
+  joint_targets["wrist_3_joint"] = request->joint6;
+
+  m_move_group->setJointValueTarget(joint_targets);
     
   bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
 

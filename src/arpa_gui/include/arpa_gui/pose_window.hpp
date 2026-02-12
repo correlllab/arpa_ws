@@ -30,6 +30,7 @@
 
 #include "std_srvs/srv/trigger.hpp"
 #include "arpa_control/srv/plan_to_pose.hpp"
+#include "arpa_control/srv/plan_to_joint.hpp"
 #include "arpa_control/srv/plan_linear_actuator.hpp"
 #include "arpa_control/srv/execute_plan.hpp"
 #include "arpa_control/srv/stop_motion.hpp"
@@ -53,6 +54,7 @@ private slots:
     void updateCurrentPose();
     void onPrismaticChanged(int value);
     void testMoveUp();
+    void goto_screw1();
     void onCreateSequenceClicked();
     void onBtStatusReceived(const QString &status);
 
@@ -108,6 +110,7 @@ private:
     QPushButton *m_home_btn;
     QPushButton *m_update_depth_btn;
     QPushButton *m_test_btn;  // Temporary test button
+    QPushButton *m_goto_screw1_btn;
     QCheckBox *m_cartesian_checkbox;  // Enable straight-line Cartesian motion
 
     // ============ STATUS LOG ============
@@ -134,6 +137,7 @@ private:
 
     // ROS2 clients and publishers
     rclcpp::Client<arpa_control::srv::PlanToPose>::SharedPtr m_plan_client;
+    rclcpp::Client<arpa_control::srv::PlanToJoint>::SharedPtr m_plan_to_joint_client;
     rclcpp::Client<arpa_control::srv::PlanLinearActuator>::SharedPtr m_plan_linear_actuator_client;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_update_depth_client;
     rclcpp::Client<arpa_control::srv::ExecutePlan>::SharedPtr m_exec_client;

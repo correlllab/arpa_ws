@@ -1,0 +1,29 @@
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":true,"planning_frame":"floor_link"},"timestamp":1770847275312}
+{"hypothesisId":"H3,H4","location":"motion_control:cartesian_result","message":"cartesian_path_result","data":{"fraction":1,"branch":"cartesian"},"timestamp":1770847275318}
+{"hypothesisId":"H5","location":"pose_window:onCreateSequenceClicked","message":"gui_sends_strategy","data":{"strategy":"constrained"},"timestamp":1770847391733}
+{"hypothesisId": "H1,H5", "location": "bt_executor:_handle_run", "message": "strategy_at_start", "data": {"strategy": "constrained", "use_cartesian_transfer": true}, "timestamp": 1770847391736}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":true,"planning_frame":"floor_link"},"timestamp":1770847391737}
+{"hypothesisId": "H2,H3,H4", "location": "bt_executor:_plan_and_execute", "message": "plan_request", "data": {"use_cartesian": false, "target_xyz": [0.306, -0.624, 1.063]}, "timestamp": 1770847391739}
+{"hypothesisId":"H3,H4","location":"motion_control:cartesian_result","message":"cartesian_path_result","data":{"fraction":1,"branch":"cartesian"},"timestamp":1770847400511}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":false,"planning_frame":"floor_link"},"timestamp":1770847400568}
+{"hypothesisId":"H3,H4","location":"motion_control:rrt_branch","message":"planning_branch","data":{"branch":"rrt"},"timestamp":1770847400568}
+{"hypothesisId":"H5","location":"pose_window:onCreateSequenceClicked","message":"gui_sends_strategy","data":{"strategy":"constrained"},"timestamp":1770847430654}
+{"hypothesisId": "H1,H5", "location": "bt_executor:_handle_run", "message": "strategy_at_start", "data": {"strategy": "constrained", "use_cartesian_transfer": true}, "timestamp": 1770847430658}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":true,"planning_frame":"floor_link"},"timestamp":1770847430660}
+{"hypothesisId": "H2,H3,H4", "location": "bt_executor:_plan_and_execute", "message": "plan_request", "data": {"use_cartesian": false, "target_xyz": [0.306, -0.624, 1.063]}, "timestamp": 1770847430663}
+{"hypothesisId":"H3,H4","location":"motion_control:cartesian_result","message":"cartesian_path_result","data":{"fraction":1,"branch":"cartesian"},"timestamp":1770847441999}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":false,"planning_frame":"floor_link"},"timestamp":1770847442041}
+{"hypothesisId":"H3,H4","location":"motion_control:rrt_branch","message":"planning_branch","data":{"branch":"rrt"},"timestamp":1770847442042}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":false,"planning_frame":"floor_link"},"timestamp":1770847759383}
+{"hypothesisId":"H3,H4","location":"motion_control:rrt_branch","message":"planning_branch","data":{"branch":"rrt"},"timestamp":1770847759383}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":true,"planning_frame":"floor_link"},"timestamp":1770848497772}
+{"hypothesisId":"H3,H4","location":"motion_control:cartesian_result","message":"cartesian_path_result","data":{"fraction":0.564972,"branch":"cartesian"},"timestamp":1770848498732}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":true,"planning_frame":"floor_link"},"timestamp":1770849330589}
+{"hypothesisId":"H3,H4","location":"motion_control:cartesian_result","message":"cartesian_path_result","data":{"fraction":0.564972,"branch":"cartesian"},"timestamp":1770849332015}
+{"hypothesisId":"H5","location":"pose_window:onCreateSequenceClicked","message":"gui_sends_strategy","data":{"strategy":"constrained"},"timestamp":1770866645487}
+{"hypothesisId": "H1,H5", "location": "bt_executor:_handle_run", "message": "strategy_at_start", "data": {"strategy": "constrained", "use_cartesian_transfer": true}, "timestamp": 1770866645489}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":true,"planning_frame":"floor_link"},"timestamp":1770866645490}
+{"hypothesisId": "H2,H3,H4", "location": "bt_executor:_plan_and_execute", "message": "plan_request", "data": {"use_cartesian": false, "target_xyz": [0.306, -0.624, 1.063]}, "timestamp": 1770866645491}
+{"hypothesisId":"H3,H4","location":"motion_control:cartesian_result","message":"cartesian_path_result","data":{"fraction":1,"branch":"cartesian"},"timestamp":1770866649689}
+{"hypothesisId":"H3,H5","location":"motion_control:planToPoseCallback","message":"plan_request","data":{"use_cartesian":false,"planning_frame":"floor_link"},"timestamp":1770866649694}
+{"hypothesisId":"H3,H4","location":"motion_control:rrt_branch","message":"planning_branch","data":{"branch":"rrt"},"timestamp":1770866649694}

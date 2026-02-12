@@ -1,6 +1,10 @@
 #include "arpa_gui/pose_window.hpp"
 #include <QDateTime>
 #include <QScrollBar>
+#include <fstream>
+#include <sstream>
+#include <chrono>
+#include <cstdlib>
 
 // Joint names for UR robot
 static const std::vector<std::string> JOINT_NAMES = {
@@ -39,6 +43,7 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
 
     // ROS2 clients
     m_plan_client = m_node->create_client<arpa_control::srv::PlanToPose>("plan_to_pose");
+    m_plan_to_joint_client = m_node->create_client<arpa_control::srv::PlanToJoint>("plan_to_joint");
     m_plan_linear_actuator_client = m_node->create_client<arpa_control::srv::PlanLinearActuator>("plan_linear_actuator");
     m_update_depth_client = m_node->create_client<std_srvs::srv::Trigger>("update_depth");
     m_exec_client = m_node->create_client<arpa_control::srv::ExecutePlan>("execute_plan");
@@ -258,6 +263,7 @@ void PoseWindow::setupUI()
     m_home_btn = new QPushButton("Home");
     m_update_depth_btn = new QPushButton("Update Depth");
     m_test_btn = new QPushButton("TEST: Move 1cm Up");
+    m_goto_screw1_btn = new QPushButton("Goto Screw 1");
     m_cartesian_checkbox = new QCheckBox("Cartesian (straight-line)");
     m_cartesian_checkbox->setChecked(true);  // Default to Cartesian for smoother motion
     m_cartesian_checkbox->setToolTip("Use straight-line path planning instead of sampling-based (RRTConnect)");
@@ -268,6 +274,7 @@ void PoseWindow::setupUI()
     m_home_btn->setMinimumHeight(40);
     m_update_depth_btn->setMinimumHeight(40);
     m_test_btn->setMinimumHeight(40);
+    m_goto_screw1_btn->setMinimumHeight(40);
 
     buttonLayout->addWidget(m_cartesian_checkbox, 0, 0, 1, 2);  // Span 2 columns
     buttonLayout->addWidget(m_plan_btn, 1, 0);
@@ -275,7 +282,8 @@ void PoseWindow::setupUI()
     buttonLayout->addWidget(m_home_btn, 2, 0);
     buttonLayout->addWidget(m_update_depth_btn, 2, 1);
     buttonLayout->addWidget(m_test_btn, 3, 0, 1, 2);
-    buttonLayout->addWidget(m_stop_btn, 4, 0, 1, 2);
+    buttonLayout->addWidget(m_goto_screw1_btn, 4, 0, 1, 2);
+    buttonLayout->addWidget(m_stop_btn, 5, 0, 1, 2);
 
     buttonGroup->setLayout(buttonLayout);
     leftLayout->addWidget(buttonGroup);
@@ -317,6 +325,7 @@ void PoseWindow::setupUI()
     m_strategy_selector = new QComboBox;
     m_strategy_selector->addItem("Linear Actuator (fast)", "linear_actuator");
     m_strategy_selector->addItem("Constrained Box (experimental)", "constrained");
+    m_strategy_selector->setCurrentIndex(1);  // default: constrained (straight lateral transfer, fewer collisions)
     m_strategy_selector->setToolTip("How the robot moves between screw locations in XY");
     strategyLayout->addWidget(m_strategy_selector, 1);
     rightLayout->addLayout(strategyLayout);
@@ -324,7 +333,7 @@ void PoseWindow::setupUI()
     // Create Sequence button
     m_create_sequence_btn = new QPushButton("Create Sequence");
     m_create_sequence_btn->setMinimumHeight(50);
-    m_create_sequence_btn->setToolTip("Move robot to each of 5 screw locations");
+    m_create_sequence_btn->setToolTip("Constrained drop-down: 3 cm above -> 3 cm down -> 4 s wait -> 3 cm up -> constrained transfer to next screw. Straight Cartesian motions, collision-checked against gantry/structures.");
     rightLayout->addWidget(m_create_sequence_btn);
 
     // BT Status Monitor group
@@ -354,6 +363,7 @@ void PoseWindow::setupConnections()
     connect(m_home_btn, &QPushButton::clicked, this, &PoseWindow::goHome);
     connect(m_update_depth_btn, &QPushButton::clicked, this, &PoseWindow::updateDepth);
     connect(m_test_btn, &QPushButton::clicked, this, &PoseWindow::testMoveUp);
+    connect(m_goto_screw1_btn, &QPushButton::clicked, this, &PoseWindow::goto_screw1);
     connect(m_create_sequence_btn, &QPushButton::clicked, this, &PoseWindow::onCreateSequenceClicked);
 
     // Use lambda to avoid calling onFrameChanged during startup when TF isn't ready
@@ -721,6 +731,36 @@ void PoseWindow::stopMotion()
         });
 }
 
+void PoseWindow::goto_screw1()
+{
+    // Screw 1 joint positions from Screw Locations.yaml (at screw, gantry kept at current)
+    // Order: shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
+    auto req = std::make_shared<arpa_control::srv::PlanToJoint::Request>();
+    req->joint1 = -1.2103412787066858;  // shoulder_pan
+    req->joint2 = -1.8353263340392054;  // shoulder_lift
+    req->joint3 = -1.4010802507400513;  // elbow
+    req->joint4 = -1.4565215867808838;  // wrist_1
+    req->joint5 = 4.704919815063477;    // wrist_2
+    req->joint6 = -1.8898323217975062;  // wrist_3
+
+    logStatus("Goto Screw 1: planning to screw 1 joint position (plan_to_joint)...");
+
+    m_plan_to_joint_client->async_send_request(req,
+        [this](rclcpp::Client<arpa_control::srv::PlanToJoint>::SharedFuture future) {
+            auto result = future.get();
+            if (result->success) {
+                QMetaObject::invokeMethod(this, [this]() {
+                    logStatus("Goto Screw 1: planning OK, executing...");
+                    executePlan();
+                });
+            } else {
+                QMetaObject::invokeMethod(this, [this, result]() {
+                    logStatus("Goto Screw 1 failed: " + QString::fromStdString(result->message), true);
+                });
+            }
+        });
+}
+
 void PoseWindow::testMoveUp()
 {
     logStatus("TEST: Planning to move 1cm up in Z direction...");
@@ -934,6 +974,19 @@ void PoseWindow::onCreateSequenceClicked()
 
     // Get selected strategy from dropdown
     QString strategy = m_strategy_selector->currentData().toString();
+    // #region agent log
+    {
+        std::ostringstream o;
+        o << "{\"hypothesisId\":\"H5\",\"location\":\"pose_window:onCreateSequenceClicked\",\"message\":\"gui_sends_strategy\",\"data\":{\"strategy\":\""
+          << strategy.toStdString() << "\"}";
+        o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+        const char* lp = std::getenv("DEBUG_LOG_PATH");
+        std::string log_path = lp ? lp : "/root/ros2_ws/.cursor/debug.log";
+        std::ofstream f(log_path, std::ios::app);
+        if (f) f << o.str();
+    }
+    // #endregion
     logStatus(QString("Starting screw sequence with strategy: %1").arg(strategy));
     logBtStatus(QString("Starting screw sequence - strategy: %1").arg(m_strategy_selector->currentText()));
 
