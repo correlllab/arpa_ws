@@ -177,22 +177,23 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
-    # BT executor: constrained drop-down sequence (3 cm above -> 3 cm down -> 4 s wait -> 3 cm up -> constrained transfer)
-    bt_executor_node = Node(
-        package="arpa_bt_executor",
-        executable="bt_executor_node",
-        name="bt_executor_node",
-        output="screen",
-        parameters=[
-            {"screw_file": screw_file},
-            {"frame_id": "base_link"},
-            {"transfer_strategy": "constrained"},
-            {"z_offset_m": 0.03},
-            {"wait_seconds": 4},
-        ],
-    )
+    # Python BT executor disabled - use C++ executor (arpa_behavior_trees bt_executor.launch.py)
+    # for run_screw_sequence (Create Sequence button).
+    # bt_executor_node = Node(
+    #     package="arpa_bt_executor",
+    #     executable="bt_executor_node",
+    #     name="bt_executor_node",
+    #     output="screen",
+    #     parameters=[
+    #         {"screw_file": screw_file},
+    #         {"frame_id": "base_link"},
+    #         {"transfer_strategy": "constrained"},
+    #         {"z_offset_m": 0.03},
+    #         {"wait_seconds": 4},
+    #     ],
+    # )
 
-    nodes_to_start = [motion_control_node, bt_executor_node]
+    nodes_to_start = [motion_control_node]
 
     return nodes_to_start
 

@@ -2,17 +2,14 @@
 """
 BT Executor node: constrained drop-down screw sequence.
 
-Per screw:
-  1. Move to 3 cm above screw (RRT for first screw to avoid gantry; subsequent arrive via transfer).
-  2. Descend 3 cm (Cartesian straight Z-down).
+Flow per screw (same YAML as Goto Screw 1):
+  1. Be at 3 cm above screw (approach: plan_to_joint to screw, then Cartesian Z-up to above).
+  2. Descend 3 cm (Cartesian Z-down to screw).
   3. Wait 4 seconds.
-  4. Retract 3 cm (Cartesian straight Z-up).
-  5. Transfer to 3 cm above next screw (RRT 7-DOF so gantry+arm plan avoids structure).
+  4. Retract 3 cm (Cartesian Z-up to above screw).
+  5. Transfer to 3 cm above next screw (plan_to_joint to next screw, then Cartesian Z-up to above).
 
-Steps 2–4 use Cartesian (straight line, gantry fixed). Steps 1 and 5 use RRT (7-DOF) so
-the planner moves gantry+arm and avoids the gantry structure.
-Pose stamps are set so TF
-uses latest transform (motion_control_node also uses now() for lookup in sim).
+Uses plan_to_joint for lateral/approach moves and plan_to_pose Cartesian for all Z motions.
 """
 
 import re
@@ -23,7 +20,7 @@ import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 from geometry_msgs.msg import PoseStamped
-from arpa_control.srv import PlanToPose, ExecutePlan
+from arpa_control.srv import PlanToPose, PlanToJoint, ExecutePlan
 from moveit_msgs.msg import Constraints
 
 
@@ -33,7 +30,10 @@ WAIT_SECONDS = 4
 
 
 def parse_screw_locations(filepath):
-    """Parse Screw Locations.yaml format (same as screw_marker_publisher)."""
+    """Parse Screw Locations.yaml format including joint positions.
+    YAML joint order: shoulder_lift, elbow, wrist_1, wrist_2, wrist_3, shoulder_pan.
+    PlanToJoint order: shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3.
+    """
     screws = []
     with open(filepath, 'r') as f:
         content = f.read()
@@ -43,14 +43,31 @@ def parse_screw_locations(filepath):
         data = blocks[i + 1]
         trans_match = re.search(r'Translation:\s*\[([^\]]+)\]', data)
         rot_match = re.search(r'Rotation:\s*in Quaternion \(xyzw\)\s*\[([^\]]+)\]', data)
+        pos_match = re.search(r'position:\s*\n(?:-\s*[-\d.]+\s*\n)+', data)
         if trans_match and rot_match:
             translation = [float(v) for v in trans_match.group(1).split(',')]
             rotation = [float(v) for v in rot_match.group(1).split(',')]
-            screws.append({
+            entry = {
                 'num': screw_num,
                 'translation': translation,
                 'rotation': rotation,
-            })
+            }
+            if pos_match:
+                pos_lines = re.findall(r'-\s*([-\d.]+)', pos_match.group(0))
+                positions = [float(v) for v in pos_lines]
+                # YAML: shoulder_lift, elbow, wrist_1, wrist_2, wrist_3, shoulder_pan
+                # PlanToJoint: joint1=shoulder_pan, joint2=shoulder_lift, joint3=elbow,
+                #             joint4=wrist_1, joint5=wrist_2, joint6=wrist_3
+                if len(positions) >= 6:
+                    entry['joints'] = [
+                        positions[5],  # shoulder_pan -> joint1
+                        positions[0],  # shoulder_lift -> joint2
+                        positions[1],  # elbow -> joint3
+                        positions[2],  # wrist_1 -> joint4
+                        positions[3],  # wrist_2 -> joint5
+                        positions[4],  # wrist_3 -> joint6
+                    ]
+            screws.append(entry)
     return screws
 
 
@@ -90,6 +107,7 @@ class BtExecutorNode(Node):
             self.get_logger().info(f'Loaded {len(self._screws)} screw locations from {screw_file}')
 
         self._plan_client = self.create_client(PlanToPose, 'plan_to_pose')
+        self._plan_to_joint_client = self.create_client(PlanToJoint, 'plan_to_joint')
         self._execute_client = self.create_client(ExecutePlan, 'execute_plan')
         self._run_screw_sequence = self.create_service(
             Trigger, 'run_screw_sequence', self._handle_run_screw_sequence
@@ -98,7 +116,7 @@ class BtExecutorNode(Node):
         self.get_logger().info(
             'Transfer strategy (from param): %s' % self.get_parameter('transfer_strategy').value
         )
-        self.get_logger().info('[BT_EXECUTOR] Step 5 transfer uses RRT (use_cartesian=False) to avoid gantry')
+        self.get_logger().info('[BT_EXECUTOR] Using plan_to_joint for screw moves (known joint positions from YAML)')
 
     def _handle_run_screw_sequence(self, request, response):
         del request
@@ -130,56 +148,86 @@ class BtExecutorNode(Node):
         return response
 
     def _run_sequence(self, frame_id, z_offset, wait_sec, use_cartesian_transfer):
+        del use_cartesian_transfer
+        import time
         n = len(self._screws)
         for i, screw in enumerate(self._screws):
             self.get_logger().info(f'--- Screw {screw["num"]} / {n} ---')
+            if 'joints' not in screw:
+                raise RuntimeError(
+                    f'Screw {screw["num"]} has no joint positions in YAML. '
+                    'Screw Locations.yaml must include name/position fields.'
+                )
             tx, ty, tz = screw['translation']
             qx, qy, qz, qw = screw['rotation']
-            # Pose at screw (contact)
             at_screw = make_pose_stamped(frame_id, tx, ty, tz, qx, qy, qz, qw)
-            # Pose 3 cm above screw
             above_screw = make_pose_stamped(
                 frame_id, tx, ty, tz + z_offset, qx, qy, qz, qw
             )
 
-            # Step 1: Move to 3 cm above this screw (only for first; rest come from transfer).
-            # Use RRT for first approach so the 7-DOF planner finds a path around the gantry; Cartesian
-            # from home to above screw can pass through the gantry structure.
+            # Step 1: Get to 3 cm above this screw (only for first screw; rest arrive from previous transfer)
             if i == 0:
-                self.get_logger().info('Step 1: Move to 3 cm above screw (RRT 7-DOF to avoid gantry)')
-                self._plan_and_execute(above_screw, use_cartesian=False)
+                self.get_logger().info('Step 1: Approach 3 cm above screw (plan_to_joint then retract)')
+                self._plan_to_joint_and_execute(screw['joints'])
+                self._plan_and_execute(above_screw, use_cartesian=True)
             else:
                 self.get_logger().info('Step 1: Already at 3 cm above (from transfer)')
 
-            # [Checklist 3] Descend: plan_to_pose with Cartesian (straight down 3 cm), not plan_to_joint
-            self.get_logger().info('Step 2: Descend 3 cm (Cartesian)')
+            # Step 2: Descend 3 cm (Cartesian Z-down to screw)
+            self.get_logger().info('Step 2: Descend 3 cm (Cartesian Z-down)')
             self._plan_and_execute(at_screw, use_cartesian=True)
 
             # Step 3: Wait
             self.get_logger().info(f'Step 3: Wait {wait_sec} s')
-            import time
             time.sleep(wait_sec)
 
-            # Step 4: Retract 3 cm (Cartesian straight Z-up)
-            self.get_logger().info('Step 4: Retract 3 cm (Cartesian)')
+            # Step 4: Retract 3 cm (Cartesian Z-up to above screw)
+            self.get_logger().info('Step 4: Retract 3 cm (Cartesian Z-up)')
             self._plan_and_execute(above_screw, use_cartesian=True)
 
-            # [Checklist 4] Transfer to 3 cm above next screw. Use RRT (not Cartesian) so the 7-DOF planner
-            # can move the gantry + arm and find a collision-free path; Cartesian with gantry fixed forces a
-            # straight TCP line that goes through the gantry structure (see runtime evidence: 56.5% achieved).
+            # Step 5: Transfer laterally to 3 cm above next screw
             if i < n - 1:
                 next_screw = self._screws[i + 1]
+                if 'joints' not in next_screw:
+                    raise RuntimeError(
+                        f'Screw {next_screw["num"]} has no joint positions in YAML.'
+                    )
                 nx, ny, nz = next_screw['translation']
                 nqx, nqy, nqz, nqw = next_screw['rotation']
                 above_next = make_pose_stamped(
                     frame_id, nx, ny, nz + z_offset, nqx, nqy, nqz, nqw
                 )
                 self.get_logger().info(
-                    'Step 5: Transfer to 3 cm above next screw (RRT 7-DOF: gantry+arm, avoids structure)'
+                    f'Step 5: Transfer to 3 cm above screw {next_screw["num"]} (plan_to_joint then retract)'
                 )
-                self._plan_and_execute(above_next, use_cartesian=False)
+                self._plan_to_joint_and_execute(next_screw['joints'])
+                self._plan_and_execute(above_next, use_cartesian=True)
 
         self.get_logger().info('Sequence finished.')
+
+    def _plan_to_joint_and_execute(self, joints):
+        """Plan to joint positions and execute - same logic as Goto Screw 1 button."""
+        req = PlanToJoint.Request()
+        req.joint1, req.joint2, req.joint3 = joints[0], joints[1], joints[2]
+        req.joint4, req.joint5, req.joint6 = joints[3], joints[4], joints[5]
+        if not self._plan_to_joint_client.wait_for_service(timeout_sec=5.0):
+            raise RuntimeError('plan_to_joint service not available')
+        future = self._plan_to_joint_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=30.0)
+        if not future.done():
+            raise RuntimeError('plan_to_joint call timed out')
+        result = future.result()
+        if not result.success:
+            raise RuntimeError('plan_to_joint failed: %s' % result.message)
+        if not self._execute_client.wait_for_service(timeout_sec=2.0):
+            raise RuntimeError('execute_plan service not available')
+        exec_future = self._execute_client.call_async(ExecutePlan.Request())
+        rclpy.spin_until_future_complete(self, exec_future, timeout_sec=60.0)
+        if not exec_future.done():
+            raise RuntimeError('execute_plan call timed out')
+        exec_result = exec_future.result()
+        if not exec_result.success:
+            raise RuntimeError('execute_plan failed: %s' % exec_result.message)
 
     def _plan_and_execute(self, pose_stamped, use_cartesian):
         # #region agent log
