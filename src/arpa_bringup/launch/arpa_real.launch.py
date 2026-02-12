@@ -294,7 +294,7 @@ def launch_setup(context, *args, **kwargs):
         # arpa_moveit_launch,
         arpa_moveit_launch_delayed,
         arpa_motion_control,
-        arpa_gui,
+        # arpa_gui,
         arpa_depth,
         ethernet_motor_interface_node,
         static_tf_world_to_floor

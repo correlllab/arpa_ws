@@ -4,20 +4,19 @@ Battery Scanning Helper Script
 
 Iterates through predefined scanning poses in a serpentine pattern.
 For each pose: plans the motion, waits for user approval, then executes.
-Uses MoveToPoseNode from move_to_pose.py for planning and execution.
+Uses CoreNode from move_to_pose.py for planning and execution.
 """
 
 import rclpy
-from move_to_pose import MoveToPoseNode
+from core_functionality_node import CoreNode
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from moveit_msgs.msg import (
-    CollisionObject, PlanningScene, RobotState,
+    PlanningScene, RobotState,
     Constraints, PositionConstraint, OrientationConstraint,
     BoundingVolume, MotionPlanRequest
 )
 from moveit_msgs.srv import GetCartesianPath, GetMotionPlan
-from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import Pose, PoseStamped
 from sensor_msgs.msg import JointState
 import time
@@ -117,51 +116,6 @@ _PLANE_CENTER_X = (LOWER_LEFT[0] + UPPER_RIGHT[0]) / 2.0
 _PLANE_CENTER_Y = (LOWER_LEFT[1] + UPPER_RIGHT[1]) / 2.0
 
 
-def add_collision_plane(node, planning_scene_pub):
-    """Add a collision plane below the battery scan area."""
-    collision_object = CollisionObject()
-    collision_object.header.frame_id = FRAME_ID
-    collision_object.header.stamp = node.get_clock().now().to_msg()
-    collision_object.id = _PLANE_ID
-    collision_object.operation = CollisionObject.ADD
-
-    # Define a thin box as the plane
-    box = SolidPrimitive()
-    box.type = SolidPrimitive.BOX
-    box.dimensions = [_PLANE_SIZE_X, _PLANE_SIZE_Y, _PLANE_THICKNESS]
-
-    box_pose = Pose()
-    box_pose.position.x = _PLANE_CENTER_X
-    box_pose.position.y = _PLANE_CENTER_Y
-    box_pose.position.z = _PLANE_Z
-    box_pose.orientation.w = 1.0
-
-    collision_object.primitives.append(box)
-    collision_object.primitive_poses.append(box_pose)
-
-    # Publish via PlanningScene
-    planning_scene = PlanningScene()
-    planning_scene.is_diff = True
-    planning_scene.world.collision_objects.append(collision_object)
-
-    planning_scene_pub.publish(planning_scene)
-    node.get_logger().info(f"Added collision plane '{_PLANE_ID}' at z={_PLANE_Z}")
-
-
-def remove_collision_plane(node, planning_scene_pub):
-    """Remove the collision plane from the planning scene."""
-    collision_object = CollisionObject()
-    collision_object.header.frame_id = FRAME_ID
-    collision_object.header.stamp = node.get_clock().now().to_msg()
-    collision_object.id = _PLANE_ID
-    collision_object.operation = CollisionObject.REMOVE
-
-    planning_scene = PlanningScene()
-    planning_scene.is_diff = True
-    planning_scene.world.collision_objects.append(collision_object)
-
-    planning_scene_pub.publish(planning_scene)
-    node.get_logger().info(f"Removed collision plane '{_PLANE_ID}'")
 
 
 def get_current_joint_state(node, timeout_sec=2.0):
@@ -299,10 +253,9 @@ def update_marker_color(marker_array, index, r, g, b, a=1.0):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = MoveToPoseNode()
+    node = CoreNode()
 
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
-    planning_scene_pub = node.create_publisher(PlanningScene, '/planning_scene', 10)
     marker_array = build_scan_marker_array(node)
 
     # Give publishers time to connect
@@ -312,7 +265,7 @@ def main(args=None):
     marker_pub.publish(marker_array)
 
     # Add collision plane to prevent planner from going below battery
-    add_collision_plane(node, planning_scene_pub)
+    node.add_collision_plane(_PLANE_ID, FRAME_ID, _PLANE_CENTER_X, _PLANE_CENTER_Y, _PLANE_Z, _PLANE_SIZE_X, _PLANE_SIZE_Y, _PLANE_THICKNESS)
 
     # Publish markers again to ensure visibility
     marker_pub.publish(marker_array)
@@ -400,7 +353,12 @@ def main(args=None):
                     continue
 
                 # Auto-execute
-                node.execute_plan()
+                if not node.execute_plan():
+                    skipped_indices.append(i)
+                    update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)  # Red = execution failed
+                    marker_pub.publish(marker_array)
+                    node.get_logger().error(f"Execution failed for {pose['name']} (will retry later)")
+                    continue
                 completed_indices.append(i)
                 update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
                 marker_pub.publish(marker_array)
@@ -455,7 +413,12 @@ def main(args=None):
                         continue
 
                     # Auto-execute
-                    node.execute_plan()
+                    if not node.execute_plan():
+                        still_failed.append(i)
+                        update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)  # Red = execution failed
+                        marker_pub.publish(marker_array)
+                        node.get_logger().error(f"Execution failed for {pose['name']}")
+                        continue
                     completed_indices.append(i)
                     update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
                     marker_pub.publish(marker_array)
@@ -468,7 +431,7 @@ def main(args=None):
     except KeyboardInterrupt:
         node.get_logger().info("Scan interrupted by user.")
     finally:
-        remove_collision_plane(node, planning_scene_pub)
+        node.remove_collision_plane(_PLANE_ID, FRAME_ID)
         node.destroy_node()
         rclpy.shutdown()
 

@@ -91,16 +91,23 @@ void MotionControlNode::init()
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Init() END");
 }
 
+
+
 void MotionControlNode::initMoveGroup()
 {
+  /*
+  https://docs.ros.org/en/lunar/api/moveit_ros_planning_interface/html/classmoveit_1_1planning__interface_1_1MoveGroupInterface.html
+  */
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() START");
 
   m_move_group->startStateMonitor(1.0);
+  m_move_group->setPlanningPipelineId("move_group");
+
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
-  m_move_group->setPlanningPipelineId("move_group");
-  m_move_group->setPlanningTime(25);//(5.0);
-  m_move_group->setNumPlanningAttempts(50);//(10);
+  //RVIZ uses 5s, 10 attempts, 0.1 vel scaling, 0.1 accel scaling
+  m_move_group->setPlanningTime(10);//(5.0);
+  m_move_group->setNumPlanningAttempts(10);//(10);
   m_move_group->setMaxVelocityScalingFactor(0.1);
   m_move_group->setMaxAccelerationScalingFactor(0.1);
   m_move_group->setGoalPositionTolerance(0.01);
@@ -112,10 +119,10 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setReplanDelay(1.0);  // seconds between replans
 
   // Allow sensor updates during planning
-  m_move_group->allowLooking(true);
+  // m_move_group->allowLooking(true);
 
-  // Orientation constraint: keep tool pointing down during motion
-  // Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
+  // // Orientation constraint: keep tool pointing down during motion
+  // // Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
   // moveit_msgs::msg::Constraints path_constraints;
   // moveit_msgs::msg::OrientationConstraint ocm;
   // ocm.link_name = m_move_group->getEndEffectorLink();
@@ -125,8 +132,8 @@ void MotionControlNode::initMoveGroup()
   // ocm.orientation.y = 0.7071068;
   // ocm.orientation.z = 0.0;
   // ocm.orientation.w = 0.0;
-  // ocm.absolute_x_axis_tolerance = 2*3.14;  // radians of allowed deviation (~29°)
-  // ocm.absolute_y_axis_tolerance = 2*3.14;
+  // ocm.absolute_x_axis_tolerance = 3.14/2;  // radians of allowed deviation (~29°)
+  // ocm.absolute_y_axis_tolerance = 3.14/2;
   // ocm.absolute_z_axis_tolerance = 2*3.14; // free rotation around Z (tool axis)
   // ocm.weight = 1.0;
   // path_constraints.orientation_constraints.push_back(ocm);
@@ -136,40 +143,66 @@ void MotionControlNode::initMoveGroup()
   // m_move_group->setGoalJointTolerance(0.01);           // joint-space tolerance (radians)
   // m_move_group->setGoalTolerance(0.01);                // sets position, orientation, AND joint tolerances
   // m_move_group->setWorkspace(-1.0, -2.0, 0.5, 3.0, 2.0, 2.0);  // bounding box for end-effector
-  // m_move_group->setPoseReferenceFrame("floor_link");   // frame for pose targets
+  // m_move_group->setPoseReferenceFrame("world");   // frame for pose targets
   // m_move_group->setEndEffectorLink("tool0");           // which link to plan for
   // m_move_group->setSupportSurfaceName("table");        // for pick/place operations
   // m_move_group->clearPathConstraints();                // remove constraints
 
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() END");
+  dumpParams();
+}
+
+void MotionControlNode::dumpParams()
+{
+  RCLCPP_INFO(get_logger(), "========== MoveGroupInterface Parameters ==========");
+  RCLCPP_INFO(get_logger(), "  Group name:                %s", m_move_group->getName().c_str());
+  RCLCPP_INFO(get_logger(), "  Planning frame:            %s", m_move_group->getPlanningFrame().c_str());
+  RCLCPP_INFO(get_logger(), "  Pose reference frame:      %s", m_move_group->getPoseReferenceFrame().c_str());
+  RCLCPP_INFO(get_logger(), "  End effector link:         %s", m_move_group->getEndEffectorLink().c_str());
+  RCLCPP_INFO(get_logger(), "  End effector:              %s", m_move_group->getEndEffector().c_str());
+  RCLCPP_INFO(get_logger(), "  Planner ID:                %s", m_move_group->getPlannerId().c_str());
+  RCLCPP_INFO(get_logger(), "  Planning time:             %.2f s", m_move_group->getPlanningTime());
+  RCLCPP_INFO(get_logger(), "  Goal position tolerance:   %.4f", m_move_group->getGoalPositionTolerance());
+  RCLCPP_INFO(get_logger(), "  Goal orientation tolerance: %.4f", m_move_group->getGoalOrientationTolerance());
+  RCLCPP_INFO(get_logger(), "  Goal joint tolerance:      %.4f", m_move_group->getGoalJointTolerance());
+  RCLCPP_INFO(get_logger(), "  Variable count:            %u", m_move_group->getVariableCount());
+
+  auto joints = m_move_group->getJoints();
+  std::string joints_str;
+  for (const auto& j : joints) {
+    joints_str += j + ", ";
+  }
+  RCLCPP_INFO(get_logger(), "  Joints:                    %s", joints_str.c_str());
+
+  auto active_joints = m_move_group->getActiveJoints();
+  std::string active_str;
+  for (const auto& j : active_joints) {
+    active_str += j + ", ";
+  }
+  RCLCPP_INFO(get_logger(), "  Active joints:             %s", active_str.c_str());
+  RCLCPP_INFO(get_logger(), "====================================================");
 }
 
 bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
 {
-  // Get current robot state as IK seed (biases solution toward current config)
-  auto robot_state = m_move_group->getCurrentState();
-  if (!robot_state) {
+  auto current_state = m_move_group->getCurrentState();
+  if (!current_state) {
     RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
     return false;
   }
 
-  // Compute IK to convert pose to joint values
-  const auto* joint_model_group = robot_state->getJointModelGroup(m_move_group->getName());
-  bool ik_success = robot_state->setFromIK(
-      joint_model_group,
-      target_pose,
-      m_move_group->getEndEffectorLink(),
-      0.1);  // timeout in seconds
+  const auto* jmg = current_state->getJointModelGroup(m_move_group->getName());
+  const std::string& ee_link = m_move_group->getEndEffectorLink();
 
-  if (!ik_success) {
+  // Solve IK from current state
+  bool ik_ok = current_state->setFromIK(jmg, target_pose, ee_link, 0.1);
+  if (!ik_ok) {
     RCLCPP_ERROR(get_logger(), "IK failed for target pose");
     return false;
   }
 
-  // Set joint value target from IK solution
-  m_move_group->setJointValueTarget(*robot_state);
+  m_move_group->setJointValueTarget(*current_state);
   m_move_group->setStartStateToCurrentState();
-
   return true;
 }
 
@@ -238,16 +271,19 @@ void MotionControlNode::planToPoseCallback(
     return;
   }
 
-  bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
-  if (success)
+  auto plan_result = m_move_group->plan(m_current_plan);
+  if (plan_result == moveit::core::MoveItErrorCode::SUCCESS)
   {
-    response->success = success;
-    response->message = response->success ? "Planning successful" : "Planning failed";
+    response->success = true;
+    response->message = "Planning successful";
+    RCLCPP_INFO(get_logger(), "Planning succeeded (%zu trajectory points)",
+                m_current_plan.trajectory_.joint_trajectory.points.size());
   }
   else
   {
     response->success = false;
-    response->message = "Planning failed";
+    response->message = "Planning failed (MoveItErrorCode: " + std::to_string(plan_result.val) + ")";
+    RCLCPP_ERROR(get_logger(), "Planning failed with MoveItErrorCode: %d", plan_result.val);
   }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
 }
@@ -301,18 +337,20 @@ void MotionControlNode::planToJointCallback(
   
   // // Now plan in joint space
   m_move_group->setJointValueTarget(joint_values);
-    
-  bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
 
-  if (success)
+  auto plan_result = m_move_group->plan(m_current_plan);
+  if (plan_result == moveit::core::MoveItErrorCode::SUCCESS)
   {
-    response->success = (success == moveit::core::MoveItErrorCode::SUCCESS);
-    response->message = response->success ? "Planning successful" : "Planning failed";
+    response->success = true;
+    response->message = "Planning successful";
+    RCLCPP_INFO(get_logger(), "Joint planning succeeded (%zu trajectory points)",
+                m_current_plan.trajectory_.joint_trajectory.points.size());
   }
   else
   {
     response->success = false;
-    response->message = "Planning failed";
+    response->message = "Planning failed (MoveItErrorCode: " + std::to_string(plan_result.val) + ")";
+    RCLCPP_ERROR(get_logger(), "Joint planning failed with MoveItErrorCode: %d", plan_result.val);
   }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToJointCallback() END");
 }
@@ -347,9 +385,20 @@ void MotionControlNode::planLinearActuatorCallback(
 
   m_move_group->setJointValueTarget(joint_targets);
 
-  bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
-  response->success = success;
-  response->message = success ? "Linear actuator planning successful" : "Linear actuator planning failed";
+  auto plan_result = m_move_group->plan(m_current_plan);
+  if (plan_result == moveit::core::MoveItErrorCode::SUCCESS)
+  {
+    response->success = true;
+    response->message = "Linear actuator planning successful";
+    RCLCPP_INFO(get_logger(), "Linear actuator planning succeeded (%zu trajectory points)",
+                m_current_plan.trajectory_.joint_trajectory.points.size());
+  }
+  else
+  {
+    response->success = false;
+    response->message = "Linear actuator planning failed (MoveItErrorCode: " + std::to_string(plan_result.val) + ")";
+    RCLCPP_ERROR(get_logger(), "Linear actuator planning failed with MoveItErrorCode: %d", plan_result.val);
+  }
 
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planLinearActuatorCallback() END");
 }
@@ -360,8 +409,17 @@ void MotionControlNode::executePlanCallback(
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() START");
   auto execute_result = m_move_group->execute(m_current_plan);
-  response->success = (execute_result == moveit::core::MoveItErrorCode::SUCCESS);
-  response->message = response->success ? "Execution successful" : "Execution failed";
+  if (execute_result == moveit::core::MoveItErrorCode::SUCCESS)
+  {
+    response->success = true;
+    response->message = "Execution successful";
+  }
+  else
+  {
+    response->success = false;
+    response->message = "Execution failed (MoveItErrorCode: " + std::to_string(execute_result.val) + ")";
+    RCLCPP_ERROR(get_logger(), "Execution failed with MoveItErrorCode: %d", execute_result.val);
+  }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() END");
 }
 

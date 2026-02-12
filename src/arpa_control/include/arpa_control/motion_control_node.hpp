@@ -39,6 +39,7 @@ public:
   ~MotionControlNode();
   void init();
   void initMoveGroup();
+  void dumpParams();
   std::shared_ptr<rclcpp::Node> getPlanSpinNode();
   std::shared_ptr<rclcpp::Node> getMoveSpinNode();
 

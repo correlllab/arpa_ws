@@ -5,10 +5,14 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from arpa_control.srv import PlanToPose, ExecutePlan
 from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger
+from std_srvs.srv import Trigger
 from moveit_msgs.action import ExecuteTrajectory
+from moveit_msgs.msg import CollisionObject, PlanningScene
+from shape_msgs.msg import SolidPrimitive
+from geometry_msgs.msg import Pose
 
 
-class MoveToPoseNode(Node):
+class CoreNode(Node):
     def __init__(self):
         super().__init__('move_to_pose_node')
 
@@ -19,6 +23,8 @@ class MoveToPoseNode(Node):
         self.execute_trajectory_client = ActionClient(
             self, ExecuteTrajectory, '/execute_trajectory'
         )
+        self.update_depth_client = self.create_client(Trigger, 'update_depth')
+        self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
 
         self.get_logger().info("Waiting for plan_to_pose service...")
         self.plan_client.wait_for_service()
@@ -121,6 +127,73 @@ class MoveToPoseNode(Node):
             self.get_logger().error(f"Motor failed: {result.message}")
         return result.success
 
+    def update_depth(self):
+        if not self.update_depth_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error("Update depth service not available")
+            return False
+
+        req = Trigger.Request()
+        self.get_logger().info("Updating depth map...")
+
+        future = self.update_depth_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+
+        result = future.result()
+        if result.success:
+            self.get_logger().info(f"Depth update: {result.message}")
+        else:
+            self.get_logger().error(f"Depth update failed: {result.message}")
+        return result.success
+
+    def add_collision_plane(self, plane_id, frame_id, x, y, z, size_x, size_y, thickness=0.02):
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = frame_id
+        collision_object.header.stamp = self.get_clock().now().to_msg()
+        collision_object.id = plane_id
+        collision_object.operation = CollisionObject.ADD
+
+        box = SolidPrimitive()
+        box.type = SolidPrimitive.BOX
+        box.dimensions = [size_x, size_y, thickness]
+
+        box_pose = Pose()
+        box_pose.position.x = x
+        box_pose.position.y = y
+        box_pose.position.z = z
+        box_pose.orientation.w = 1.0
+
+        collision_object.primitives.append(box)
+        collision_object.primitive_poses.append(box_pose)
+
+        planning_scene = PlanningScene()
+        planning_scene.is_diff = True
+        planning_scene.world.collision_objects.append(collision_object)
+
+        self.planning_scene_pub.publish(planning_scene)
+        self.get_logger().info(f"Added collision plane '{plane_id}' at z={z}")
+
+    def remove_collision_plane(self, plane_id, frame_id):
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = frame_id
+        collision_object.header.stamp = self.get_clock().now().to_msg()
+        collision_object.id = plane_id
+        collision_object.operation = CollisionObject.REMOVE
+
+        planning_scene = PlanningScene()
+        planning_scene.is_diff = True
+        planning_scene.world.collision_objects.append(collision_object)
+
+        self.planning_scene_pub.publish(planning_scene)
+        self.get_logger().info(f"Removed collision plane '{plane_id}'")
+
+    def go_home(self, frame_id="floor_link"):
+        self.get_logger().info("Going home...")
+
+        if self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id):
+            return self.execute_plan()
+        self.get_logger().error("Failed to plan home position")
+        return False
+
     def trigger_behavior(self, behavior):
         if not self.behavior_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("Behavior service not available")
@@ -142,72 +215,57 @@ class MoveToPoseNode(Node):
         return result.success
 
 
+def print_menu():
+    print("\n=== ARPA Core Control ===")
+    print("1. Go home")
+    print("2. Remove collision plane")
+    print("3. Trigger behavior")
+    print("4. Update depth")
+    print("5. Motor control")
+    print("0. Quit")
+    print("========================")
+
+
 def main(args=None):
-    import time
-    from visualization_msgs.msg import MarkerArray
-
     rclpy.init(args=args)
-    node = MoveToPoseNode()
+    node = CoreNode()
 
-    # Marker subscription state (local to main)
-    recorded_poses = []
-    markers_received = False
-    z_offset = 0.1
+    node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
 
-    def marker_callback(msg):
-        nonlocal recorded_poses, markers_received
-        if not markers_received and len(msg.markers) > 0:
-            recorded_poses = []
-            for marker in msg.markers:
-                p = marker.pose.position
-                o = marker.pose.orientation
-                recorded_poses.append((p.x, p.y, p.z + z_offset, o.x, o.y, o.z, o.w))
-            markers_received = True
-            node.get_logger().info(f"Received {len(recorded_poses)} poses from markers")
-
-    marker_sub = node.create_subscription(
-        MarkerArray, '/recorded_poses_markers', marker_callback, 10)
-
-    # Wait for markers from record_poses.py
-    node.get_logger().info("Waiting for poses from /recorded_poses_markers (run record_poses.py first)...")
-    timeout = 10.0
-    waited = 0.0
-    while not markers_received and waited < timeout:
-        rclpy.spin_once(node, timeout_sec=0.5)
-        waited += 0.5
-
-    if not markers_received:
-        node.get_logger().error("No markers received. Make sure record_poses.py is running with saved poses.")
-        node.destroy_node()
-        rclpy.shutdown()
-        return
-
-    node.get_logger().info(f"Connected to record_poses. {len(recorded_poses)} poses available.")
-
-    node.motor_control(0)
     try:
-        for pose in recorded_poses:
-            x, y, z, qx, qy, qz, qw = pose
-            plan_approved = False
-            while not plan_approved:
-                node.plan_to_pose(x, y, z, qx, qy, qz, qw)
-                user_input = input("press e to approve plan: ")
-                if user_input.lower() == 'e':
-                    plan_approved = True
-            node.execute_plan()
-            node.get_logger().info("Triggering zforce behavior...")
-            node.trigger_behavior("zforce")
-            node.get_logger().info("Zforce behavior completed.")
-            node.trigger_behavior("play")
-            time.sleep(1)
-            node.get_logger().info("Triggering retract behavior...")
-            node.trigger_behavior("retract")
-            node.get_logger().info("Retract behavior completed.")
-            node.trigger_behavior("play")
+        while True:
+            print_menu()
+            choice = input("Select: ").strip()
+
+            if choice == "1":
+                node.go_home()
+
+            elif choice == "2":
+                plane_id = input("Plane ID [battery_do_not_cross]: ").strip() or "battery_do_not_cross"
+                frame_id = input("Frame ID [floor_link]: ").strip() or "floor_link"
+                node.remove_collision_plane(plane_id, frame_id)
+                return
+            elif choice == "3":
+                behavior = input("Behavior name: ").strip()
+                if behavior:
+                    node.trigger_behavior(behavior)
+
+            elif choice == "4":
+                node.update_depth()
+
+            elif choice == "5":
+                speed = int(input("Speed (0=off): ").strip() or "0")
+                node.motor_control(speed)
+
+            elif choice == "0":
+                break
+
+            else:
+                print("Invalid choice")
+
     except KeyboardInterrupt:
-        node.get_logger().info("Interrupted by user.")
+        print("\nInterrupted.")
     finally:
-        node.motor_control(0)
         node.destroy_node()
         rclpy.shutdown()
 

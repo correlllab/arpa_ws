@@ -13,7 +13,8 @@ find_package(rclpy REQUIRED)
 # Install Python scripts
 install(PROGRAMS
   scripts/record_poses.py
-  scripts/move_to_pose.py
+  scripts/goto_recorded_poses.py
+  scripts/core_functionality_node.py
   scripts/scan_battery.py
   DESTINATION lib/${PROJECT_NAME}
 )
