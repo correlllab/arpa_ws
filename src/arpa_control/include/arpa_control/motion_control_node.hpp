@@ -10,8 +10,6 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include "arpa_control/srv/plan_to_pose.hpp"
-#include "arpa_control/srv/plan_to_joint.hpp"
-#include "arpa_control/srv/plan_linear_actuator.hpp"
 #include "arpa_control/srv/execute_plan.hpp"
 #include "arpa_control/srv/stop_motion.hpp"
 #include "arpa_control/srv/get_point_cloud.hpp"
@@ -22,6 +20,8 @@
 #include <moveit_msgs/msg/constraints.hpp>
 #include <moveit_msgs/msg/joint_constraint.hpp>
 #include <moveit_msgs/msg/orientation_constraint.hpp>
+#include <moveit_msgs/msg/display_robot_state.hpp>
+#include <visualization_msgs/msg/interactive_marker_feedback.hpp>
 
 
 // lidar
@@ -49,14 +49,6 @@ private:
       const std::shared_ptr<arpa_control::srv::PlanToPose::Request> request,
       std::shared_ptr<arpa_control::srv::PlanToPose::Response> response);
 
-  void planToJointCallback(
-      const std::shared_ptr<arpa_control::srv::PlanToJoint::Request> request,
-      std::shared_ptr<arpa_control::srv::PlanToJoint::Response> response);
-
-  void planLinearActuatorCallback(
-      const std::shared_ptr<arpa_control::srv::PlanLinearActuator::Request> request,
-      std::shared_ptr<arpa_control::srv::PlanLinearActuator::Response> response);
-
   void executePlanCallback(
     const std::shared_ptr<arpa_control::srv::ExecutePlan::Request> request,
     std::shared_ptr<arpa_control::srv::ExecutePlan::Response> response);
@@ -77,12 +69,12 @@ private:
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_depth_reset_client;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr m_update_depth_service;
   rclcpp::Service<arpa_control::srv::PlanToPose>::SharedPtr m_plan_to_pose_service;
-  rclcpp::Service<arpa_control::srv::PlanToJoint>::SharedPtr m_plan_to_joint_service;
-  rclcpp::Service<arpa_control::srv::PlanLinearActuator>::SharedPtr m_plan_linear_actuator_service;
   rclcpp::Service<arpa_control::srv::ExecutePlan>::SharedPtr m_execute_plan_service;
   rclcpp::Service<arpa_control::srv::StopMotion>::SharedPtr m_stop_motion_service;
 
   moveit::planning_interface::MoveGroupInterface::Plan m_current_plan;
+  geometry_msgs::msg::Pose m_current_target_pose;
+  bool m_has_pose_target = false;
   bool m_use_depth;
   std::shared_ptr<tf2_ros::StaticTransformBroadcaster> m_static_transform_broadcaster;
   std::unique_ptr<tf2_ros::Buffer> m_tf_buffer;
@@ -91,7 +83,12 @@ private:
   bool resetDepthMap(unsigned int timeout_ms = 2000);
   void initUpdateDepth();
   void checkRobotStateReady();
+  double getConfigurationCost(
+      const std::shared_ptr<moveit::core::RobotState>& current_state,
+      const std::shared_ptr<moveit::core::RobotState>& target_state);
   bool configureForPlanning(geometry_msgs::msg::Pose target_pose);
+  void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
+  rclcpp::Publisher<visualization_msgs::msg::InteractiveMarkerFeedback>::SharedPtr m_goal_marker_fb_pub;
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;
   float m_arm_padding;
   std::map<std::string, double> m_arm_padding_map;
