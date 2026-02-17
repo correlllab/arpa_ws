@@ -16,7 +16,6 @@ def main(args=None):
     # Marker subscription state (local to main)
     recorded_poses = []
     markers_received = False
-    z_offset = 0.1
 
     def marker_callback(msg):
         nonlocal recorded_poses, markers_received
@@ -25,12 +24,11 @@ def main(args=None):
             for marker in msg.markers:
                 p = marker.pose.position
                 o = marker.pose.orientation
-                recorded_poses.append((p.x, p.y, p.z + z_offset, o.x, o.y, o.z, o.w))
+                recorded_poses.append((p.x, p.y, p.z, o.x, o.y, o.z, o.w))
             markers_received = True
             node.get_logger().info(f"Received {len(recorded_poses)} poses from markers")
 
-    marker_sub = node.create_subscription(
-        MarkerArray, '/recorded_poses_markers', marker_callback, 10)
+    marker_sub = node.create_subscription(MarkerArray, '/recorded_poses_markers', marker_callback, 10)
 
     # Wait for markers from record_poses.py
     node.get_logger().info("Waiting for poses from /recorded_poses_markers (run record_poses.py first)...")
@@ -48,16 +46,19 @@ def main(args=None):
 
     node.get_logger().info(f"Connected to record_poses. {len(recorded_poses)} poses available.")
 
-    node.motor_control(0)
+    node.motor_control(100)
     try:
         for pose in recorded_poses:
             x, y, z, qx, qy, qz, qw = pose
-            plan_approved = False
-            while not plan_approved:
-                node.plan_to_pose(x, y, z, qx, qy, qz, qw)
-                user_input = input("press e to approve plan: ")
-                if user_input.lower() == 'e':
-                    plan_approved = True
+            plan_successful = False
+            while not plan_successful:
+                time.sleep(2)
+                success = node.plan_to_pose(x, y, z, qx, qy, qz, qw)
+                if success:
+                    plan_successful = True
+                    node.get_logger().info("Planning succeeded!")
+                else:
+                    node.get_logger().warn("Planning failed, retrying...")
             node.execute_plan()
             node.get_logger().info("Triggering zforce behavior...")
             node.trigger_behavior("zforce")
@@ -68,6 +69,8 @@ def main(args=None):
             node.trigger_behavior("retract")
             node.get_logger().info("Retract behavior completed.")
             node.trigger_behavior("play")
+            time.sleep(3)
+            node.trigger_behavior("ros2control")
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
     finally:

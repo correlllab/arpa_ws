@@ -353,6 +353,7 @@ def main(args=None):
                     continue
 
                 # Auto-execute
+                # input("waiting for input: ")
                 if not node.execute_plan():
                     skipped_indices.append(i)
                     update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)  # Red = execution failed

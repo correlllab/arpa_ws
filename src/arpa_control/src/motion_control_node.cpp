@@ -7,7 +7,9 @@
 #include <moveit/robot_state/conversions.h>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
-    : Node("motion_control_node", options)
+    : Node("motion_control_node", options),
+      m_rng(std::random_device{}()),
+      m_arm_noise_dist(-0.2, 0.2)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Constructor Init");
 
@@ -41,6 +43,9 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_static_transform_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
   m_goal_marker_fb_pub = this->create_publisher<visualization_msgs::msg::InteractiveMarkerFeedback>(
       "/rviz_moveit_motion_planning_display/robot_interaction_interactive_marker_topic/feedback",
+      rclcpp::QoS(1));
+  m_goal_state_pub = this->create_publisher<moveit_msgs::msg::DisplayRobotState>(
+      "/goal_robot_state",
       rclcpp::QoS(1));
 
   m_use_depth = false;
@@ -89,8 +94,6 @@ void MotionControlNode::init()
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Init() END");
 }
 
-
-
 void MotionControlNode::initMoveGroup()
 {
   /*
@@ -108,8 +111,9 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setNumPlanningAttempts(10);//(10);
   m_move_group->setMaxVelocityScalingFactor(0.1);
   m_move_group->setMaxAccelerationScalingFactor(0.1);
-  m_move_group->setGoalPositionTolerance(0.01);
-  m_move_group->setGoalOrientationTolerance(0.01);
+  m_move_group->setGoalPositionTolerance(0.001);  // 1mm tolerance
+  m_move_group->setGoalOrientationTolerance(0.001);  // ~0.057 degrees
+  m_move_group->setGoalJointTolerance(0.001);  // 0.001 rad (~0.057 degrees) per joint
 
   // Replanning settings - DISABLED to prevent MoveIt from re-solving IK
   // and overriding our carefully chosen joint configuration
@@ -189,16 +193,9 @@ double MotionControlNode::getConfigurationCost(
   // Check if joints are within valid limits for both states
   const auto* jmg = target_state->getJointModelGroup(m_move_group->getName());
 
-  current_state->update();
-  if (!current_state->satisfiesBounds(jmg)) {
-    RCLCPP_WARN(get_logger(), "Current state has joints out of valid range");
-    return -std::numeric_limits<double>::infinity();
-  }
-
-  target_state->update();
   if (!target_state->satisfiesBounds(jmg)) {
     RCLCPP_WARN(get_logger(), "Target state has joints out of valid range");
-    return -std::numeric_limits<double>::infinity();
+    return std::numeric_limits<double>::infinity();
   }
 
   // Check collision: Euclidean distance between linear actuator plate and elbow
@@ -232,33 +229,35 @@ double MotionControlNode::getConfigurationCost(
 
   // Add proximity penalty: penalize configurations where wrist is close to actuator
   double actuator_wrist_distance = elbow_distance;  // Using wrist_3_link distance (same as elbow check)
-  double proximity_penalty = 5.0 / actuator_wrist_distance;
+  double proximity_penalty = 0.1 / actuator_wrist_distance;
 
   double total_cost = joint_cost + proximity_penalty;
+
+  // RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f (dist=%.3fm), Total: %.4f",
+  //             joint_cost, proximity_penalty, actuator_wrist_distance, total_cost);
 
   return total_cost;
 }
 
 void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state)
 {
-  const std::string& ee_link = m_move_group->getEndEffectorLink();
-  const Eigen::Isometry3d& ee_tf = state->getGlobalLinkTransform(ee_link);
+  // Publish DisplayRobotState with joint values
+  moveit_msgs::msg::DisplayRobotState display_state;
+  display_state.state.is_diff = false;
 
-  visualization_msgs::msg::InteractiveMarkerFeedback fb;
-  fb.header.frame_id = m_move_group->getPlanningFrame();
-  fb.header.stamp = now();
-  fb.client_id = "motion_control_node";
-  fb.marker_name = "EE:goal_wrist_3_link";
-  fb.event_type = visualization_msgs::msg::InteractiveMarkerFeedback::POSE_UPDATE;
-  fb.pose.position.x = ee_tf.translation().x();
-  fb.pose.position.y = ee_tf.translation().y();
-  fb.pose.position.z = ee_tf.translation().z();
-  Eigen::Quaterniond q(ee_tf.rotation());
-  fb.pose.orientation.x = q.x();
-  fb.pose.orientation.y = q.y();
-  fb.pose.orientation.z = q.z();
-  fb.pose.orientation.w = q.w();
-  m_goal_marker_fb_pub->publish(fb);
+  // Get joint names and positions from the robot state
+  const auto* jmg = state->getJointModelGroup(m_move_group->getName());
+  std::vector<double> joint_positions;
+  state->copyJointGroupPositions(jmg, joint_positions);
+  const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
+
+  // Populate the joint state
+  display_state.state.joint_state.header.stamp = now();
+  display_state.state.joint_state.header.frame_id = m_move_group->getPlanningFrame();
+  display_state.state.joint_state.name = joint_names;
+  display_state.state.joint_state.position = joint_positions;
+
+  m_goal_state_pub->publish(display_state);
 }
 
 bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
@@ -306,12 +305,9 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
       // Add small random perturbations to arm joints to explore different local minima
       std::vector<double> joint_values;
       seed_state->copyJointGroupPositions(jmg, joint_values);
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_real_distribution<> dis(-0.2, 0.2);  // +/- 0.2 rad (~11 degrees) perturbation
 
       for (size_t i = 1; i < joint_values.size(); ++i) {  // Skip actuator (i=0)
-        joint_values[i] += dis(gen);
+        joint_values[i] += m_arm_noise_dist(m_rng);
       }
       seed_state->setJointGroupPositions(jmg, joint_values);
       seed_state->update();
@@ -325,15 +321,16 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
 
       bool ik_ok = seed_state->setFromIK(jmg, target_pose, ee_link, 0.1);
 
-      // if (!ik_ok) {
-      //   RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
-      //   continue;
-      // }
+      if (!ik_ok) {
+        RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
+        continue;
+      }
 
       // Get the actuator position that IK chose
       double ik_actuator_pos = *seed_state->getJointPositions(actuator_joint);
 
       // updateGoalMarker(seed_state);
+      seed_state->update();
 
       double cost = getConfigurationCost(current_state, seed_state);
 
@@ -383,23 +380,29 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
 
   if (best_state) {
     double actuator_movement = best_actuator_pos - original_actuator_pos;
-    RCLCPP_INFO(get_logger(), "Best configuration: cost=%.4f, actuator_pos=%.3f m, movement=%+.3f m",
+    RCLCPP_INFO(get_logger(), "\n\nBest configuration: cost=%.4f, actuator_pos=%.3f m, movement=%+.3f m",
                 best_cost, best_actuator_pos, actuator_movement);
 
     // Log the best IK joint values before setting them
     const auto* jmg_final = best_state->getJointModelGroup(m_move_group->getName());
     std::vector<double> best_joint_values;
     best_state->copyJointGroupPositions(jmg_final, best_joint_values);
-    std::string best_joints_str = "Setting IK solution joints: ";
+    std::string best_joints_str = "Best state joint angles: ";
     for (size_t i = 0; i < best_joint_values.size(); ++i) {
       best_joints_str += std::to_string(best_joint_values[i]) + " ";
     }
+    best_joints_str += "\n";
     RCLCPP_INFO(get_logger(), "%s", best_joints_str.c_str());
 
-    m_move_group->setJointValueTarget(*best_state);
+    // Store the goal joint values for comparison after execution
+    m_goal_joint_values = best_joint_values;
+
+    // Try setting joint target with explicit vector instead of RobotState
+    // This might be more reliable for ensuring MoveIt uses joint-space planning
+    m_move_group->setJointValueTarget(best_joint_values);
 
     // Update goal marker with final best configuration
-    // updateGoalMarker(best_state);
+    updateGoalMarker(best_state);
 
     return true;
   }
@@ -468,7 +471,6 @@ void MotionControlNode::planToPoseCallback(
   m_static_transform_broadcaster->sendTransform(static_transform);
 
   m_current_target_pose = target_pose_in_planning_frame.pose;
-  m_has_pose_target = true;
 
   // Set start state first
   m_move_group->setStartStateToCurrentState();
@@ -483,15 +485,8 @@ void MotionControlNode::planToPoseCallback(
     return;
   }
 
-  // Update goal marker with the joint value target that was set
-  const moveit::core::RobotState& target_state = m_move_group->getJointValueTarget();
-  auto goal_state = std::make_shared<moveit::core::RobotState>(target_state);
-  updateGoalMarker(goal_state);
-
-  // Get goal joint values for comparison
-  const auto* jmg = target_state.getJointModelGroup(m_move_group->getName());
-  std::vector<double> goal_joint_values;
-  target_state.copyJointGroupPositions(jmg, goal_joint_values);
+  // We're using joint-based planning, not pose-based
+  m_has_pose_target = false;
 
   auto plan_result = m_move_group->plan(m_current_plan);
   if (plan_result == moveit::core::MoveItErrorCode::SUCCESS)
@@ -501,24 +496,6 @@ void MotionControlNode::planToPoseCallback(
     RCLCPP_INFO(get_logger(), "Planning succeeded (%zu trajectory points)",
                 m_current_plan.trajectory_.joint_trajectory.points.size());
 
-    // Verify the plan's final joint positions match our IK solution
-    if (!m_current_plan.trajectory_.joint_trajectory.points.empty()) {
-      const auto& final_point = m_current_plan.trajectory_.joint_trajectory.points.back();
-
-      std::string goal_str = "\n\n\n";
-      for (size_t i = 0; i < goal_joint_values.size(); ++i) {
-        goal_str += std::to_string(goal_joint_values[i]) + " ";
-      }
-
-      std::string final_str = "";
-      for (size_t i = 0; i < final_point.positions.size(); ++i) {
-        final_str += std::to_string(final_point.positions[i]) + " ";
-      }
-      final_str += "\n\n\n";
-
-      RCLCPP_INFO(get_logger(), "%s", goal_str.c_str());
-      RCLCPP_INFO(get_logger(), "%s", final_str.c_str());
-    }
   }
   else
   {

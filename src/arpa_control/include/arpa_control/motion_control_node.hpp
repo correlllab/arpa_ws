@@ -30,6 +30,7 @@
 #include <string>
 #include <mutex>
 #include <thread>
+#include <random>
 
 
 class MotionControlNode : public rclcpp::Node
@@ -89,6 +90,7 @@ private:
   bool configureForPlanning(geometry_msgs::msg::Pose target_pose);
   void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
   rclcpp::Publisher<visualization_msgs::msg::InteractiveMarkerFeedback>::SharedPtr m_goal_marker_fb_pub;
+  rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_goal_state_pub;
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;
   float m_arm_padding;
   std::map<std::string, double> m_arm_padding_map;
@@ -96,10 +98,16 @@ private:
   rclcpp::TimerBase::SharedPtr m_init_timer;
   bool m_robot_state_ready = false;
 
+  // Store the goal joint values from best_state for comparison after execution
+  std::vector<double> m_goal_joint_values;
+
   // Dedicated node and thread for MoveGroupInterface
   rclcpp::Node::SharedPtr m_move_group_node;
   rclcpp::executors::SingleThreadedExecutor::SharedPtr m_move_group_executor;
   std::thread m_move_group_thread;
+
+  std::mt19937 m_rng;
+  std::uniform_real_distribution<double> m_arm_noise_dist;
 };
 
 #endif // __MOTION_CONTROL_NODE__
