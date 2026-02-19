@@ -29,7 +29,7 @@ EE_FRAME = "wrist_3_link"
 
 class CoreNode(Node):
     def __init__(self):
-        super().__init__('move_to_pose_node')
+        super().__init__('core_functionality_node')
 
         self.plan_client = self.create_client(PlanToPose, 'plan_to_pose')
         self.exec_client = self.create_client(ExecutePlan, 'execute_plan')
@@ -278,11 +278,14 @@ class CoreNode(Node):
         self.get_logger().info(f"Requesting {n}x{n} cost matrix from service...")
         req = GetPoseCostMatrix.Request()
         req.poses = all_poses
+        start_time = time.time()
         future = self.pose_cost_matrix_client.call_async(req)
         while not future.done():
             time.sleep(0.05)
-        result = future.result()
+        end_time = time.time()
 
+        result = future.result()
+        self.get_logger().info(f"Cost matrix computed in {end_time - start_time:.2f} seconds")
         if not result.success:
             self.get_logger().error(f"GetPoseCostMatrix failed: {result.message}")
             raise ValueError(f"GetPoseCostMatrix failed: {result.message}")

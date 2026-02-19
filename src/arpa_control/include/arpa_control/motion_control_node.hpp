@@ -91,7 +91,7 @@ private:
   double getConfigurationCost(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
-  bool configureForPlanning(geometry_msgs::msg::Pose target_pose);
+  std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose);
   geometry_msgs::msg::PoseStamped poseToPlanningFrame(const geometry_msgs::msg::PoseStamped& pose_stamped);
   double computePairwiseCost(
       const geometry_msgs::msg::PoseStamped& src_pose,

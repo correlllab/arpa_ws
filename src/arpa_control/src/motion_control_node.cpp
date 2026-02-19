@@ -3,6 +3,8 @@
 #include <future>
 #include <cmath>
 #include <limits>
+#include <algorithm>
+#include <numeric>
 #include <random>
 #include <moveit/robot_state/conversions.h>
 
@@ -271,31 +273,23 @@ void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::Rob
   m_goal_state_pub->publish(display_state);
 }
 
-bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
+std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
 {
   auto current_state = m_move_group->getCurrentState();
   if (!current_state) {
     RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
-    return false;
+    return {};
   }
 
   const auto* jmg = current_state->getJointModelGroup(m_move_group->getName());
   const std::string& ee_link = m_move_group->getEndEffectorLink();
   const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
 
-  // Get the original linear actuator position
   double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
-
   RCLCPP_INFO(get_logger(), "Current linear actuator position: %.3f m", original_actuator_pos);
 
-  double best_cost = std::numeric_limits<double>::infinity();
-  std::shared_ptr<moveit::core::RobotState> best_state;
-  double best_actuator_pos = original_actuator_pos;
-
-  // Store all successful IK solutions
-  std::vector<std::vector<double>> all_solutions;  // Each entry is joint positions for one solution
-  std::vector<double> all_costs;                   // Corresponding costs
-  std::vector<double> all_actuator_positions;      // Corresponding actuator positions
+  std::vector<std::vector<double>> all_solutions;
+  std::vector<double> all_costs;
 
   // Try IK with linear actuator offsets: 0, +0.1, -0.1, +0.2, -0.2, ... +/-1.0
   for (int step = 0; step <= 10; ++step) {
@@ -308,122 +302,48 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
     }
 
     for (double offset : offsets) {
-      // Reset seed state and apply actuator offset
       auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
       double shifted_pos = original_actuator_pos + offset;
       seed_state->setJointPositions(actuator_joint, &shifted_pos);
-
-      // Add small random perturbations to arm joints to explore different local minima
-      std::vector<double> joint_values;
-      seed_state->copyJointGroupPositions(jmg, joint_values);
-
-      for (size_t i = 1; i < joint_values.size(); ++i) {  // Skip actuator (i=0)
-        joint_values[i] += m_arm_noise_dist(m_rng);
-      }
-      seed_state->setJointGroupPositions(jmg, joint_values);
       seed_state->update();
 
-      // RCLCPP_INFO(get_logger(), "Attempting IK for offset %+.2f (actuator seed: %.3f m) with random arm perturbations",
-      //             offset, shifted_pos);
-
-      //TODO if some param, visualize
-      // Visualize the seed state before IK
-      // updateGoalMarker(seed_state);
-      // std::this_thread::sleep_for(std::chrono::seconds(1));
-
-      bool ik_ok = seed_state->setFromIK(jmg, target_pose, ee_link, 0.1);
-
-      if (!ik_ok) {
+      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
         RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
         continue;
       }
-
-      // Get the actuator position that IK chose
-      double ik_actuator_pos = *seed_state->getJointPositions(actuator_joint);
-
       seed_state->update();
 
-      //TODO if some param, visualize
-      // updateGoalMarker(seed_state);
-      // std::this_thread::sleep_for(std::chrono::seconds(1));
-
       double cost = getConfigurationCost(current_state, seed_state);
+      if (std::isinf(cost)) continue;
 
-      // Store this valid solution
       std::vector<double> joint_positions;
       seed_state->copyJointGroupPositions(jmg, joint_positions);
       all_solutions.push_back(joint_positions);
       all_costs.push_back(cost);
-      all_actuator_positions.push_back(ik_actuator_pos);
-
-      // RCLCPP_INFO(get_logger(), "Actuator offset %+.2f (seed: %.3f, ik: %.3f) -> cost: %.4f [solution #%zu]",
-      //             offset, shifted_pos, ik_actuator_pos, cost, all_solutions.size());
-
-      // Sleep to allow visualization of this candidate
-      // std::this_thread::sleep_for(std::chrono::seconds(1));
-
-      if (cost < best_cost) {
-        best_cost = cost;
-        best_state = std::make_shared<moveit::core::RobotState>(*seed_state);
-        best_actuator_pos = ik_actuator_pos;
-      }
     }
   }
 
-  // RCLCPP_INFO(get_logger(), "Found %zu total IK solutions", all_solutions.size());
-
-  // Calculate max difference for each joint across all solutions
-  if (!all_solutions.empty()) {
-    const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
-    std::vector<double> min_vals(joint_names.size(), std::numeric_limits<double>::max());
-    std::vector<double> max_vals(joint_names.size(), -std::numeric_limits<double>::max());
-
-    for (const auto& solution : all_solutions) {
-      for (size_t j = 0; j < solution.size(); ++j) {
-        min_vals[j] = std::min(min_vals[j], solution[j]);
-        max_vals[j] = std::max(max_vals[j], solution[j]);
-      }
-    }
-
-    RCLCPP_INFO(get_logger(), "Joint variation across all solutions:");
-    for (size_t j = 0; j < joint_names.size(); ++j) {
-      double range = max_vals[j] - min_vals[j];
-      RCLCPP_INFO(get_logger(), "  %s: range=%.4f rad (min=%.4f, max=%.4f)",
-                  joint_names[j].c_str(), range, min_vals[j], max_vals[j]);
-    }
+  if (all_solutions.empty()) {
+    RCLCPP_ERROR(get_logger(), "No valid IK solution found across actuator offsets +/- 1.0 m");
+    return {};
   }
 
-  if (best_state) {
-    double actuator_movement = best_actuator_pos - original_actuator_pos;
-    RCLCPP_INFO(get_logger(), "\n\nBest configuration: cost=%.4f, actuator_pos=%.3f m, movement=%+.3f m",
-                best_cost, best_actuator_pos, actuator_movement);
+  // Sort by cost ascending
+  std::vector<size_t> indices(all_solutions.size());
+  std::iota(indices.begin(), indices.end(), 0);
+  std::sort(indices.begin(), indices.end(),
+      [&](size_t a, size_t b) { return all_costs[a] < all_costs[b]; });
 
-    // Log the best IK joint values before setting them
-    const auto* jmg_final = best_state->getJointModelGroup(m_move_group->getName());
-    std::vector<double> best_joint_values;
-    best_state->copyJointGroupPositions(jmg_final, best_joint_values);
-    std::string best_joints_str = "Best state joint angles: ";
-    for (size_t i = 0; i < best_joint_values.size(); ++i) {
-      best_joints_str += std::to_string(best_joint_values[i]) + " ";
-    }
-    best_joints_str += "\n";
-    RCLCPP_INFO(get_logger(), "%s", best_joints_str.c_str());
-
-    // Store the goal joint values for comparison after execution
-    m_goal_joint_values = best_joint_values;
-
-    // Try setting joint target with explicit vector instead of RobotState
-    // This might be more reliable for ensuring MoveIt uses joint-space planning
-    m_move_group->setJointValueTarget(best_joint_values);
-
-    // Update goal marker with final best configuration
-    updateGoalMarker(best_state);
-
-    return true;
+  std::vector<std::vector<double>> sorted_solutions;
+  sorted_solutions.reserve(indices.size());
+  for (size_t idx : indices) {
+    sorted_solutions.push_back(all_solutions[idx]);
   }
 
-  RCLCPP_ERROR(get_logger(), "No valid IK solution found across actuator offsets +/- 1.0 m");
-  return false;
+  RCLCPP_INFO(get_logger(), "Found %zu IK solutions (best cost=%.4f, worst cost=%.4f)",
+      sorted_solutions.size(), all_costs[indices.front()], all_costs[indices.back()]);
+
+  return sorted_solutions;
 }
 
 void MotionControlNode::planToPoseCallback(
@@ -487,35 +407,47 @@ void MotionControlNode::planToPoseCallback(
 
   m_current_target_pose = target_pose_in_planning_frame.pose;
 
-  // Set start state first
-  m_move_group->setStartStateToCurrentState();
-
-  // Clear any existing pose targets to ensure we use joint values
   m_move_group->clearPoseTargets();
 
-  // Find best IK solution and set as joint value target
-  if (!configureForPlanning(m_current_target_pose)) {
+  // Get IK solutions sorted by ascending cost
+  auto solutions = configureForPlanning(m_current_target_pose);
+  if (solutions.empty()) {
     response->success = false;
-    response->message = "Failed to configure for planning";
+    response->message = "No valid IK solutions found";
     return;
   }
 
+  // Try planning with each solution until one succeeds
+  for (size_t i = 0; i < solutions.size(); ++i) {
+    m_move_group->setStartStateToCurrentState();
+    m_move_group->setJointValueTarget(solutions[i]);
 
-  auto plan_result = m_move_group->plan(m_current_plan);
-  if (plan_result == moveit::core::MoveItErrorCode::SUCCESS)
-  {
-    response->success = true;
-    response->message = "Planning successful";
-    RCLCPP_INFO(get_logger(), "Planning succeeded (%zu trajectory points)",
-                m_current_plan.trajectory_.joint_trajectory.points.size());
+    auto plan_result = m_move_group->plan(m_current_plan);
+    if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
+      RCLCPP_INFO(get_logger(), "Planning succeeded on IK solution %zu/%zu (%zu trajectory points)",
+                  i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+      m_goal_joint_values = solutions[i];
 
+      // Update goal marker
+      auto goal_state = m_move_group->getCurrentState();
+      goal_state->setJointGroupPositions(
+          goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
+      goal_state->update();
+      updateGoalMarker(goal_state);
+
+      response->success = true;
+      response->message = "Planning successful (solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
+      RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+      return;
+    }
+
+    RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (MoveItErrorCode: %d)",
+                i + 1, solutions.size(), plan_result.val);
   }
-  else
-  {
-    response->success = false;
-    response->message = "Planning failed (MoveItErrorCode: " + std::to_string(plan_result.val) + ")";
-    RCLCPP_ERROR(get_logger(), "Planning failed with MoveItErrorCode: %d", plan_result.val);
-  }
+
+  response->success = false;
+  response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions";
+  RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions", solutions.size());
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
 }
 
