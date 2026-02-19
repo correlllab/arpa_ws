@@ -28,9 +28,9 @@
 
       <collision>
         <geometry>
-          <mesh filename="file://${mesh_filename}" scale="${scale}"/>
+          <box size="0.365 0.125 0.105"/>
         </geometry>
-        <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
+        <origin xyz="0.055 -0.006 0.015" rpy="${origin_rpy}"/>
       </collision>
 
       <inertial>

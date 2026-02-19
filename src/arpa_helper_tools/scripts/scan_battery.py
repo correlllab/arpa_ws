@@ -11,16 +11,12 @@ import rclpy
 from core_functionality_node import CoreNode
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
-from moveit_msgs.msg import (
-    PlanningScene, RobotState,
-    Constraints, PositionConstraint, OrientationConstraint,
-    BoundingVolume, MotionPlanRequest
-)
-from moveit_msgs.srv import GetCartesianPath, GetMotionPlan
-from geometry_msgs.msg import Pose, PoseStamped
-from sensor_msgs.msg import JointState
+from geometry_msgs.msg import PoseStamped
 import time
 import random
+
+from ortools.constraint_solver import routing_enums_pb2
+from ortools.constraint_solver import pywrapcp
 
 
 # 32 predefined scanning poses for battery inspection
@@ -80,31 +76,31 @@ _X_POSITIONS = [LOWER_LEFT[0] + i * (UPPER_RIGHT[0] - LOWER_LEFT[0]) / (N_X_STEP
 _Y_POSITIONS = [LOWER_LEFT[1] + i * (UPPER_RIGHT[1] - LOWER_LEFT[1]) / (N_Y_STEPS - 1) for i in range(N_Y_STEPS)]
 
 # Generate poses in zigzag pattern (scan along Y at each X row, alternating Y direction)
-SCAN_POSES = []
+scan_points = []
 for row_idx, x_pos in enumerate(_X_POSITIONS):
-    y_range = _Y_POSITIONS if row_idx % 2 == 0 else list(reversed(_Y_POSITIONS))
-
+    y_range = _Y_POSITIONS# if row_idx % 2 == 0 else list(reversed(_Y_POSITIONS))
     for col_idx, y_pos in enumerate(y_range):
-        pose_num = row_idx * N_Y_STEPS + col_idx + 1
+        scan_points.append((x_pos, y_pos))
 
-        SCAN_POSES.append({
-            "name": f"Pose {pose_num}",
-            "x": x_pos,
-            "y": y_pos,
-            "z": _Z_HEIGHT,
-            "qx": _QX,
-            "qy": _QY,
-            "qz": _QZ,
-            "qw": _QW
-        })
+def scan_points_to_pose_stamped(points, frame_id):
+    pose_stamped_list = []
+    for x, y in points:
+        ps = PoseStamped()
+        ps.header.frame_id = frame_id
+        ps.pose.position.x = x
+        ps.pose.position.y = y
+        ps.pose.position.z = _Z_HEIGHT
+        ps.pose.orientation.x = _QX
+        ps.pose.orientation.y = _QY
+        ps.pose.orientation.z = _QZ
+        ps.pose.orientation.w = _QW
+        pose_stamped_list.append(ps)
+    return pose_stamped_list
+    
 
-# Reorder poses: first half in order, second half in reverse
-mid = len(SCAN_POSES) // 2
-SCAN_POSES = SCAN_POSES[:mid] + list(reversed(SCAN_POSES[mid:]))
 
 
 FRAME_ID = "floor_link"
-
 # Collision plane configuration
 _PLANE_ID = "battery_do_not_cross"
 _PLANE_Z = 0.9  # Z height of the plane (below scan height)
@@ -118,122 +114,19 @@ _PLANE_CENTER_Y = (LOWER_LEFT[1] + UPPER_RIGHT[1]) / 2.0
 
 
 
-def get_current_joint_state(node, timeout_sec=2.0):
-    """Get the current joint state from /joint_states topic."""
-    joint_state_msg = None
-
-    def callback(msg):
-        nonlocal joint_state_msg
-        joint_state_msg = msg
-
-    sub = node.create_subscription(JointState, '/joint_states', callback, 10)
-
-    # Wait for a message
-    start_time = node.get_clock().now()
-    while joint_state_msg is None:
-        rclpy.spin_once(node, timeout_sec=0.1)
-        elapsed = (node.get_clock().now() - start_time).nanoseconds / 1e9
-        if elapsed > timeout_sec:
-            node.get_logger().error('Timeout waiting for joint state')
-            break
-
-    node.destroy_subscription(sub)
-    return joint_state_msg
-
-
-def compute_cartesian_path(node, waypoints, max_step=0.01, jump_threshold=2.0):
-    """
-    Compute a Cartesian path through the given waypoints.
-
-    Args:
-        node: ROS2 node with the service client
-        waypoints: List of PoseStamped waypoints
-        max_step: Maximum step size between interpolated points (meters)
-        jump_threshold: Maximum allowed jump in joint space (0.0 disables check)
-
-    Returns:
-        (trajectory, fraction) tuple where:
-            - trajectory: RobotTrajectory message (or None on failure)
-            - fraction: Path completion ratio 0.0-1.0
-                1.0 = full path computed successfully
-                <1.0 = path partially computed (hit obstacle or joint limit)
-                0.0 = no valid path found
-    """
-    client = node.create_client(GetCartesianPath, '/compute_cartesian_path')
-
-    if not client.wait_for_service(timeout_sec=5.0):
-        node.get_logger().error('Cartesian path service not available')
-        return None, 0.0
-
-    # Get current robot state
-    joint_state = get_current_joint_state(node)
-    if joint_state is None:
-        node.get_logger().error('Failed to get current joint state')
-        return None, 0.0
-
-    request = GetCartesianPath.Request()
-    request.header.frame_id = FRAME_ID
-    request.header.stamp = node.get_clock().now().to_msg()
-    request.group_name = 'ur16e_on_gantry'
-    request.link_name = 'tool0'
-
-    # Set the start state to current robot position
-    request.start_state = RobotState()
-    request.start_state.joint_state = joint_state
-
-    request.waypoints = [wp.pose for wp in waypoints]
-    request.max_step = max_step
-    request.jump_threshold = jump_threshold
-    request.avoid_collisions = True
-
-    future = client.call_async(request)
-    rclpy.spin_until_future_complete(node, future)
-
-    if future.result() is None:
-        node.get_logger().error('Cartesian path service call failed')
-        return None, 0.0
-
-    response = future.result()
-    return response.solution, response.fraction
-
-
-def build_waypoints_from_poses(node, pose_list):
-    """Convert scan pose dicts to PoseStamped waypoints."""
-    waypoints = []
-    for pose in pose_list:
-        ps = PoseStamped()
-        ps.header.frame_id = FRAME_ID
-        ps.header.stamp = node.get_clock().now().to_msg()
-        ps.pose.position.x = pose['x']
-        ps.pose.position.y = pose['y']
-        ps.pose.position.z = pose['z']
-        ps.pose.orientation.x = pose['qx']
-        ps.pose.orientation.y = pose['qy']
-        ps.pose.orientation.z = pose['qz']
-        ps.pose.orientation.w = pose['qw']
-        waypoints.append(ps)
-    return waypoints
-
-
-def build_scan_marker_array(node):
-    """Build a MarkerArray with an arrow marker for each scan pose."""
+def build_scan_marker_array(node, pose_array):
+    """Build a MarkerArray with an arrow marker for each scan pose (PoseStamped list)."""
     marker_array = MarkerArray()
-    for i, pose in enumerate(SCAN_POSES):
+    for i, pose in enumerate(pose_array):
         m = Marker()
-        m.header.frame_id = FRAME_ID
+        m.header.frame_id = pose.header.frame_id
         m.header.stamp = node.get_clock().now().to_msg()
         m.ns = "scan_poses"
         m.id = i
         m.type = Marker.ARROW
         m.action = Marker.ADD
 
-        m.pose.position.x = pose['x']
-        m.pose.position.y = pose['y']
-        m.pose.position.z = pose['z']
-        m.pose.orientation.x = pose['qx']
-        m.pose.orientation.y = pose['qy']
-        m.pose.orientation.z = pose['qz']
-        m.pose.orientation.w = pose['qw']
+        m.pose = pose.pose
 
         m.scale.x = 0.15  # arrow length
         m.scale.y = 0.02  # arrow shaft diameter
@@ -256,7 +149,10 @@ def main(args=None):
     node = CoreNode()
 
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
-    marker_array = build_scan_marker_array(node)
+    pose_stamped_list = scan_points_to_pose_stamped(scan_points, FRAME_ID)
+    pose_arr = node.get_tsp_order(pose_stamped_list)
+    marker_array = build_scan_marker_array(node, pose_arr)
+    node.trigger_behavior("ros2control")
 
     # Give publishers time to connect
     time.sleep(1.0)
@@ -270,162 +166,106 @@ def main(args=None):
     # Publish markers again to ensure visibility
     marker_pub.publish(marker_array)
 
-    node.get_logger().info(f"Battery scan: {len(SCAN_POSES)} poses to visit")
-    CARTESIAN_MOVE = False
+
+    node.get_logger().info(f"Battery scan: {len(pose_arr)} poses to visit")
 
     try:
-        if CARTESIAN_MOVE:
-            # === CARTESIAN PATH MODE ===
-            waypoints = build_waypoints_from_poses(node, SCAN_POSES)
+        skipped_indices = []  # Track skipped poses for retry
+        completed_indices = []  # Track successful poses
 
-            # Highlight all poses in yellow (planning)
-            for i in range(len(SCAN_POSES)):
-                update_marker_color(marker_array, i, r=1.0, g=1.0, b=0.0)
+        # First pass: visit all poses, skip failures
+        for i, pose in enumerate(pose_arr):
+            # Highlight current pose in yellow
+            update_marker_color(marker_array, i, r=1.0, g=1.0, b=0.0)
             marker_pub.publish(marker_array)
 
-            # Plan/replan loop with user confirmation
-            while True:
-                trajectory, fraction = compute_cartesian_path(node, waypoints)
+            p = pose.pose.position
+            node.get_logger().info(
+                f"\n--- [{i+1}/{len(pose_arr)}] Pose {i+1} ---"
+                f"\n    x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f}")
 
-                if trajectory is None:
-                    user_input = input("Path computation failed. [r]etry / [q]uit: ").strip().lower()
-                    if user_input == 'q':
-                        node.get_logger().info("Cancelled by user.")
-                        return
-                    continue
+            o = pose.pose.orientation
+            success = node.plan_to_pose(
+                p.x, p.y, p.z, o.x, o.y, o.z, o.w,
+                frame_id=pose.header.frame_id)
 
-                pct = fraction * 100
-                n_points = len(trajectory.joint_trajectory.points)
+            if not success:
+                skipped_indices.append(i)
+                update_marker_color(marker_array, i, r=1.0, g=0.5, b=0.0, a=0.8)
+                marker_pub.publish(marker_array)
+                node.get_logger().warn(f"Skipping Pose {i+1} (will retry later)")
+                continue
 
-                if fraction < 1.0:
-                    node.get_logger().warn(f'Partial path: {pct:.1f}% achieved ({n_points} points)')
-                else:
-                    node.get_logger().info(f'Full path computed: {pct:.1f}% ({n_points} points)')
-
-                user_input = input(f"Path ready ({pct:.0f}%). [e]xecute / [r]eplan / [q]uit: ").strip().lower()
-
-                if user_input == 'e':
-                    break
-                elif user_input == 'q':
-                    node.get_logger().info("Cancelled by user.")
-                    return
-                # else replan
-
-            # Execute the trajectory
-            node.get_logger().info("Executing cartesian path...")
-            node.execute_trajectory(trajectory)
-
-            # Mark poses based on fraction achieved
-            completed_count = int(fraction * len(SCAN_POSES))
-            for i in range(len(SCAN_POSES)):
-                if i < completed_count:
-                    update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
-                else:
-                    update_marker_color(marker_array, i, r=0.5, g=0.5, b=0.5, a=0.4)
+            if not node.execute_plan():
+                skipped_indices.append(i)
+                update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)
+                marker_pub.publish(marker_array)
+                node.get_logger().error(f"Execution failed for Pose {i+1} (will retry later)")
+                continue
+            completed_indices.append(i)
+            update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
             marker_pub.publish(marker_array)
+            node.get_logger().info(f"Completed Pose {i+1}")
 
-        else:
-            # === POSE-BY-POSE MODE ===
-            skipped_indices = []  # Track skipped poses for retry
-            completed_indices = []  # Track successful poses
+        # Retry passes: keep retrying from random successful waypoints
+        # retry_round = 0
+        # while skipped_indices and completed_indices:
+        #     retry_round += 1
+        #     node.get_logger().info(f"\n=== RETRY PASS {retry_round}: {len(skipped_indices)} poses remaining ===")
 
-            # First pass: visit all poses, skip failures
-            for i, pose in enumerate(SCAN_POSES):
-                # Highlight current pose in yellow
-                update_marker_color(marker_array, i, r=1.0, g=1.0, b=0.0)
-                marker_pub.publish(marker_array)
+        #     still_failed = []
 
-                node.get_logger().info(
-                    f"\n--- [{i+1}/{len(SCAN_POSES)}] {pose['name']} ---"
-                    f"\n    x={pose['x']:.3f}, y={pose['y']:.3f}, z={pose['z']:.3f}")
+        #     for i in skipped_indices:
+        #         pose = pose_arr[i]
+        #         update_marker_color(marker_array, i, r=1.0, g=1.0, b=0.0)
+        #         marker_pub.publish(marker_array)
 
-                success = node.plan_to_pose(
-                    pose['x'], pose['y'], pose['z'],
-                    pose['qx'], pose['qy'], pose['qz'], pose['qw'],
-                    frame_id=FRAME_ID)
+        #         p = pose.pose.position
+        #         o = pose.pose.orientation
+        #         node.get_logger().info(
+        #             f"\n--- [RETRY {retry_round}] Pose {i+1} ---"
+        #             f"\n    x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f}")
 
-                if not success:
-                    # Auto-skip on failure, mark for retry
-                    skipped_indices.append(i)
-                    update_marker_color(marker_array, i, r=1.0, g=0.5, b=0.0, a=0.8)  # Orange = deferred
-                    marker_pub.publish(marker_array)
-                    node.get_logger().warn(f"Skipping {pose['name']} (will retry later)")
-                    continue
+        #         success = node.plan_to_pose(
+        #             p.x, p.y, p.z, o.x, o.y, o.z, o.w,
+        #             frame_id=pose.header.frame_id)
 
-                # Auto-execute
-                # input("waiting for input: ")
-                if not node.execute_plan():
-                    skipped_indices.append(i)
-                    update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)  # Red = execution failed
-                    marker_pub.publish(marker_array)
-                    node.get_logger().error(f"Execution failed for {pose['name']} (will retry later)")
-                    continue
-                completed_indices.append(i)
-                update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
-                marker_pub.publish(marker_array)
-                node.get_logger().info(f"Completed {pose['name']}")
+        #         if not success:
+        #             # Move to random successful waypoint and retry
+        #             random_idx = random.choice(completed_indices)
+        #             random_pose = pose_arr[random_idx]
+        #             rp = random_pose.pose.position
+        #             ro = random_pose.pose.orientation
+        #             node.get_logger().info(f"Moving to Pose {random_idx+1} before retry...")
 
-            # Retry passes: keep retrying from random successful waypoints
-            retry_round = 0
-            while skipped_indices and completed_indices:
-                retry_round += 1
-                node.get_logger().info(f"\n=== RETRY PASS {retry_round}: {len(skipped_indices)} poses remaining ===")
+        #             if node.plan_to_pose(
+        #                 rp.x, rp.y, rp.z, ro.x, ro.y, ro.z, ro.w,
+        #                 frame_id=random_pose.header.frame_id):
+        #                 node.execute_plan()
 
-                still_failed = []
+        #                 success = node.plan_to_pose(
+        #                     p.x, p.y, p.z, o.x, o.y, o.z, o.w,
+        #                     frame_id=pose.header.frame_id)
 
-                for i in skipped_indices:
-                    pose = SCAN_POSES[i]
-                    update_marker_color(marker_array, i, r=1.0, g=1.0, b=0.0)
-                    marker_pub.publish(marker_array)
+        #         if not success:
+        #             still_failed.append(i)
+        #             update_marker_color(marker_array, i, r=1.0, g=0.5, b=0.0, a=0.8)
+        #             marker_pub.publish(marker_array)
+        #             node.get_logger().warn(f"Still failing Pose {i+1}")
+        #             continue
 
-                    node.get_logger().info(
-                        f"\n--- [RETRY {retry_round}] {pose['name']} ---"
-                        f"\n    x={pose['x']:.3f}, y={pose['y']:.3f}, z={pose['z']:.3f}")
+        #         if not node.execute_plan():
+        #             still_failed.append(i)
+        #             update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)
+        #             marker_pub.publish(marker_array)
+        #             node.get_logger().error(f"Execution failed for Pose {i+1}")
+        #             continue
+        #         completed_indices.append(i)
+        #         update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
+        #         marker_pub.publish(marker_array)
+        #         node.get_logger().info(f"Completed Pose {i+1}")
 
-                    # Try planning from current position
-                    success = node.plan_to_pose(
-                        pose['x'], pose['y'], pose['z'],
-                        pose['qx'], pose['qy'], pose['qz'], pose['qw'],
-                        frame_id=FRAME_ID)
-
-                    if not success:
-                        # Move to random successful waypoint and retry
-                        random_idx = random.choice(completed_indices)
-                        random_pose = SCAN_POSES[random_idx]
-                        node.get_logger().info(f"Moving to {random_pose['name']} before retry...")
-
-                        if node.plan_to_pose(
-                            random_pose['x'], random_pose['y'], random_pose['z'],
-                            random_pose['qx'], random_pose['qy'], random_pose['qz'], random_pose['qw'],
-                            frame_id=FRAME_ID):
-                            node.execute_plan()
-
-                            # Try failed pose again
-                            success = node.plan_to_pose(
-                                pose['x'], pose['y'], pose['z'],
-                                pose['qx'], pose['qy'], pose['qz'], pose['qw'],
-                                frame_id=FRAME_ID)
-
-                    if not success:
-                        still_failed.append(i)
-                        update_marker_color(marker_array, i, r=1.0, g=0.5, b=0.0, a=0.8)
-                        marker_pub.publish(marker_array)
-                        node.get_logger().warn(f"Still failing {pose['name']}")
-                        continue
-
-                    # Auto-execute
-                    if not node.execute_plan():
-                        still_failed.append(i)
-                        update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)  # Red = execution failed
-                        marker_pub.publish(marker_array)
-                        node.get_logger().error(f"Execution failed for {pose['name']}")
-                        continue
-                    completed_indices.append(i)
-                    update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
-                    marker_pub.publish(marker_array)
-                    node.get_logger().info(f"Completed {pose['name']}")
-
-                skipped_indices = still_failed
+        #     skipped_indices = still_failed
 
         node.get_logger().info("Battery scan complete.")
 

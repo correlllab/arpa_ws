@@ -7,12 +7,11 @@
 #include <moveit/robot_state/conversions.h>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
-    : Node("motion_control_node", options),
-      m_rng(std::random_device{}()),
-      m_arm_noise_dist(-0.2, 0.2)
+    : Node("motion_control_node", options)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Constructor Init");
-
+  m_rng = std::mt19937{std::random_device{}()};
+  m_arm_noise_dist = std::uniform_real_distribution<double>{-0.2, 0.2};
   m_plan_to_pose_service = this->create_service<arpa_control::srv::PlanToPose>(
       "plan_to_pose",
       std::bind(&MotionControlNode::planToPoseCallback, this, std::placeholders::_1, std::placeholders::_2));
@@ -24,6 +23,10 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_stop_motion_service = this->create_service<arpa_control::srv::StopMotion>(
       "stop_motion",
       std::bind(&MotionControlNode::stopMotionCallback, this, std::placeholders::_1, std::placeholders::_2));
+
+  m_get_pose_cost_matrix_service = this->create_service<arpa_control::srv::GetPoseCostMatrix>(
+      "get_pose_cost_matrix",
+      std::bind(&MotionControlNode::getPoseCostMatrixCallback, this, std::placeholders::_1, std::placeholders::_2));
 
   m_update_depth_service = this->create_service<std_srvs::srv::Trigger>(
       "update_depth",
@@ -41,14 +44,13 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   
   // Static TF Broacaster
   m_static_transform_broadcaster = std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
-  m_goal_marker_fb_pub = this->create_publisher<visualization_msgs::msg::InteractiveMarkerFeedback>(
-      "/rviz_moveit_motion_planning_display/robot_interaction_interactive_marker_topic/feedback",
-      rclcpp::QoS(1));
+
   m_goal_state_pub = this->create_publisher<moveit_msgs::msg::DisplayRobotState>(
       "/goal_robot_state",
       rclcpp::QoS(1));
 
   m_use_depth = false;
+  //TODO verify octomap resolution is being used
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
   m_arm_padding = this->get_parameter("arm_padding").as_double();
@@ -107,7 +109,7 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
   //RVIZ uses 5s, 10 attempts, 0.1 vel scaling, 0.1 accel scaling
-  m_move_group->setPlanningTime(20);//(5.0);
+  m_move_group->setPlanningTime(5.0);//(5.0);
   m_move_group->setNumPlanningAttempts(10);//(10);
   m_move_group->setMaxVelocityScalingFactor(0.1);
   m_move_group->setMaxAccelerationScalingFactor(0.1);
@@ -115,11 +117,9 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setGoalOrientationTolerance(0.001);  // ~0.057 degrees
   m_move_group->setGoalJointTolerance(0.001);  // 0.001 rad (~0.057 degrees) per joint
 
-  // Replanning settings - DISABLED to prevent MoveIt from re-solving IK
-  // and overriding our carefully chosen joint configuration
-  m_move_group->allowReplanning(false);
+  m_move_group->allowReplanning(true);
   m_move_group->setReplanAttempts(3);
-  m_move_group->setReplanDelay(1.0);  // seconds between replans
+  m_move_group->setReplanDelay(0.1);  // seconds between replans
 
   // Allow sensor updates during planning
   // m_move_group->allowLooking(true);
@@ -183,7 +183,7 @@ void MotionControlNode::dumpParams()
     active_str += j + ", ";
   }
   RCLCPP_INFO(get_logger(), "  Active joints:             %s", active_str.c_str());
-  RCLCPP_INFO(get_logger(), "====================================================\n\n");
+  RCLCPP_INFO(get_logger(), "\n====================================================\n\n");
 }
 
 double MotionControlNode::getConfigurationCost(
@@ -204,10 +204,12 @@ double MotionControlNode::getConfigurationCost(
   const Eigen::Isometry3d& elbow_tf =
       target_state->getGlobalLinkTransform("wrist_3_link");
 
-  double elbow_distance = (actuator_tf.translation() - elbow_tf.translation()).norm();
-  if (elbow_distance < 0.650) {
+  double ee_distance = (actuator_tf.translation() - elbow_tf.translation()).norm();
+  //TODO
+  //min elbow distance should be a param
+  if (ee_distance < 0.650) {
     RCLCPP_WARN(get_logger(),
-        "Elbow too close to linear actuator plate: %.3f m (min 0.60 m)", elbow_distance);
+        "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
     return std::numeric_limits<double>::infinity();
   }
 
@@ -217,18 +219,15 @@ double MotionControlNode::getConfigurationCost(
   target_state->copyJointGroupPositions(jmg, target_values);
 
   // Weights per joint (linear actuator, shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3)
-  const std::vector<double> weights = {0.01, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0};
-
   double joint_cost = 0.0;
   for (size_t i = 0; i < current_values.size(); ++i) {
     double diff = target_values[i] - current_values[i];
-    double w = (i < weights.size()) ? weights[i] : 1.0;
-    joint_cost += w * diff * diff;
+    joint_cost += m_joint_weights[i] * diff * diff;
   }
   joint_cost = std::sqrt(joint_cost);
 
   // Add proximity penalty: penalize configurations where wrist is close to actuator
-  double actuator_wrist_distance = elbow_distance;  // Using wrist_3_link distance (same as elbow check)
+  double actuator_wrist_distance = ee_distance;  // Using wrist_3_link distance (same as elbow check)
   double proximity_penalty = 0.1 / actuator_wrist_distance;
 
   double total_cost = joint_cost + proximity_penalty;
@@ -256,6 +255,18 @@ void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::Rob
   display_state.state.joint_state.header.frame_id = m_move_group->getPlanningFrame();
   display_state.state.joint_state.name = joint_names;
   display_state.state.joint_state.position = joint_positions;
+
+  // Get all link names from the robot model and color them green
+  const std::vector<std::string>& link_names = state->getRobotModel()->getLinkModelNames();
+  for (const auto& link_name : link_names) {
+    moveit_msgs::msg::ObjectColor obj_color;
+    obj_color.id = link_name;
+    obj_color.color.r = 0.0;
+    obj_color.color.g = 1.0;
+    obj_color.color.b = 0.0;
+    obj_color.color.a = 0.8;
+    display_state.highlight_links.push_back(obj_color);
+  }
 
   m_goal_state_pub->publish(display_state);
 }
@@ -315,6 +326,7 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
       // RCLCPP_INFO(get_logger(), "Attempting IK for offset %+.2f (actuator seed: %.3f m) with random arm perturbations",
       //             offset, shifted_pos);
 
+      //TODO if some param, visualize
       // Visualize the seed state before IK
       // updateGoalMarker(seed_state);
       // std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -329,8 +341,11 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
       // Get the actuator position that IK chose
       double ik_actuator_pos = *seed_state->getJointPositions(actuator_joint);
 
-      // updateGoalMarker(seed_state);
       seed_state->update();
+
+      //TODO if some param, visualize
+      // updateGoalMarker(seed_state);
+      // std::this_thread::sleep_for(std::chrono::seconds(1));
 
       double cost = getConfigurationCost(current_state, seed_state);
 
@@ -485,8 +500,6 @@ void MotionControlNode::planToPoseCallback(
     return;
   }
 
-  // We're using joint-based planning, not pose-based
-  m_has_pose_target = false;
 
   auto plan_result = m_move_group->plan(m_current_plan);
   if (plan_result == moveit::core::MoveItErrorCode::SUCCESS)
@@ -635,6 +648,7 @@ bool MotionControlNode::updateDepthMap(unsigned int timeout_ms)
   }
 
   // Convert PointCloud2 to OctoMap
+  //TODO use parameter
   octomap::OcTree tree(0.03); // 5cm resolution
   octomap::Pointcloud octo_cloud;
 
@@ -673,6 +687,161 @@ void MotionControlNode::stopMotionCallback(
   m_move_group->stop();
   response->success = true;
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control stopMotionCallback() END");
+}
+
+geometry_msgs::msg::PoseStamped MotionControlNode::poseToPlanningFrame(
+    const geometry_msgs::msg::PoseStamped& pose_stamped)
+{
+  const std::string planning_frame = m_move_group->getPlanningFrame();
+
+  if (pose_stamped.header.frame_id.empty() || pose_stamped.header.frame_id == planning_frame) {
+    geometry_msgs::msg::PoseStamped result = pose_stamped;
+    result.header.frame_id = planning_frame;
+    return result;
+  }
+
+  geometry_msgs::msg::PoseStamped result;
+  try {
+    tf2::doTransform(pose_stamped, result,
+        m_tf_buffer->lookupTransform(planning_frame, pose_stamped.header.frame_id, tf2::TimePointZero));
+  } catch (const tf2::TransformException& ex) {
+    RCLCPP_ERROR(get_logger(), "poseToPlanningFrame: TF lookup failed: %s", ex.what());
+    return result;
+  }
+  return result;
+}
+
+double MotionControlNode::computePairwiseCost(
+    const geometry_msgs::msg::PoseStamped& src_pose,
+    const geometry_msgs::msg::PoseStamped& tgt_pose,
+    const moveit::core::JointModelGroup* jmg,
+    const std::string& ee_link)
+{
+  const int num_samples = 25;
+  double min_cost = std::numeric_limits<double>::infinity();
+  int src_ik_failures = 0;
+  int tgt_ik_failures = 0;
+  int valid_samples = 0;
+
+  for (int i = 0; i < num_samples; ++i) {
+    auto src_state = std::make_shared<moveit::core::RobotState>(m_move_group->getRobotModel());
+    src_state->setToRandomPositions(jmg);
+    src_state->update();
+    if (!src_state->setFromIK(jmg, src_pose.pose, ee_link, 0.1)) {
+      ++src_ik_failures;
+      continue;
+    }
+    src_state->update();
+
+    auto tgt_state = std::make_shared<moveit::core::RobotState>(*src_state);
+    if (!tgt_state->setFromIK(jmg, tgt_pose.pose, ee_link, 0.1)) {
+      ++tgt_ik_failures;
+      continue;
+    }
+    tgt_state->update();
+
+    std::vector<double> src_joints, tgt_joints;
+    src_state->copyJointGroupPositions(jmg, src_joints);
+    tgt_state->copyJointGroupPositions(jmg, tgt_joints);
+
+    double cost = 0.0;
+    for (size_t j = 0; j < src_joints.size() && j < m_joint_weights.size(); ++j) {
+      double diff = tgt_joints[j] - src_joints[j];
+      cost += m_joint_weights[j] * std::abs(diff);
+    }
+
+    ++valid_samples;
+    if (cost < min_cost) {
+      min_cost = cost;
+    }
+  }
+
+  RCLCPP_DEBUG(get_logger(), "computePairwiseCost: %d/%d valid samples, src_ik_fail=%d, tgt_ik_fail=%d, min_cost=%.4f",
+      valid_samples, num_samples, src_ik_failures, tgt_ik_failures, min_cost);
+
+  if (valid_samples == 0) {
+    RCLCPP_WARN(get_logger(), "computePairwiseCost: no valid IK solutions found (src_fail=%d, tgt_fail=%d)",
+        src_ik_failures, tgt_ik_failures);
+  }
+
+  return min_cost;
+}
+
+
+void MotionControlNode::getPoseCostMatrixCallback(
+    const std::shared_ptr<arpa_control::srv::GetPoseCostMatrix::Request> request,
+    std::shared_ptr<arpa_control::srv::GetPoseCostMatrix::Response> response)
+{
+  const size_t N = request->poses.size();
+  RCLCPP_INFO(get_logger(), "getPoseCostMatrix: received %zu poses", N);
+
+  if (N == 0) {
+    RCLCPP_WARN(get_logger(), "getPoseCostMatrix: empty poses array");
+    response->success = false;
+    response->message = "Empty poses array";
+    response->size = 0;
+    return;
+  }
+
+  const auto* jmg = m_move_group->getRobotModel()->getJointModelGroup(m_move_group->getName());
+  const std::string ee_link = m_move_group->getEndEffectorLink();
+
+  // Transform all poses to planning frame up front
+  RCLCPP_INFO(get_logger(), "getPoseCostMatrix: transforming %zu poses to planning frame", N);
+  std::vector<geometry_msgs::msg::PoseStamped> planning_poses(N);
+  for (size_t i = 0; i < N; ++i) {
+    planning_poses[i] = poseToPlanningFrame(request->poses[i]);
+    if (planning_poses[i].header.frame_id.empty()) {
+      RCLCPP_ERROR(get_logger(), "getPoseCostMatrix: TF lookup failed for pose %zu", i);
+      response->success = false;
+      response->message = "TF lookup failed for pose index " + std::to_string(i);
+      response->size = 0;
+      return;
+    }
+  }
+
+  response->cost_matrix.resize(N * N, std::numeric_limits<double>::infinity());
+  response->size = static_cast<uint32_t>(N);
+
+  const size_t total_pairs = N * N;
+  RCLCPP_INFO(get_logger(), "getPoseCostMatrix: computing %zu pairwise costs (parallel)", total_pairs);
+
+  // Launch all off-diagonal pairs in parallel
+  struct PairResult {
+    size_t i, j;
+    std::future<double> future;
+  };
+  std::vector<PairResult> futures;
+  futures.reserve(N * (N - 1));
+
+  for (size_t i = 0; i < N; ++i) {
+    for (size_t j = 0; j < N; ++j) {
+      if (i == j) continue;
+      futures.push_back({i, j, std::async(std::launch::async,
+          &MotionControlNode::computePairwiseCost, this,
+          std::cref(planning_poses[i]), std::cref(planning_poses[j]), jmg, ee_link)});
+    }
+  }
+
+  // Collect results
+  size_t successful_entries = N;  // diagonal entries
+  for (size_t i = 0; i < N; ++i) {
+    response->cost_matrix[i * N + i] = 0.0;
+  }
+  for (auto& pr : futures) {
+    double cost = pr.future.get();
+    response->cost_matrix[pr.i * N + pr.j] = cost;
+    if (!std::isinf(cost)) {
+      ++successful_entries;
+    }
+  }
+  RCLCPP_INFO(get_logger(), "getPoseCostMatrix: all pairs computed");
+
+  response->success = (successful_entries > N);
+  response->message = "Computed " + std::to_string(successful_entries) + "/" +
+                      std::to_string(total_pairs) + " entries";
+  RCLCPP_INFO(get_logger(), "getPoseCostMatrix: done — %zu/%zu successful entries, success=%s",
+      successful_entries, total_pairs, response->success ? "true" : "false");
 }
 
 int main(int argc, char **argv)

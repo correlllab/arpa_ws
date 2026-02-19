@@ -1,0 +1,6 @@
+geometry_msgs/PoseStamped[] poses
+---
+bool success
+string message
+uint32 size
+float64[] cost_matrix
