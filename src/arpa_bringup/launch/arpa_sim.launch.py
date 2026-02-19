@@ -132,6 +132,7 @@ def launch_setup(context, *args, **kwargs):
             "initial_positions_file": initial_positions_file,
             "start_joint_controller": start_joint_controller,
             "initial_joint_controller": initial_joint_controller,
+            "gazebo_gui": "true",
         }.items(),
     )
 
@@ -237,12 +238,21 @@ def launch_setup(context, *args, **kwargs):
         arguments=["0", "0", "0", "0", "0", "0", "world", "floor_link"]
     )
 
+    # Spawn linear_actuator_controller for MoveIt execution (needed for ur16e_on_gantry group)
+    linear_actuator_controller_spawner = Node(
+        package="controller_manager",
+        executable="spawner",
+        arguments=["linear_actuator_controller", "-c", "/controller_manager"],
+        output="screen",
+    )
+
     return [
         ur_control_launch,
         arpa_moveit_launch,
         arpa_motion_control,
         arpa_gui,
-        static_tf_world_to_floor
+        static_tf_world_to_floor,
+        linear_actuator_controller_spawner,
     ]
 
 

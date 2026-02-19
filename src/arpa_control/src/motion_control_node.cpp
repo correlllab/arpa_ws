@@ -7,6 +7,14 @@
 #include <numeric>
 #include <random>
 #include <moveit/robot_state/conversions.h>
+#include <thread>
+#include <fstream>
+#include <sstream>
+#include <cstdlib>
+#include <Eigen/Geometry>
+#include <moveit_msgs/msg/position_constraint.hpp>
+#include <moveit_msgs/msg/bounding_volume.hpp>
+#include <shape_msgs/msg/solid_primitive.hpp>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -55,8 +63,11 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   //TODO verify octomap resolution is being used
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
+  this->declare_parameter("use_corridor_constraint", false);  // if true, constrain RRT to corridor; off by default (causes plan rejections)
+  this->declare_parameter("corridor_padding", 0.02);   // extra length (m) at each end of corridor
+  this->declare_parameter("corridor_cross_section", 0.12);  // half-width (m) perpendicular to segment
   m_arm_padding = this->get_parameter("arm_padding").as_double();
-  m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "tool_center_link", "tool_head_link"};
+  m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "tool_head_link"};
   for(auto link : m_arm_padding_links) {
     m_arm_padding_map[link] = m_arm_padding;
   }
@@ -76,6 +87,7 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     m_move_group_executor->spin();
   });
 
+  m_default_real = true;
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Constructor Initialized");
 }
 
@@ -105,7 +117,7 @@ void MotionControlNode::initMoveGroup()
   */
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() START");
 
-  m_move_group->startStateMonitor(1.0);
+  m_move_group->startStateMonitor(2.5);
   m_move_group->setPlanningPipelineId("move_group");
 
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
@@ -122,36 +134,6 @@ void MotionControlNode::initMoveGroup()
   m_move_group->allowReplanning(true);
   m_move_group->setReplanAttempts(3);
   m_move_group->setReplanDelay(0.1);  // seconds between replans
-
-  // Allow sensor updates during planning
-  // m_move_group->allowLooking(true);
-
-  // // Orientation constraint: keep tool pointing down during motion
-  // // Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
-  // moveit_msgs::msg::Constraints path_constraints;
-  // moveit_msgs::msg::OrientationConstraint ocm;
-  // ocm.link_name = m_move_group->getEndEffectorLink();
-  // ocm.header.frame_id = "floor_link";
-  // // Quaternion (xyzw): [0.7071068, 0.7071068, 0, 0]
-  // ocm.orientation.x = 0.7071068;
-  // ocm.orientation.y = 0.7071068;
-  // ocm.orientation.z = 0.0;
-  // ocm.orientation.w = 0.0;
-  // ocm.absolute_x_axis_tolerance = 3.14/2;  // radians of allowed deviation (~29°)
-  // ocm.absolute_y_axis_tolerance = 3.14/2;
-  // ocm.absolute_z_axis_tolerance = 2*3.14; // free rotation around Z (tool axis)
-  // ocm.weight = 1.0;
-  // path_constraints.orientation_constraints.push_back(ocm);
-  // m_move_group->setPathConstraints(path_constraints);
-
-  // Other useful settings (commented out for reference)
-  // m_move_group->setGoalJointTolerance(0.01);           // joint-space tolerance (radians)
-  // m_move_group->setGoalTolerance(0.01);                // sets position, orientation, AND joint tolerances
-  // m_move_group->setWorkspace(-1.0, -2.0, 0.5, 3.0, 2.0, 2.0);  // bounding box for end-effector
-  // m_move_group->setPoseReferenceFrame("world");   // frame for pose targets
-  // m_move_group->setEndEffectorLink("tool0");           // which link to plan for
-  // m_move_group->setSupportSurfaceName("table");        // for pick/place operations
-  // m_move_group->clearPathConstraints();                // remove constraints
 
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() END");
   dumpParams();
@@ -284,6 +266,29 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   const auto* jmg = current_state->getJointModelGroup(m_move_group->getName());
   const std::string& ee_link = m_move_group->getEndEffectorLink();
   const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
+  // Get current robot state as IK seed (biases solution toward current config)
+  // Retry up to 3 times if state is not available
+  auto robot_state = m_move_group->getCurrentState();
+  int retries = 0;
+  while (!robot_state && retries < 3) {
+    RCLCPP_WARN(get_logger(), "Failed to get current robot state, retrying... (attempt %d/3)", retries + 1);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    robot_state = m_move_group->getCurrentState();
+    retries++;
+  }
+  
+  if (!robot_state) {
+    RCLCPP_ERROR(get_logger(), "Failed to get current robot state after 3 retries");
+    return std::vector<std::vector<double>>{};
+  }
+
+  // Compute IK to convert pose to joint values (longer timeout for RRT/transfer poses)
+  const auto* joint_model_group = robot_state->getJointModelGroup(m_move_group->getName());
+  bool ik_success = robot_state->setFromIK(
+      joint_model_group,
+      target_pose,
+      m_move_group->getEndEffectorLink(),
+      2.0);  // timeout in seconds (was 0.1; 2.0 helps for 7-DOF transfer targets)
 
   double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
   RCLCPP_INFO(get_logger(), "Current linear actuator position: %.3f m", original_actuator_pos);
@@ -372,13 +377,15 @@ void MotionControlNode::planToPoseCallback(
     }
   }
 
-  // Transform pose to the MoveIt planning frame
+  // Transform pose to the MoveIt planning frame (use current time for lookup to avoid sim/wall clock mismatch)
   std::string planning_frame = m_move_group->getPlanningFrame();
+  geometry_msgs::msg::PoseStamped target_pose_for_tf = request->target_pose;
+  target_pose_for_tf.header.stamp = this->now();
   geometry_msgs::msg::PoseStamped target_pose_in_planning_frame;
 
   try {
     target_pose_in_planning_frame = m_tf_buffer->transform(
-      request->target_pose, planning_frame, tf2::durationFromSec(1.0));
+      target_pose_for_tf, planning_frame, tf2::durationFromSec(1.0));
   } catch (const tf2::TransformException & ex) {
     RCLCPP_ERROR(this->get_logger(), "Could not transform pose from '%s' to '%s': %s",
                  request->target_pose.header.frame_id.c_str(),
@@ -393,6 +400,22 @@ void MotionControlNode::planToPoseCallback(
               target_pose_in_planning_frame.pose.position.x,
               target_pose_in_planning_frame.pose.position.y,
               target_pose_in_planning_frame.pose.position.z);
+
+  // #region agent log
+  {
+    std::ostringstream o;
+    o << "{\"hypothesisId\":\"H3,H5\",\"location\":\"motion_control:planToPoseCallback\",\"message\":\"plan_request\",\"data\":{\"use_cartesian\":"
+      << (request->use_cartesian ? "true" : "false") << ",\"planning_frame\":\"" << planning_frame << "\"}";
+    o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+    const char* p = std::getenv("DEBUG_LOG_PATH");
+    std::string log_path = p ? p : "/root/ros2_ws/.cursor/debug.log";
+    std::ofstream f(log_path, std::ios::app);
+    if (f) f << o.str();
+  }
+  RCLCPP_INFO(get_logger(), "[DEBUG_H3] use_cartesian=%s planning_frame=%s",
+              request->use_cartesian ? "true" : "false", planning_frame.c_str());
+  // #endregion
 
   // Publish static transform for visualization
   geometry_msgs::msg::TransformStamped static_transform;
@@ -409,46 +432,210 @@ void MotionControlNode::planToPoseCallback(
 
   m_move_group->clearPoseTargets();
 
-  // Get IK solutions sorted by ascending cost
-  auto solutions = configureForPlanning(m_current_target_pose);
-  if (solutions.empty()) {
-    response->success = false;
-    response->message = "No valid IK solutions found";
-    return;
-  }
+  // [Checklist 1] When use_cartesian is true, use computeCartesianPath() for straight-line motion (no RRT).
+  if (request->use_cartesian) {
+    // Cartesian path planning: straight-line motion to target.
+    // Uses full planning scene (gantry, pillars, battery, arm links) for collision checking - no self-collision
+    // or gantry collision. Fix gantry (linear actuator) at current position so only the arm moves - straightforward
+    // motion, no redundant solutions.
+    RCLCPP_INFO(get_logger(), "Using Cartesian (straight-line) path planning with gantry fixed");
 
-  // Try planning with each solution until one succeeds
-  for (size_t i = 0; i < solutions.size(); ++i) {
     m_move_group->setStartStateToCurrentState();
-    m_move_group->setJointValueTarget(solutions[i]);
 
-    auto plan_result = m_move_group->plan(m_current_plan);
-    if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
-      RCLCPP_INFO(get_logger(), "Planning succeeded on IK solution %zu/%zu (%zu trajectory points)",
-                  i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
-      m_goal_joint_values = solutions[i];
+    // Constrain linear actuator to current position so IK uses only the arm (6 DOF) along the path
+    const std::string gantry_joint = "linear_actuator_to_linear_actuator_plate_joint";
+    moveit_msgs::msg::Constraints path_constraints;
+    auto robot_state = m_move_group->getCurrentState();
+    if (robot_state && robot_state->getRobotModel()->hasJointModel(gantry_joint)) {
+      const double* pos = robot_state->getJointPositions(gantry_joint);
+      if (pos) {
+        moveit_msgs::msg::JointConstraint jc;
+        jc.joint_name = gantry_joint;
+        jc.position = pos[0];
+        jc.tolerance_above = 1e-6;
+        jc.tolerance_below = 1e-6;
+        jc.weight = 1.0;
+        path_constraints.joint_constraints.push_back(jc);
+        m_move_group->setPathConstraints(path_constraints);
+        RCLCPP_INFO(get_logger(), "Gantry fixed at %.3f for Cartesian path", pos[0]);
+      }
+    }
 
-      // Update goal marker
-      auto goal_state = m_move_group->getCurrentState();
-      goal_state->setJointGroupPositions(
-          goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
-      goal_state->update();
-      updateGoalMarker(goal_state);
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose_in_planning_frame.pose);
 
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    const double eef_step = 0.005;  // 5mm interpolation resolution
+    const double jump_threshold = 0.0;  // Disable jump detection
+    double fraction = m_move_group->computeCartesianPath(
+        waypoints, eef_step, jump_threshold, trajectory);
+
+    m_move_group->clearPathConstraints();
+
+    // #region agent log
+    {
+      std::ostringstream o;
+      o << "{\"hypothesisId\":\"H3,H4\",\"location\":\"motion_control:cartesian_result\",\"message\":\"cartesian_path_result\",\"data\":{\"fraction\":"
+        << fraction << ",\"branch\":\"cartesian\"}";
+      o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+      const char* lp = std::getenv("DEBUG_LOG_PATH");
+      std::string log_path = lp ? lp : "/root/ros2_ws/.cursor/debug.log";
+      std::ofstream f(log_path, std::ios::app);
+      if (f) f << o.str();
+    }
+    RCLCPP_INFO(get_logger(), "[DEBUG_H4] branch=cartesian fraction=%.2f", fraction);
+    // #endregion
+    if (fraction >= 0.95) {
+      m_current_plan.trajectory_ = trajectory;
       response->success = true;
-      response->message = "Planning successful (solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
-      RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+      response->message = "Cartesian planning successful (fraction: " + std::to_string(fraction) + ")";
+      RCLCPP_INFO(get_logger(), "Cartesian path computed: %.1f%% achieved", fraction * 100.0);
+    } else {
+      response->success = false;
+      response->message = "Cartesian planning failed (only " + std::to_string(fraction * 100.0) + "% achieved)";
+      RCLCPP_ERROR(get_logger(), "Cartesian path only achieved %.1f%%", fraction * 100.0);
+    }
+  } else if(m_default_real) {
+    // Get IK solutions sorted by ascending cost
+    auto solutions = configureForPlanning(m_current_target_pose);
+    if (solutions.empty()) {
+      response->success = false;
+      response->message = "No valid IK solutions found";
       return;
     }
 
-    RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (MoveItErrorCode: %d)",
-                i + 1, solutions.size(), plan_result.val);
-  }
+    // Try planning with each solution until one succeeds
+    for (size_t i = 0; i < solutions.size(); ++i) {
+      m_move_group->setStartStateToCurrentState();
+      m_move_group->setJointValueTarget(solutions[i]);
 
-  response->success = false;
-  response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions";
-  RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions", solutions.size());
-  RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+      auto plan_result = m_move_group->plan(m_current_plan);
+      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
+        RCLCPP_INFO(get_logger(), "Planning succeeded on IK solution %zu/%zu (%zu trajectory points)",
+                    i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+        m_goal_joint_values = solutions[i];
+
+        // Update goal marker
+        auto goal_state = m_move_group->getCurrentState();
+        goal_state->setJointGroupPositions(
+            goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
+        goal_state->update();
+        updateGoalMarker(goal_state);
+
+        response->success = true;
+        response->message = "Planning successful (solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
+        RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+        return;
+      }
+
+      RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (MoveItErrorCode: %d)",
+                  i + 1, solutions.size(), plan_result.val);
+
+      response->success = false;
+      response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions";
+      RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions", solutions.size());
+      RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+    }
+  } else {
+    // #region agent log
+    {
+      std::ostringstream o;
+      o << "{\"hypothesisId\":\"H3,H4\",\"location\":\"motion_control:rrt_branch\",\"message\":\"planning_branch\",\"data\":{\"branch\":\"rrt\"}";
+      o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+      const char* lp = std::getenv("DEBUG_LOG_PATH");
+      std::string log_path = lp ? lp : "/root/ros2_ws/.cursor/debug.log";
+      std::ofstream f(log_path, std::ios::app);
+      if (f) f << o.str();
+    }
+    RCLCPP_INFO(get_logger(), "[DEBUG_H4] branch=rrt");
+    // #endregion
+    m_move_group->setStartStateToCurrentState();
+
+    // Optional: constrain RRT to corridor (cuboid between current EE and target); off by default
+    const bool use_corridor = this->get_parameter("use_corridor_constraint").as_bool();
+    if (use_corridor) {
+      auto robot_state = m_move_group->getCurrentState();
+      if (robot_state) {
+        const std::string ee_link = m_move_group->getEndEffectorLink();
+        Eigen::Isometry3d ee_tf = robot_state->getGlobalLinkTransform(ee_link);
+        Eigen::Vector3d start_pos = ee_tf.translation();
+        Eigen::Vector3d end_pos(
+          target_pose_in_planning_frame.pose.position.x,
+          target_pose_in_planning_frame.pose.position.y,
+          target_pose_in_planning_frame.pose.position.z);
+        Eigen::Vector3d diff = end_pos - start_pos;
+        double seg_len = diff.norm();
+        if (seg_len >= 1e-6) {
+          const double padding = this->get_parameter("corridor_padding").as_double();
+          const double cross = this->get_parameter("corridor_cross_section").as_double();
+          Eigen::Vector3d dir = diff / seg_len;
+          double length_along = seg_len + 2.0 * padding;
+          Eigen::Vector3d mid = start_pos + 0.5 * diff;
+          Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
+
+          moveit_msgs::msg::PositionConstraint pos_constraint;
+          pos_constraint.header.frame_id = planning_frame;
+          pos_constraint.link_name = ee_link;
+          pos_constraint.target_point_offset.x = 0.0;
+          pos_constraint.target_point_offset.y = 0.0;
+          pos_constraint.target_point_offset.z = 0.0;
+          pos_constraint.weight = 1.0;
+
+          shape_msgs::msg::SolidPrimitive box;
+          box.type = shape_msgs::msg::SolidPrimitive::BOX;
+          box.dimensions.resize(3);
+          box.dimensions[0] = length_along;
+          box.dimensions[1] = 2.0 * cross;
+          box.dimensions[2] = 2.0 * cross;
+
+          geometry_msgs::msg::Pose box_pose;
+          box_pose.position.x = mid.x();
+          box_pose.position.y = mid.y();
+          box_pose.position.z = mid.z();
+          box_pose.orientation.x = quat.x();
+          box_pose.orientation.y = quat.y();
+          box_pose.orientation.z = quat.z();
+          box_pose.orientation.w = quat.w();
+
+          pos_constraint.constraint_region.primitives.push_back(box);
+          pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
+
+          moveit_msgs::msg::Constraints path_constraints;
+          path_constraints.position_constraints.push_back(pos_constraint);
+          m_move_group->setPathConstraints(path_constraints);
+          RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
+        }
+      }
+    }
+
+    auto solutions = configureForPlanning(target_pose_in_planning_frame.pose);
+    if (solutions.empty()) {
+      m_move_group->clearPathConstraints();
+      response->success = false;
+      response->message = "Failed to configure for planning";
+      return;
+    }
+
+    bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+    if (!success) {
+      // Fallback: retry once without corridor constraint (path may have been invalid due to tight corridor)
+      m_move_group->clearPathConstraints();
+      RCLCPP_INFO(get_logger(), "RRT with corridor failed, retrying without path constraints");
+      auto fall_back_solutions = configureForPlanning(target_pose_in_planning_frame.pose);
+      if (fall_back_solutions.empty()) {
+        m_move_group->clearPathConstraints();
+        response->success = false;
+        response->message = "Failed to configure for planning";
+        return;
+      }
+      success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+    }
+    m_move_group->clearPathConstraints();
+    response->success = success;
+    response->message = success ? "Planning successful" : "Planning failed";
+  }
 }
 
 

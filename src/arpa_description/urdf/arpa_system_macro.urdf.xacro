@@ -7,6 +7,8 @@
   <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator_macro.urdf.xacro" />
   <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
   <xacro:include filename="$(find arpa_description)/urdf/tool_holder.xacro"/>
+  <xacro:include filename="$(find arpa_description)/urdf/runner.xacro"/>
+  <xacro:include filename="$(find arpa_description)/urdf/camera.xacro"/>
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro"/>
   <xacro:include filename="$(find arpa_moveit_config)/config/arpa_system.ros2_control.xacro" />
   <!-- Macro definition -->
@@ -65,6 +67,37 @@
       <child link="gantry_link"/>
       <origin xyz="0 0 1.9419" rpy="0 0 0"/>
     </joint>
+
+    <!-- Battery table at centre of gantry -->
+    <link name="battery_link">
+      <visual>
+        <geometry>
+          <mesh filename="file://$(find arpa_description)/meshes/battery.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <material name="gantry_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <mesh filename="file://$(find arpa_description)/meshes/battery.stl" scale="1.0 1.0 1.0"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </collision>
+      <inertial>
+        <mass value="10.0"/>
+        <inertia ixx="0.1" ixy="0.0" ixz="0.0"
+                 iyy="0.1" iyz="0.0"
+                 izz="0.1"/>
+      </inertial>
+    </link>
+    <!-- Battery ~50 cm above ground, rotated 90 deg around Z -->
+    <joint name="gantry_to_battery" type="fixed">
+      <parent link="gantry_link"/>
+      <child link="battery_link"/>
+      <origin xyz="0 0 -1.4419" rpy="0 0 1.5708"/>
+    </joint>
+
+    <xacro:linear_actuator/>
 
     <!-- Fixed transform from gantry_link to linear_actuator_link -->
     <!-- <joint name="gantry_to_linear_actuator" type="fixed">
@@ -160,6 +193,12 @@
 
     <!-- Tool holder on tool0 -->
     <xacro:tool_holder parent_link="tool0"/>
+    
+    <!-- Nut runner attached to tool holder (flipped to face left) -->
+    <xacro:runner parent_link="tool_holder_link" runner_mount_rpy="0 0 ${pi/2}"/>
+    
+    <!-- RealSense camera attached to tool head -->
+    <xacro:camera parent_link="tool_head_link" sim_gazebo="${sim_gazebo}"/>
 
     <!-- Gazebo ros2_control plugin - required for controller_manager in simulation -->
     <xacro:if value="${sim_gazebo}">

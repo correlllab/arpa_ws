@@ -15,12 +15,14 @@
 #include <QProgressBar>
 #include <QTextEdit>
 #include <QCheckBox>
+#include <QScrollArea>
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2/LinearMath/Matrix3x3.h>
@@ -28,6 +30,7 @@
 
 #include "std_srvs/srv/trigger.hpp"
 #include "arpa_control/srv/plan_to_pose.hpp"
+#include "arpa_control/srv/plan_to_joint.hpp"
 #include "arpa_control/srv/plan_linear_actuator.hpp"
 #include "arpa_control/srv/execute_plan.hpp"
 #include "arpa_control/srv/stop_motion.hpp"
@@ -51,6 +54,9 @@ private slots:
     void updateCurrentPose();
     void onPrismaticChanged(int value);
     void testMoveUp();
+    void goto_screw1();
+    void onCreateSequenceClicked();
+    void onBtStatusReceived(const QString &status);
 
 private:
     void setupUI();
@@ -59,7 +65,10 @@ private:
     void populateFrameList();
     void onFrameChanged();
     void logStatus(const QString &message, bool isError = false);
+    void logBtStatus(const QString &message, bool isError = false);
     void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg);
+    void btStatusCallback(const std_msgs::msg::String::SharedPtr msg);
+    void btFeedbackCallback(const std_msgs::msg::String::SharedPtr msg);
 
     // ROS node
     rclcpp::Node::SharedPtr m_node;
@@ -101,11 +110,19 @@ private:
     QPushButton *m_home_btn;
     QPushButton *m_update_depth_btn;
     QPushButton *m_test_btn;  // Temporary test button
+    QPushButton *m_goto_screw1_btn;
     QCheckBox *m_cartesian_checkbox;  // Enable straight-line Cartesian motion
 
     // ============ STATUS LOG ============
     QTextEdit *m_status_log;
     QGroupBox *m_status_group;
+
+    // ============ BT STATUS MONITOR (right panel) ============
+    QTextEdit *m_bt_status_monitor;
+    QGroupBox *m_bt_status_group;
+    QPushButton *m_create_sequence_btn;
+    QComboBox *m_strategy_selector;
+    bool m_sequence_running;
 
     // Frame tracking
     std::string m_source_frame;
@@ -120,12 +137,19 @@ private:
 
     // ROS2 clients and publishers
     rclcpp::Client<arpa_control::srv::PlanToPose>::SharedPtr m_plan_client;
+    rclcpp::Client<arpa_control::srv::PlanToJoint>::SharedPtr m_plan_to_joint_client;
     rclcpp::Client<arpa_control::srv::PlanLinearActuator>::SharedPtr m_plan_linear_actuator_client;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_update_depth_client;
     rclcpp::Client<arpa_control::srv::ExecutePlan>::SharedPtr m_exec_client;
     rclcpp::Client<arpa_control::srv::StopMotion>::SharedPtr m_stop_client;
     // Linear actuator controller - dual mode: manual slider + MoveIt 7-DOF planning
     rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr m_linear_actuator_pub;
+
+    // BT Status Monitor subscriptions and clients
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_bt_status_sub;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_bt_feedback_sub;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_run_screw_sequence_client;
+    rclcpp::AsyncParametersClient::SharedPtr m_bt_param_client;
 };
 
 #endif // __ARPA_GUI_POSE_WINDOW_HPP__

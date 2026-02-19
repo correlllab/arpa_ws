@@ -1,0 +1,138 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!--
+    Macro to attach a RealSense camera to a link (typically tool_head_link).
+    
+    Creates:
+    - ee_cam_link: Camera body link
+    - ee_cam_color_optical_frame: RGB camera optical frame
+    - ee_cam_depth_optical_frame: Depth camera optical frame
+    - Associated joints and Gazebo plugins
+    
+    Usage:
+      <xacro:include filename="$(find arpa_description)/urdf/camera.xacro"/>
+      <xacro:camera parent_link="tool_head_link" sim_gazebo="true"/>
+  -->
+  <xacro:macro name="camera" params="
+      parent_link
+      sim_gazebo:=false">
+
+    <!-- RealSense Camera Link -->
+    <link name="ee_cam_link">
+      <visual>
+        <geometry>
+          <box size="0.025 0.09 0.025"/>
+        </geometry>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <material name="camera_black">
+          <color rgba="0.1 0.1 0.1 1.0"/>
+        </material>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.025 0.09 0.025"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.1"/>
+        <inertia ixx="0.0001" ixy="0.0" ixz="0.0"
+                 iyy="0.0001" iyz="0.0"
+                 izz="0.0001"/>
+      </inertial>
+    </link>
+
+    <!-- Camera mount joint (positioned to reduce forearm/tool_head collisions) -->
+    <joint name="tool_head_to_camera" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="ee_cam_link"/>
+      <origin xyz="0 -0.04 0.02" rpy="-1.5708 0 -1.5708"/>
+    </joint>
+
+    <!-- RGB Camera Optical Frame -->
+    <link name="ee_cam_color_optical_frame"/>
+
+    <joint name="ee_cam_to_color_optical" type="fixed">
+      <parent link="ee_cam_link"/>
+      <child link="ee_cam_color_optical_frame"/>
+      <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+    </joint>
+
+    <!-- Depth Camera Optical Frame -->
+    <link name="ee_cam_depth_optical_frame"/>
+
+    <joint name="ee_cam_to_depth_optical" type="fixed">
+      <parent link="ee_cam_link"/>
+      <child link="ee_cam_depth_optical_frame"/>
+      <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+    </joint>
+
+    <!-- Gazebo plugins for camera (only in simulation) -->
+    <xacro:if value="${sim_gazebo}">
+      <!-- RGB Camera Plugin -->
+      <gazebo reference="ee_cam_link">
+        <sensor name="ee_cam_color_sensor" type="camera">
+          <update_rate>30</update_rate>
+          <camera name="ee_cam_color">
+            <horizontal_fov>1.047198</horizontal_fov>  <!-- ~60 degrees -->
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.02</near>
+              <far>3.0</far>
+            </clip>
+          </camera>
+          <plugin name="ee_cam_color_plugin" filename="libgazebo_ros_camera.so">
+            <ros>
+              <namespace>/realsense/ee_cam</namespace>
+              <remapping>image_raw:=color/image_raw</remapping>
+              <remapping>image_depth:=depth/image_raw</remapping>
+              <remapping>camera_info:=color/camera_info</remapping>
+              <remapping>camera_info_depth:=depth/camera_info</remapping>
+            </ros>
+            <camera_name>ee_cam</camera_name>
+            <frame_name>ee_cam_color_optical_frame</frame_name>
+            <hack_baseline>0.0</hack_baseline>
+            <min_depth>0.0</min_depth>
+            <max_depth>3.0</max_depth>
+          </plugin>
+        </sensor>
+      </gazebo>
+
+      <!-- Depth Camera Plugin -->
+      <gazebo reference="ee_cam_link">
+        <sensor name="ee_cam_depth_sensor" type="depth">
+          <update_rate>30</update_rate>
+          <camera name="ee_cam_depth">
+            <horizontal_fov>1.047198</horizontal_fov>  <!-- ~60 degrees -->
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.02</near>
+              <far>3.0</far>
+            </clip>
+          </camera>
+          <plugin name="ee_cam_depth_plugin" filename="libgazebo_ros_depth_camera.so">
+            <ros>
+              <namespace>/realsense/ee_cam</namespace>
+              <remapping>image_raw:=depth/image_raw</remapping>
+              <remapping>camera_info:=depth/camera_info</remapping>
+            </ros>
+            <camera_name>ee_cam</camera_name>
+            <frame_name>ee_cam_depth_optical_frame</frame_name>
+            <hack_baseline>0.0</hack_baseline>
+            <min_depth>0.0</min_depth>
+            <max_depth>3.0</max_depth>
+          </plugin>
+        </sensor>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+
+</robot>

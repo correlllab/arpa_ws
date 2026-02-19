@@ -3,6 +3,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.parameter_descriptions import ParameterValue
 import os
 
 def generate_launch_description():
@@ -13,12 +14,14 @@ def generate_launch_description():
     urdf_path = PathJoinSubstitution([pkg, 'urdf', 'arpa_system.urdf.xacro'])
     rviz_config_path = PathJoinSubstitution([pkg, 'rviz', 'arpa_visual.rviz'])
 
+    robot_description_content = Command(['xacro ', urdf_path])
+
     return LaunchDescription([
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
             name='robot_state_publisher',
-            parameters=[{'robot_description': Command(['xacro ', urdf_path])}],
+            parameters=[{'robot_description': ParameterValue(robot_description_content, value_type=str)}],
             output='screen'
         ),
         Node(

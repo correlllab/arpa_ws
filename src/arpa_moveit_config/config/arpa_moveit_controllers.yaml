@@ -2,6 +2,7 @@ controller_names:
   - scaled_joint_trajectory_controller
   - joint_trajectory_controller
   - parker_linear_actuator
+  - linear_actuator_controller
 
 scaled_joint_trajectory_controller:
   action_ns: follow_joint_trajectory
@@ -31,5 +32,12 @@ parker_linear_actuator:
   action_ns: follow_joint_trajectory
   type: FollowJointTrajectory
   default: true
+  joints:
+    - linear_actuator_to_linear_actuator_plate_joint
+
+linear_actuator_controller:
+  action_ns: follow_joint_trajectory
+  type: FollowJointTrajectory
+  default: false
   joints:
     - linear_actuator_to_linear_actuator_plate_joint

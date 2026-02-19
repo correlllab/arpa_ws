@@ -119,6 +119,7 @@ private:
 
   std::mt19937 m_rng;
   std::uniform_real_distribution<double> m_arm_noise_dist;
+  bool m_default_real;
 };
 
 #endif // __MOTION_CONTROL_NODE__
