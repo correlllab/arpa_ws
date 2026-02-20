@@ -64,11 +64,14 @@ ENV ROS_DISTRO=humble
 # -------------------------------
 # Install deps
 # -------------------------------
-RUN apt update && apt install -y python3-rosdep
+RUN apt update && apt install -y python3-rosdep python3-pip
 RUN rosdep init || true
 RUN rosdep update
 RUN cd /root/ros2_ws && \
     rosdep install --from-paths src --ignore-src -r -y --rosdistro humble
+
+# Python deps for arpa_helper_tools (scan_battery TSP)
+RUN python3 -m pip install --no-cache-dir ortools
 
 # -------------------------------
 # Build workspace

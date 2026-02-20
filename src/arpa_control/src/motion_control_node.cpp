@@ -112,6 +112,12 @@ bool MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pos
   
   if (!robot_state) {
     RCLCPP_ERROR(get_logger(), "Failed to get current robot state after 3 retries");
+    // #region agent log
+    {
+      std::ofstream f("/home/the2xman/arpa_ws/.cursor/debug.log", std::ios::app);
+      if (f) f << "{\"hypothesisId\":\"H1,H4\",\"location\":\"motion_control:configureForPlanning\",\"message\":\"getCurrentState_failed_after_retries\",\"data\":{\"retries\":3},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << "}\n";
+    }
+    // #endregion
     return false;
   }
 
@@ -369,6 +375,12 @@ void MotionControlNode::planToPoseCallback(
     response->success = success;
     response->message = success ? "Planning successful" : "Planning failed";
   }
+  // #region agent log
+  {
+    std::ofstream f("/home/the2xman/arpa_ws/.cursor/debug.log", std::ios::app);
+    if (f) f << "{\"hypothesisId\":\"H3\",\"location\":\"motion_control:planToPoseCallback\",\"message\":\"plan_response\",\"data\":{\"success\":" << (response->success ? "true" : "false") << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << "}\n";
+  }
+  // #endregion
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
 }
 
@@ -491,9 +503,33 @@ void MotionControlNode::executePlanCallback(
     std::shared_ptr<arpa_control::srv::ExecutePlan::Response> response)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() START");
+  // #region agent log
+  double first_shoulder_pan = 0.0;
+  if (!m_current_plan.trajectory_.joint_trajectory.points.empty()) {
+    const auto& names = m_current_plan.trajectory_.joint_trajectory.joint_names;
+    const auto& pos = m_current_plan.trajectory_.joint_trajectory.points[0].positions;
+    for (size_t i = 0; i < names.size(); ++i) {
+      if (names[i] == "shoulder_pan_joint" && i < pos.size()) { first_shoulder_pan = pos[i]; break; }
+    }
+  }
+  {
+    std::ofstream f("/home/the2xman/arpa_ws/.cursor/debug.log", std::ios::app);
+    if (f) f << "{\"hypothesisId\":\"H2,H3,H5\",\"location\":\"motion_control:executePlanCallback\",\"message\":\"execute_start\",\"data\":{\"first_shoulder_pan\":" << first_shoulder_pan << ",\"num_points\":" << static_cast<int>(m_current_plan.trajectory_.joint_trajectory.points.size()) << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << "}\n";
+  }
+  // #endregion
   auto execute_result = m_move_group->execute(m_current_plan);
   response->success = (execute_result == moveit::core::MoveItErrorCode::SUCCESS);
   response->message = response->success ? "Execution successful" : "Execution failed";
+  // #region agent log
+  {
+    std::ofstream f("/home/the2xman/arpa_ws/.cursor/debug.log", std::ios::app);
+    if (f) f << "{\"hypothesisId\":\"H2\",\"location\":\"motion_control:executePlanCallback\",\"message\":\"execute_returned\",\"data\":{\"response_success\":" << (response->success ? "true" : "false") << "},\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() << "}\n";
+  }
+  // #endregion
+  // Brief pause so planning_scene/joint state updates before next plan (avoids start-tolerance reject on retract)
+  if (response->success) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() END");
 }
 

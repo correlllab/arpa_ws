@@ -187,7 +187,8 @@ def launch_setup(context, *args, **kwargs):
         "moveit_manage_controllers": False,
         "trajectory_execution.allowed_execution_duration_scaling": 1.2,
         "trajectory_execution.allowed_goal_duration_margin": 0.5,
-        "trajectory_execution.allowed_start_tolerance": 0.01,
+        # Allow ~0.1 rad (~5.7 deg) so Cartesian retract can start after small settling error
+        "trajectory_execution.allowed_start_tolerance": 0.1,
         # Execution time monitoring can be incompatible with the scaled JTC
         "trajectory_execution.execution_duration_monitoring": False,
     }
