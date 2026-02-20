@@ -13,11 +13,6 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PoseStamped
 import time
-import random
-
-from ortools.constraint_solver import routing_enums_pb2
-from ortools.constraint_solver import pywrapcp
-
 
 # 32 predefined scanning poses for battery inspection
 # Reference: Back Center at x=1.0225, y=0.007, z=1.253

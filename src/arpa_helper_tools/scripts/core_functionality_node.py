@@ -3,7 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
-from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
+from arpa_control.srv import PlanToPose, ExecutePlan
 from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger
 from std_srvs.srv import Trigger
 from moveit_msgs.action import ExecuteTrajectory
@@ -11,12 +11,8 @@ from moveit_msgs.msg import CollisionObject, PlanningScene
 from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import Pose, PoseStamped
 
-#tsp
-import math
 import tf2_ros
 from geometry_msgs.msg import TransformStamped
-from ortools.constraint_solver import routing_enums_pb2
-from ortools.constraint_solver import pywrapcp
 import threading
 import time
 
@@ -39,17 +35,28 @@ class CoreNode(Node):
             self, ExecuteTrajectory, '/execute_trajectory'
         )
         self.update_depth_client = self.create_client(Trigger, 'update_depth')
-        self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix')
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
 
         self.get_logger().info("Waiting for plan_to_pose service...")
-        self.plan_client.wait_for_service()
+        if not self.plan_client.wait_for_service(timeout_sec=30.0):
+            self.get_logger().error(
+                "plan_to_pose not available after 30s. "
+                "Check: motion_control_node running? Same ROS_DOMAIN_ID? (sim uses 21)"
+            )
+            raise RuntimeError("plan_to_pose service not available")
         self.get_logger().info("Waiting for execute_plan service...")
-        self.exec_client.wait_for_service()
-        self.get_logger().info("Waiting for motor_control service...")
-        self.motor_client.wait_for_service()
-        self.get_logger().info("Waiting for ur16e_rest/BehaviorTrigger service...")
-        self.behavior_client.wait_for_service()
+        if not self.exec_client.wait_for_service(timeout_sec=10.0):
+            self.get_logger().error("execute_plan not available after 10s")
+            raise RuntimeError("execute_plan service not available")
+        # Optional (real hardware): motor and behavior; don't block in sim
+        if self.motor_client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().info("motor_control service available")
+        else:
+            self.get_logger().warn("motor_control not available (ok in sim)")
+        if self.behavior_client.wait_for_service(timeout_sec=3.0):
+            self.get_logger().info("ur16e_rest/BehaviorTrigger service available")
+        else:
+            self.get_logger().warn("ur16e_rest/BehaviorTrigger not available (ok in sim)")
         self.get_logger().info("Services ready!")
 
 
@@ -256,97 +263,47 @@ class CoreNode(Node):
 
     def get_tsp_order(self, poses):
         """
-        poses: list of PoseStamped
+        poses: list of PoseStamped (same frame_id as BASE_FRAME)
 
-        returns: list of PoseStamped in optimal visit order from current robot position
+        returns: list of PoseStamped in nearest-neighbor visit order from current robot position.
+        Uses Euclidean distance (no GetPoseCostMatrix service).
         """
+        if not poses:
+            return []
 
-        # Get current EE pose as start node
-        transform: TransformStamped = self.tf_buffer.lookup_transform(
+        transform = self.tf_buffer.lookup_transform(
             BASE_FRAME,
             EE_FRAME,
             rclpy.time.Time(),
             timeout=rclpy.duration.Duration(seconds=2.0)
         )
-        start_pose = PoseStamped()
-        start_pose.header.frame_id = BASE_FRAME
-        start_pose.pose.position.x = transform.transform.translation.x
-        start_pose.pose.position.y = transform.transform.translation.y
-        start_pose.pose.position.z = transform.transform.translation.z
-        start_pose.pose.orientation = transform.transform.rotation
+        cx = transform.transform.translation.x
+        cy = transform.transform.translation.y
+        cz = transform.transform.translation.z
         self.get_logger().info(
-            f"Current EE position: ({start_pose.pose.position.x:.3f}, "
-            f"{start_pose.pose.position.y:.3f}, {start_pose.pose.position.z:.3f})")
+            f"Current EE position: ({cx:.3f}, {cy:.3f}, {cz:.3f})")
 
-        all_poses = [start_pose] + list(poses)
-        n = len(all_poses)
-        dummy_end_idx = n  # virtual node — no physical location
+        def dist_sq(i):
+            p = poses[i].pose.position
+            dx = p.x - cx
+            dy = p.y - cy
+            dz = p.z - cz
+            return dx * dx + dy * dy + dz * dz
 
-        # Get full pairwise cost matrix in a single service call
-        self.get_logger().info(f"Requesting {n}x{n} cost matrix from service...")
-        req = GetPoseCostMatrix.Request()
-        req.poses = all_poses
-        start_time = time.time()
-        future = self.pose_cost_matrix_client.call_async(req)
-        while not future.done():
-            time.sleep(0.05)
-        end_time = time.time()
-
-        result = future.result()
-        self.get_logger().info(f"Cost matrix computed in {end_time - start_time:.2f} seconds")
-        if not result.success:
-            self.get_logger().error(f"GetPoseCostMatrix failed: {result.message}")
-            raise ValueError(f"GetPoseCostMatrix failed: {result.message}")
-
-        self.get_logger().info(f"Cost matrix received: {result.message}")
-
-        # Reshape flat row-major array into 2D cost matrix, add dummy end column/row
-        flat = result.cost_matrix
-        cost_matrix = [[0.0] * (n + 1) for _ in range(n + 1)]
-        for i in range(n):
-            for j in range(n):
-                cost_matrix[i][j] = flat[i * n + j]
-
-        manager = pywrapcp.RoutingIndexManager(
-            n + 1,          # nodes: start + targets + dummy end
-            1,              # one vehicle
-            [0],            # start depot
-            [dummy_end_idx] # end depot (dummy)
-        )
-        routing = pywrapcp.RoutingModel(manager)
-
-        def distance_callback(from_index, to_index):
-            i = manager.IndexToNode(from_index)
-            j = manager.IndexToNode(to_index)
-            if i == dummy_end_idx or j == dummy_end_idx:
-                return 0
-            return int(cost_matrix[i][j] * 1000)
-
-        cb_index = routing.RegisterTransitCallback(distance_callback)
-        routing.SetArcCostEvaluatorOfAllVehicles(cb_index)
-
-        params = pywrapcp.DefaultRoutingSearchParameters()
-        params.first_solution_strategy = (
-            routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
-        )
-        params.local_search_metaheuristic = (
-            routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-        )
-        params.time_limit.seconds = 5
-
-        solution = routing.SolveWithParameters(params)
-        if not solution:
-            self.get_logger().error("TSP solver found no solution")
-            raise ValueError("TSP SOLVER ERROR")
-
-        # Walk the route, skipping node 0 (start) and dummy end
+        # Nearest-neighbor: start from current, always pick closest unvisited pose (by Euclidean distance)
         ordered = []
-        index = solution.Value(routing.NextVar(routing.Start(0)))  # skip start
-        while not routing.IsEnd(index):
-            node = manager.IndexToNode(index)
-            if node != dummy_end_idx:
-                ordered.append(poses[node - 1])  # -1: node 0 is start
-            index = solution.Value(routing.NextVar(index))
+        remaining = list(range(len(poses)))
+        current_x, current_y, current_z = cx, cy, cz
+        while remaining:
+            best_i = min(remaining, key=lambda i: (
+                (poses[i].pose.position.x - current_x) ** 2
+                + (poses[i].pose.position.y - current_y) ** 2
+                + (poses[i].pose.position.z - current_z) ** 2
+            ))
+            ordered.append(poses[best_i])
+            p = poses[best_i].pose.position
+            current_x, current_y, current_z = p.x, p.y, p.z
+            remaining.remove(best_i)
         return ordered
         
 

@@ -1,2 +1,1 @@
-# Python deps for arpa_helper_tools (scan_battery TSP, core_functionality_node)
-ortools>=9.0
+# Python deps for arpa_helper_tools (none required; TSP uses pure-Python nearest-neighbor)

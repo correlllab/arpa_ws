@@ -56,9 +56,9 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_use_depth = false;
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
-  this->declare_parameter("use_corridor_constraint", false);  // if true, constrain RRT to corridor; off by default (causes plan rejections)
-  this->declare_parameter("corridor_padding", 0.02);   // extra length (m) at each end of corridor
-  this->declare_parameter("corridor_cross_section", 0.12);  // half-width (m) perpendicular to segment
+  this->declare_parameter("use_corridor_constraint", false);
+  this->declare_parameter("corridor_padding", 0.05);   // extra length (m) at each end of corridor
+  this->declare_parameter("corridor_cross_section", 0.25);  // half-width (m) perpendicular to segment; 0.5 m total cross-section
   m_arm_padding = this->get_parameter("arm_padding").as_double();
   m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "tool_head_link"};
   for(auto link : m_arm_padding_links) {

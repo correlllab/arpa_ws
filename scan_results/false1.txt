@@ -1,0 +1,518 @@
+root@FastInfoSlab:~/ros2_ws# ros2 run arpa_helper_tools scan_battery.py
+[INFO] [1771556771.963772498] [core_functionality_node]: Waiting for plan_to_pose service...
+[INFO] [1771556771.964491008] [core_functionality_node]: Waiting for execute_plan service...
+[WARN] [1771556774.969704672] [core_functionality_node]: motor_control not available (ok in sim)
+[WARN] [1771556777.974220891] [core_functionality_node]: ur16e_rest/BehaviorTrigger not available (ok in sim)
+[INFO] [1771556777.974571531] [core_functionality_node]: Services ready!
+[INFO] [1771556778.001597098] [core_functionality_node]: Current EE position: (0.859, 0.442, 1.244)
+[ERROR] [1771556780.012255278] [core_functionality_node]: Behavior service not available
+[INFO] [1771556781.016426608] [core_functionality_node]: Added collision plane 'battery_do_not_cross' at z=0.9
+[INFO] [1771556781.018545122] [core_functionality_node]: Battery scan: 64 poses to visit
+[INFO] [1771556781.020065576] [core_functionality_node]: 
+--- [1/64] Pose 1 ---
+    x=0.826, y=0.435, z=1.253
+[INFO] [1771556781.020430805] [core_functionality_node]: Planning to pose: x=0.826, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556781.121999712] [core_functionality_node]: Planning successful!
+[INFO] [1771556781.122675689] [core_functionality_node]: Executing plan...
+[INFO] [1771556786.336372931] [core_functionality_node]: Execution successful!
+[INFO] [1771556786.338019952] [core_functionality_node]: Completed Pose 1
+[INFO] [1771556786.339414749] [core_functionality_node]: 
+--- [2/64] Pose 2 ---
+    x=0.826, y=0.238, z=1.253
+[INFO] [1771556786.339902629] [core_functionality_node]: Planning to pose: x=0.826, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556786.441402245] [core_functionality_node]: Planning successful!
+[INFO] [1771556786.441881826] [core_functionality_node]: Executing plan...
+[INFO] [1771556788.572335219] [core_functionality_node]: Execution successful!
+[INFO] [1771556788.574003008] [core_functionality_node]: Completed Pose 2
+[INFO] [1771556788.575428258] [core_functionality_node]: 
+--- [3/64] Pose 3 ---
+    x=0.826, y=0.042, z=1.253
+[INFO] [1771556788.575718228] [core_functionality_node]: Planning to pose: x=0.826, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556788.676442466] [core_functionality_node]: Planning successful!
+[INFO] [1771556788.676840557] [core_functionality_node]: Executing plan...
+[INFO] [1771556790.831865245] [core_functionality_node]: Execution successful!
+[INFO] [1771556790.834341087] [core_functionality_node]: Completed Pose 3
+[INFO] [1771556790.836217094] [core_functionality_node]: 
+--- [4/64] Pose 4 ---
+    x=0.826, y=-0.154, z=1.253
+[INFO] [1771556790.836865457] [core_functionality_node]: Planning to pose: x=0.826, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556790.938521952] [core_functionality_node]: Planning successful!
+[INFO] [1771556790.939111916] [core_functionality_node]: Executing plan...
+[INFO] [1771556793.799510758] [core_functionality_node]: Execution successful!
+[INFO] [1771556793.801988463] [core_functionality_node]: Completed Pose 4
+[INFO] [1771556793.804999486] [core_functionality_node]: 
+--- [5/64] Pose 5 ---
+    x=0.826, y=-0.350, z=1.253
+[INFO] [1771556793.805811647] [core_functionality_node]: Planning to pose: x=0.826, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556793.907094239] [core_functionality_node]: Planning successful!
+[INFO] [1771556793.907902836] [core_functionality_node]: Executing plan...
+[INFO] [1771556799.274607693] [core_functionality_node]: Execution successful!
+[INFO] [1771556799.276998303] [core_functionality_node]: Completed Pose 5
+[INFO] [1771556799.283656149] [core_functionality_node]: 
+--- [6/64] Pose 6 ---
+    x=0.826, y=-0.547, z=1.253
+[INFO] [1771556799.285546180] [core_functionality_node]: Planning to pose: x=0.826, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556799.386853557] [core_functionality_node]: Planning successful!
+[INFO] [1771556799.387343218] [core_functionality_node]: Executing plan...
+[INFO] [1771556801.745125812] [core_functionality_node]: Execution successful!
+[INFO] [1771556801.748903914] [core_functionality_node]: Completed Pose 6
+[INFO] [1771556801.752147807] [core_functionality_node]: 
+--- [7/64] Pose 7 ---
+    x=0.826, y=-0.743, z=1.253
+[INFO] [1771556801.752795531] [core_functionality_node]: Planning to pose: x=0.826, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556801.854827314] [core_functionality_node]: Planning successful!
+[INFO] [1771556801.855193362] [core_functionality_node]: Executing plan...
+[INFO] [1771556804.159993548] [core_functionality_node]: Execution successful!
+[INFO] [1771556804.161761067] [core_functionality_node]: Completed Pose 7
+[INFO] [1771556804.163687160] [core_functionality_node]: 
+--- [8/64] Pose 8 ---
+    x=1.109, y=-0.743, z=1.253
+[INFO] [1771556804.164171354] [core_functionality_node]: Planning to pose: x=1.109, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556804.265157558] [core_functionality_node]: Planning successful!
+[INFO] [1771556804.265631522] [core_functionality_node]: Executing plan...
+[INFO] [1771556808.879931532] [core_functionality_node]: Execution successful!
+[INFO] [1771556808.885525613] [core_functionality_node]: Completed Pose 8
+[INFO] [1771556808.887876522] [core_functionality_node]: 
+--- [9/64] Pose 9 ---
+    x=1.109, y=-0.547, z=1.253
+[INFO] [1771556808.888548440] [core_functionality_node]: Planning to pose: x=1.109, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[ERROR] [1771556813.698102056] [core_functionality_node]: Planning failed: Failed to configure for planning
+[WARN] [1771556813.700277327] [core_functionality_node]: Skipping Pose 9 (will retry later)
+[INFO] [1771556813.701846795] [core_functionality_node]: 
+--- [10/64] Pose 10 ---
+    x=1.109, y=-0.350, z=1.253
+[INFO] [1771556813.702276402] [core_functionality_node]: Planning to pose: x=1.109, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556813.803782161] [core_functionality_node]: Planning successful!
+[INFO] [1771556813.804308660] [core_functionality_node]: Executing plan...
+[INFO] [1771556817.512592291] [core_functionality_node]: Execution successful!
+[INFO] [1771556817.515181116] [core_functionality_node]: Completed Pose 10
+[INFO] [1771556817.517472259] [core_functionality_node]: 
+--- [11/64] Pose 11 ---
+    x=1.109, y=-0.154, z=1.253
+[INFO] [1771556817.518442633] [core_functionality_node]: Planning to pose: x=1.109, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556817.671042722] [core_functionality_node]: Planning successful!
+[INFO] [1771556817.671558572] [core_functionality_node]: Executing plan...
+[INFO] [1771556822.134746246] [core_functionality_node]: Execution successful!
+[INFO] [1771556822.137490448] [core_functionality_node]: Completed Pose 11
+[INFO] [1771556822.139990475] [core_functionality_node]: 
+--- [12/64] Pose 12 ---
+    x=1.109, y=0.042, z=1.253
+[INFO] [1771556822.140601951] [core_functionality_node]: Planning to pose: x=1.109, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556822.246233578] [core_functionality_node]: Planning successful!
+[INFO] [1771556822.246690097] [core_functionality_node]: Executing plan...
+[INFO] [1771556826.460584978] [core_functionality_node]: Execution successful!
+[INFO] [1771556826.462546495] [core_functionality_node]: Completed Pose 12
+[INFO] [1771556826.464288124] [core_functionality_node]: 
+--- [13/64] Pose 13 ---
+    x=1.109, y=0.238, z=1.253
+[INFO] [1771556826.464706500] [core_functionality_node]: Planning to pose: x=1.109, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556826.516070315] [core_functionality_node]: Planning successful!
+[INFO] [1771556826.516857750] [core_functionality_node]: Executing plan...
+[INFO] [1771556828.872153109] [core_functionality_node]: Execution successful!
+[INFO] [1771556828.874394052] [core_functionality_node]: Completed Pose 13
+[INFO] [1771556828.876194689] [core_functionality_node]: 
+--- [14/64] Pose 14 ---
+    x=1.109, y=0.435, z=1.253
+[INFO] [1771556828.876631019] [core_functionality_node]: Planning to pose: x=1.109, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556828.978107653] [core_functionality_node]: Planning successful!
+[INFO] [1771556828.978719602] [core_functionality_node]: Executing plan...
+[INFO] [1771556830.985696264] [core_functionality_node]: Execution successful!
+[INFO] [1771556830.991654047] [core_functionality_node]: Completed Pose 14
+[INFO] [1771556830.998680186] [core_functionality_node]: 
+--- [15/64] Pose 15 ---
+    x=1.109, y=0.631, z=1.253
+[INFO] [1771556831.003231973] [core_functionality_node]: Planning to pose: x=1.109, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556831.234610615] [core_functionality_node]: Planning successful!
+[INFO] [1771556831.248932963] [core_functionality_node]: Executing plan...
+[INFO] [1771556833.210942371] [core_functionality_node]: Execution successful!
+[INFO] [1771556833.214177046] [core_functionality_node]: Completed Pose 15
+[INFO] [1771556833.215909463] [core_functionality_node]: 
+--- [16/64] Pose 16 ---
+    x=0.826, y=0.631, z=1.253
+[INFO] [1771556833.216340667] [core_functionality_node]: Planning to pose: x=0.826, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556833.318496001] [core_functionality_node]: Planning successful!
+[INFO] [1771556833.318901107] [core_functionality_node]: Executing plan...
+[INFO] [1771556838.181173005] [core_functionality_node]: Execution successful!
+[INFO] [1771556838.184696769] [core_functionality_node]: Completed Pose 16
+[INFO] [1771556838.188486685] [core_functionality_node]: 
+--- [17/64] Pose 17 ---
+    x=0.543, y=0.631, z=1.253
+[INFO] [1771556838.192614460] [core_functionality_node]: Planning to pose: x=0.543, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556838.296602733] [core_functionality_node]: Planning successful!
+[INFO] [1771556838.297144114] [core_functionality_node]: Executing plan...
+[INFO] [1771556843.161870119] [core_functionality_node]: Execution successful!
+[INFO] [1771556843.166745924] [core_functionality_node]: Completed Pose 17
+[INFO] [1771556843.171887345] [core_functionality_node]: 
+--- [18/64] Pose 18 ---
+    x=0.543, y=0.435, z=1.253
+[INFO] [1771556843.172968699] [core_functionality_node]: Planning to pose: x=0.543, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556843.324400690] [core_functionality_node]: Planning successful!
+[INFO] [1771556843.325338898] [core_functionality_node]: Executing plan...
+[INFO] [1771556845.431813218] [core_functionality_node]: Execution successful!
+[INFO] [1771556845.440342667] [core_functionality_node]: Completed Pose 18
+[INFO] [1771556845.443679562] [core_functionality_node]: 
+--- [19/64] Pose 19 ---
+    x=0.543, y=0.238, z=1.253
+[INFO] [1771556845.444782734] [core_functionality_node]: Planning to pose: x=0.543, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556845.546474050] [core_functionality_node]: Planning successful!
+[INFO] [1771556845.547403023] [core_functionality_node]: Executing plan...
+[INFO] [1771556848.255860059] [core_functionality_node]: Execution successful!
+[INFO] [1771556848.266389817] [core_functionality_node]: Completed Pose 19
+[INFO] [1771556848.277161595] [core_functionality_node]: 
+--- [20/64] Pose 20 ---
+    x=0.543, y=0.042, z=1.253
+[INFO] [1771556848.278987236] [core_functionality_node]: Planning to pose: x=0.543, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556848.433711269] [core_functionality_node]: Planning successful!
+[INFO] [1771556848.434664765] [core_functionality_node]: Executing plan...
+[INFO] [1771556851.701237258] [core_functionality_node]: Execution successful!
+[INFO] [1771556851.711813927] [core_functionality_node]: Completed Pose 20
+[INFO] [1771556851.723018111] [core_functionality_node]: 
+--- [21/64] Pose 21 ---
+    x=0.543, y=-0.154, z=1.253
+[INFO] [1771556851.724520648] [core_functionality_node]: Planning to pose: x=0.543, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556851.831072506] [core_functionality_node]: Planning successful!
+[INFO] [1771556851.832288626] [core_functionality_node]: Executing plan...
+[INFO] [1771556854.802351956] [core_functionality_node]: Execution successful!
+[INFO] [1771556854.812318438] [core_functionality_node]: Completed Pose 21
+[INFO] [1771556854.822462082] [core_functionality_node]: 
+--- [22/64] Pose 22 ---
+    x=0.543, y=-0.350, z=1.253
+[INFO] [1771556854.823945513] [core_functionality_node]: Planning to pose: x=0.543, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556854.975532257] [core_functionality_node]: Planning successful!
+[INFO] [1771556854.976506133] [core_functionality_node]: Executing plan...
+[INFO] [1771556860.456046760] [core_functionality_node]: Execution successful!
+[INFO] [1771556860.462256110] [core_functionality_node]: Completed Pose 22
+[INFO] [1771556860.470492232] [core_functionality_node]: 
+--- [23/64] Pose 23 ---
+    x=0.543, y=-0.547, z=1.253
+[INFO] [1771556860.471631217] [core_functionality_node]: Planning to pose: x=0.543, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556860.573823163] [core_functionality_node]: Planning successful!
+[INFO] [1771556860.574863380] [core_functionality_node]: Executing plan...
+[INFO] [1771556862.886453910] [core_functionality_node]: Execution successful!
+[INFO] [1771556862.896590325] [core_functionality_node]: Completed Pose 23
+[INFO] [1771556862.905756644] [core_functionality_node]: 
+--- [24/64] Pose 24 ---
+    x=0.543, y=-0.743, z=1.253
+[INFO] [1771556862.907074557] [core_functionality_node]: Planning to pose: x=0.543, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[ERROR] [1771556867.719728462] [core_functionality_node]: Planning failed: Failed to configure for planning
+[WARN] [1771556867.724459705] [core_functionality_node]: Skipping Pose 24 (will retry later)
+[INFO] [1771556867.729298242] [core_functionality_node]: 
+--- [25/64] Pose 25 ---
+    x=0.260, y=-0.743, z=1.253
+[INFO] [1771556867.730322391] [core_functionality_node]: Planning to pose: x=0.260, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556868.045952602] [core_functionality_node]: Planning successful!
+[INFO] [1771556868.046990437] [core_functionality_node]: Executing plan...
+[INFO] [1771556895.849824616] [core_functionality_node]: Execution successful!
+[INFO] [1771556895.854264797] [core_functionality_node]: Completed Pose 25
+[INFO] [1771556895.858763835] [core_functionality_node]: 
+--- [26/64] Pose 26 ---
+    x=0.260, y=-0.547, z=1.253
+[INFO] [1771556895.860112475] [core_functionality_node]: Planning to pose: x=0.260, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556895.963623565] [core_functionality_node]: Planning successful!
+[INFO] [1771556895.964671364] [core_functionality_node]: Executing plan...
+[INFO] [1771556899.801112794] [core_functionality_node]: Execution successful!
+[INFO] [1771556899.804966509] [core_functionality_node]: Completed Pose 26
+[INFO] [1771556899.808720513] [core_functionality_node]: 
+--- [27/64] Pose 27 ---
+    x=0.260, y=-0.350, z=1.253
+[INFO] [1771556899.810063973] [core_functionality_node]: Planning to pose: x=0.260, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556899.916356124] [core_functionality_node]: Planning successful!
+[INFO] [1771556899.917168667] [core_functionality_node]: Executing plan...
+[INFO] [1771556902.125493082] [core_functionality_node]: Execution successful!
+[INFO] [1771556902.130493899] [core_functionality_node]: Completed Pose 27
+[INFO] [1771556902.134659434] [core_functionality_node]: 
+--- [28/64] Pose 28 ---
+    x=0.260, y=-0.154, z=1.253
+[INFO] [1771556902.135861970] [core_functionality_node]: Planning to pose: x=0.260, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556902.287466731] [core_functionality_node]: Planning successful!
+[INFO] [1771556902.288242792] [core_functionality_node]: Executing plan...
+[INFO] [1771556903.792671038] [core_functionality_node]: Execution successful!
+[INFO] [1771556903.800769437] [core_functionality_node]: Completed Pose 28
+[INFO] [1771556903.810483949] [core_functionality_node]: 
+--- [29/64] Pose 29 ---
+    x=0.260, y=0.042, z=1.253
+[INFO] [1771556903.811695199] [core_functionality_node]: Planning to pose: x=0.260, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556903.913526255] [core_functionality_node]: Planning successful!
+[INFO] [1771556903.914474613] [core_functionality_node]: Executing plan...
+[INFO] [1771556905.425610406] [core_functionality_node]: Execution successful!
+[INFO] [1771556905.435084952] [core_functionality_node]: Completed Pose 29
+[INFO] [1771556905.438944873] [core_functionality_node]: 
+--- [30/64] Pose 30 ---
+    x=0.260, y=0.238, z=1.253
+[INFO] [1771556905.440091130] [core_functionality_node]: Planning to pose: x=0.260, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556905.548293570] [core_functionality_node]: Planning successful!
+[INFO] [1771556905.549277513] [core_functionality_node]: Executing plan...
+[INFO] [1771556907.106861651] [core_functionality_node]: Execution successful!
+[INFO] [1771556907.108503885] [core_functionality_node]: Completed Pose 30
+[INFO] [1771556907.110000902] [core_functionality_node]: 
+--- [31/64] Pose 31 ---
+    x=0.260, y=0.435, z=1.253
+[INFO] [1771556907.110370107] [core_functionality_node]: Planning to pose: x=0.260, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556907.161683888] [core_functionality_node]: Planning successful!
+[INFO] [1771556907.162503716] [core_functionality_node]: Executing plan...
+[INFO] [1771556909.167490565] [core_functionality_node]: Execution successful!
+[INFO] [1771556909.170438687] [core_functionality_node]: Completed Pose 31
+[INFO] [1771556909.172522726] [core_functionality_node]: 
+--- [32/64] Pose 32 ---
+    x=0.260, y=0.631, z=1.253
+[INFO] [1771556909.172841368] [core_functionality_node]: Planning to pose: x=0.260, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556909.273674667] [core_functionality_node]: Planning successful!
+[INFO] [1771556909.274055763] [core_functionality_node]: Executing plan...
+[INFO] [1771556912.432626760] [core_functionality_node]: Execution successful!
+[INFO] [1771556912.434821583] [core_functionality_node]: Completed Pose 32
+[INFO] [1771556912.436325808] [core_functionality_node]: 
+--- [33/64] Pose 33 ---
+    x=-0.024, y=0.631, z=1.253
+[INFO] [1771556912.436810392] [core_functionality_node]: Planning to pose: x=-0.024, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556912.537662833] [core_functionality_node]: Planning successful!
+[INFO] [1771556912.537956071] [core_functionality_node]: Executing plan...
+[INFO] [1771556917.849169566] [core_functionality_node]: Execution successful!
+[INFO] [1771556917.853861641] [core_functionality_node]: Completed Pose 33
+[INFO] [1771556917.856264414] [core_functionality_node]: 
+--- [34/64] Pose 34 ---
+    x=-0.024, y=0.435, z=1.253
+[INFO] [1771556917.856850497] [core_functionality_node]: Planning to pose: x=-0.024, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556917.907842250] [core_functionality_node]: Planning successful!
+[INFO] [1771556917.908512183] [core_functionality_node]: Executing plan...
+[INFO] [1771556920.614597402] [core_functionality_node]: Execution successful!
+[INFO] [1771556920.620310292] [core_functionality_node]: Completed Pose 34
+[INFO] [1771556920.624369904] [core_functionality_node]: 
+--- [35/64] Pose 35 ---
+    x=-0.024, y=0.238, z=1.253
+[INFO] [1771556920.625216000] [core_functionality_node]: Planning to pose: x=-0.024, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556920.726451834] [core_functionality_node]: Planning successful!
+[INFO] [1771556920.727154430] [core_functionality_node]: Executing plan...
+[INFO] [1771556922.443055300] [core_functionality_node]: Execution successful!
+[INFO] [1771556922.453985671] [core_functionality_node]: Completed Pose 35
+[INFO] [1771556922.463098820] [core_functionality_node]: 
+--- [36/64] Pose 36 ---
+    x=-0.024, y=0.042, z=1.253
+[INFO] [1771556922.464242961] [core_functionality_node]: Planning to pose: x=-0.024, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556922.573558172] [core_functionality_node]: Planning successful!
+[INFO] [1771556922.574448018] [core_functionality_node]: Executing plan...
+[INFO] [1771556924.238939681] [core_functionality_node]: Execution successful!
+[INFO] [1771556924.243477158] [core_functionality_node]: Completed Pose 36
+[INFO] [1771556924.247364001] [core_functionality_node]: 
+--- [37/64] Pose 37 ---
+    x=-0.024, y=-0.154, z=1.253
+[INFO] [1771556924.248346108] [core_functionality_node]: Planning to pose: x=-0.024, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556924.349824058] [core_functionality_node]: Planning successful!
+[INFO] [1771556924.350603399] [core_functionality_node]: Executing plan...
+[INFO] [1771556925.961493439] [core_functionality_node]: Execution successful!
+[INFO] [1771556925.966131469] [core_functionality_node]: Completed Pose 37
+[INFO] [1771556925.970959638] [core_functionality_node]: 
+--- [38/64] Pose 38 ---
+    x=-0.024, y=-0.350, z=1.253
+[INFO] [1771556925.971940994] [core_functionality_node]: Planning to pose: x=-0.024, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556926.073368927] [core_functionality_node]: Planning successful!
+[INFO] [1771556926.074225379] [core_functionality_node]: Executing plan...
+[INFO] [1771556927.689815411] [core_functionality_node]: Execution successful!
+[INFO] [1771556927.700252485] [core_functionality_node]: Completed Pose 38
+[INFO] [1771556927.709677903] [core_functionality_node]: 
+--- [39/64] Pose 39 ---
+    x=-0.024, y=-0.547, z=1.253
+[INFO] [1771556927.711143717] [core_functionality_node]: Planning to pose: x=-0.024, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556927.814853317] [core_functionality_node]: Planning successful!
+[INFO] [1771556927.815752518] [core_functionality_node]: Executing plan...
+[INFO] [1771556930.073378770] [core_functionality_node]: Execution successful!
+[INFO] [1771556930.077330444] [core_functionality_node]: Completed Pose 39
+[INFO] [1771556930.082202683] [core_functionality_node]: 
+--- [40/64] Pose 40 ---
+    x=-0.024, y=-0.743, z=1.253
+[INFO] [1771556930.083466043] [core_functionality_node]: Planning to pose: x=-0.024, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556930.187011087] [core_functionality_node]: Planning successful!
+[INFO] [1771556930.188006158] [core_functionality_node]: Executing plan...
+[INFO] [1771556934.178492892] [core_functionality_node]: Execution successful!
+[INFO] [1771556934.183766545] [core_functionality_node]: Completed Pose 40
+[INFO] [1771556934.188797246] [core_functionality_node]: 
+--- [41/64] Pose 41 ---
+    x=-0.307, y=-0.743, z=1.253
+[INFO] [1771556934.189770999] [core_functionality_node]: Planning to pose: x=-0.307, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556934.342886331] [core_functionality_node]: Planning successful!
+[INFO] [1771556934.343976483] [core_functionality_node]: Executing plan...
+[INFO] [1771556939.517101712] [core_functionality_node]: Execution successful!
+[INFO] [1771556939.520972266] [core_functionality_node]: Completed Pose 41
+[INFO] [1771556939.524494999] [core_functionality_node]: 
+--- [42/64] Pose 42 ---
+    x=-0.307, y=-0.547, z=1.253
+[INFO] [1771556939.525482204] [core_functionality_node]: Planning to pose: x=-0.307, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556939.627144134] [core_functionality_node]: Planning successful!
+[INFO] [1771556939.627756303] [core_functionality_node]: Executing plan...
+[INFO] [1771556943.506872515] [core_functionality_node]: Execution successful!
+[INFO] [1771556943.512418806] [core_functionality_node]: Completed Pose 42
+[INFO] [1771556943.521298616] [core_functionality_node]: 
+--- [43/64] Pose 43 ---
+    x=-0.307, y=-0.350, z=1.253
+[INFO] [1771556943.527032988] [core_functionality_node]: Planning to pose: x=-0.307, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556943.633843385] [core_functionality_node]: Planning successful!
+[INFO] [1771556943.634778215] [core_functionality_node]: Executing plan...
+[INFO] [1771556945.389758645] [core_functionality_node]: Execution successful!
+[INFO] [1771556945.400048776] [core_functionality_node]: Completed Pose 43
+[INFO] [1771556945.408948531] [core_functionality_node]: 
+--- [44/64] Pose 44 ---
+    x=-0.307, y=-0.154, z=1.253
+[INFO] [1771556945.409965564] [core_functionality_node]: Planning to pose: x=-0.307, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556945.512942737] [core_functionality_node]: Planning successful!
+[INFO] [1771556945.513750089] [core_functionality_node]: Executing plan...
+[INFO] [1771556947.072444443] [core_functionality_node]: Execution successful!
+[INFO] [1771556947.078534953] [core_functionality_node]: Completed Pose 44
+[INFO] [1771556947.083343386] [core_functionality_node]: 
+--- [45/64] Pose 45 ---
+    x=-0.307, y=0.042, z=1.253
+[INFO] [1771556947.084479653] [core_functionality_node]: Planning to pose: x=-0.307, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556947.243005340] [core_functionality_node]: Planning successful!
+[INFO] [1771556947.243716110] [core_functionality_node]: Executing plan...
+[INFO] [1771556949.154232688] [core_functionality_node]: Execution successful!
+[INFO] [1771556949.163910770] [core_functionality_node]: Completed Pose 45
+[INFO] [1771556949.172746197] [core_functionality_node]: 
+--- [46/64] Pose 46 ---
+    x=-0.307, y=0.238, z=1.253
+[INFO] [1771556949.174020571] [core_functionality_node]: Planning to pose: x=-0.307, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556949.275705220] [core_functionality_node]: Planning successful!
+[INFO] [1771556949.282488504] [core_functionality_node]: Executing plan...
+ [INFO] [1771556951.741369933] [core_functionality_node]: Execution successful!
+[INFO] [1771556951.745925467] [core_functionality_node]: Completed Pose 46
+[INFO] [1771556951.750101962] [core_functionality_node]: 
+--- [47/64] Pose 47 ---
+    x=-0.307, y=0.435, z=1.253
+[INFO] [1771556951.751281420] [core_functionality_node]: Planning to pose: x=-0.307, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556951.906425323] [core_functionality_node]: Planning successful!
+[INFO] [1771556951.907507489] [core_functionality_node]: Executing plan...
+[INFO] [1771556954.636106034] [core_functionality_node]: Execution successful!
+[INFO] [1771556954.640144093] [core_functionality_node]: Completed Pose 47
+[INFO] [1771556954.650370968] [core_functionality_node]: 
+--- [48/64] Pose 48 ---
+    x=-0.307, y=0.631, z=1.253
+[INFO] [1771556954.651716089] [core_functionality_node]: Planning to pose: x=-0.307, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556954.757504318] [core_functionality_node]: Planning successful!
+[INFO] [1771556954.758502027] [core_functionality_node]: Executing plan...
+[INFO] [1771556956.668989609] [core_functionality_node]: Execution successful!
+[INFO] [1771556956.679855275] [core_functionality_node]: Completed Pose 48
+[INFO] [1771556956.688073880] [core_functionality_node]: 
+--- [49/64] Pose 49 ---
+    x=-0.590, y=0.631, z=1.253
+[INFO] [1771556956.689346964] [core_functionality_node]: Planning to pose: x=-0.590, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556956.856282420] [core_functionality_node]: Planning successful!
+[INFO] [1771556956.857037958] [core_functionality_node]: Executing plan...
+[INFO] [1771556961.694046264] [core_functionality_node]: Execution successful!
+[INFO] [1771556961.695469624] [core_functionality_node]: Completed Pose 49
+[INFO] [1771556961.696731865] [core_functionality_node]: 
+--- [50/64] Pose 50 ---
+    x=-0.590, y=0.435, z=1.253
+[INFO] [1771556961.697044673] [core_functionality_node]: Planning to pose: x=-0.590, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556961.797648249] [core_functionality_node]: Planning successful!
+[INFO] [1771556961.797985671] [core_functionality_node]: Executing plan...
+[INFO] [1771556963.853693411] [core_functionality_node]: Execution successful!
+[INFO] [1771556963.855815491] [core_functionality_node]: Completed Pose 50
+[INFO] [1771556963.858199260] [core_functionality_node]: 
+--- [51/64] Pose 51 ---
+    x=-0.590, y=0.238, z=1.253
+[INFO] [1771556963.858559594] [core_functionality_node]: Planning to pose: x=-0.590, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556963.959302235] [core_functionality_node]: Planning successful!
+[INFO] [1771556963.959683934] [core_functionality_node]: Executing plan...
+[INFO] [1771556967.517404003] [core_functionality_node]: Execution successful!
+[INFO] [1771556967.519361902] [core_functionality_node]: Completed Pose 51
+[INFO] [1771556967.521476775] [core_functionality_node]: 
+--- [52/64] Pose 52 ---
+    x=-0.590, y=0.042, z=1.253
+[INFO] [1771556967.521901225] [core_functionality_node]: Planning to pose: x=-0.590, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556967.624889049] [core_functionality_node]: Planning successful!
+[INFO] [1771556967.625422883] [core_functionality_node]: Executing plan...
+[INFO] [1771556972.742651147] [core_functionality_node]: Execution successful!
+[INFO] [1771556972.745242931] [core_functionality_node]: Completed Pose 52
+[INFO] [1771556972.751593681] [core_functionality_node]: 
+--- [53/64] Pose 53 ---
+    x=-0.590, y=-0.154, z=1.253
+[INFO] [1771556972.752211876] [core_functionality_node]: Planning to pose: x=-0.590, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556972.853230425] [core_functionality_node]: Planning successful!
+[INFO] [1771556972.853743085] [core_functionality_node]: Executing plan...
+[INFO] [1771556975.228122336] [core_functionality_node]: Execution successful!
+[INFO] [1771556975.236513009] [core_functionality_node]: Completed Pose 53
+[INFO] [1771556975.246407353] [core_functionality_node]: 
+--- [54/64] Pose 54 ---
+    x=-0.590, y=-0.350, z=1.253
+[INFO] [1771556975.247661209] [core_functionality_node]: Planning to pose: x=-0.590, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556975.404440668] [core_functionality_node]: Planning successful!
+[INFO] [1771556975.405297028] [core_functionality_node]: Executing plan...
+[INFO] [1771556977.223580650] [core_functionality_node]: Execution successful!
+[INFO] [1771556977.229314463] [core_functionality_node]: Completed Pose 54
+[INFO] [1771556977.235046371] [core_functionality_node]: 
+--- [55/64] Pose 55 ---
+    x=-0.590, y=-0.547, z=1.253
+[INFO] [1771556977.236342378] [core_functionality_node]: Planning to pose: x=-0.590, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556977.391781751] [core_functionality_node]: Planning successful!
+[INFO] [1771556977.397971699] [core_functionality_node]: Executing plan...
+[INFO] [1771556980.004538153] [core_functionality_node]: Execution successful!
+[INFO] [1771556980.014399455] [core_functionality_node]: Completed Pose 55
+[INFO] [1771556980.019873547] [core_functionality_node]: 
+--- [56/64] Pose 56 ---
+    x=-0.590, y=-0.743, z=1.253
+[INFO] [1771556980.026929036] [core_functionality_node]: Planning to pose: x=-0.590, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771556980.901614317] [core_functionality_node]: Planning successful!
+[INFO] [1771556980.902642342] [core_functionality_node]: Executing plan...
+[INFO] [1771557045.042322516] [core_functionality_node]: Execution successful!
+[INFO] [1771557045.046065502] [core_functionality_node]: Completed Pose 56
+[INFO] [1771557045.054839128] [core_functionality_node]: 
+--- [57/64] Pose 57 ---
+    x=-0.873, y=-0.743, z=1.253
+[INFO] [1771557045.056042312] [core_functionality_node]: Planning to pose: x=-0.873, y=-0.743, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771557045.160136101] [core_functionality_node]: Planning successful!
+[INFO] [1771557045.161152977] [core_functionality_node]: Executing plan...
+[INFO] [1771557047.272342836] [core_functionality_node]: Execution successful!
+[INFO] [1771557047.281333617] [core_functionality_node]: Completed Pose 57
+[INFO] [1771557047.290132398] [core_functionality_node]: 
+--- [58/64] Pose 58 ---
+    x=-0.873, y=-0.547, z=1.253
+[INFO] [1771557047.291627822] [core_functionality_node]: Planning to pose: x=-0.873, y=-0.547, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771557047.406028357] [core_functionality_node]: Planning successful!
+[INFO] [1771557047.407986958] [core_functionality_node]: Executing plan...
+[INFO] [1771557049.779567844] [core_functionality_node]: Execution successful!
+[INFO] [1771557049.801959112] [core_functionality_node]: Completed Pose 58
+[INFO] [1771557049.829343805] [core_functionality_node]: 
+--- [59/64] Pose 59 ---
+    x=-0.873, y=-0.350, z=1.253
+[INFO] [1771557049.833518232] [core_functionality_node]: Planning to pose: x=-0.873, y=-0.350, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771557050.103341114] [core_functionality_node]: Planning successful!
+[INFO] [1771557050.108021919] [core_functionality_node]: Executing plan...
+[INFO] [1771557053.070865896] [core_functionality_node]: Execution successful!
+[INFO] [1771557053.079368641] [core_functionality_node]: Completed Pose 59
+[INFO] [1771557053.090368686] [core_functionality_node]: 
+--- [60/64] Pose 60 ---
+    x=-0.873, y=-0.154, z=1.253
+[INFO] [1771557053.091745270] [core_functionality_node]: Planning to pose: x=-0.873, y=-0.154, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771557054.275148786] [core_functionality_node]: Planning successful!
+[INFO] [1771557054.276048578] [core_functionality_node]: Executing plan...
+[INFO] [1771557085.069167827] [core_functionality_node]: Execution successful!
+[INFO] [1771557085.073915200] [core_functionality_node]: Completed Pose 60
+[INFO] [1771557085.082229736] [core_functionality_node]: 
+--- [61/64] Pose 61 ---
+    x=-0.873, y=0.042, z=1.253
+[INFO] [1771557085.083521952] [core_functionality_node]: Planning to pose: x=-0.873, y=0.042, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[ERROR] [1771557090.503945333] [core_functionality_node]: Planning failed: Planning failed
+[WARN] [1771557090.512199391] [core_functionality_node]: Skipping Pose 61 (will retry later)
+[INFO] [1771557090.516194407] [core_functionality_node]: 
+--- [62/64] Pose 62 ---
+    x=-0.873, y=0.238, z=1.253
+[INFO] [1771557090.521851587] [core_functionality_node]: Planning to pose: x=-0.873, y=0.238, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771557092.387710385] [core_functionality_node]: Planning successful!
+[INFO] [1771557092.388721686] [core_functionality_node]: Executing plan...
+[INFO] [1771557100.064052608] [core_functionality_node]: Execution successful!
+[INFO] [1771557100.069094201] [core_functionality_node]: Completed Pose 62
+[INFO] [1771557100.079205250] [core_functionality_node]: 
+--- [63/64] Pose 63 ---
+    x=-0.873, y=0.435, z=1.253
+[INFO] [1771557100.083136701] [core_functionality_node]: Planning to pose: x=-0.873, y=0.435, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771557100.864527228] [core_functionality_node]: Planning successful!
+[INFO] [1771557100.869970281] [core_functionality_node]: Executing plan...
+[INFO] [1771557102.591427752] [core_functionality_node]: Execution successful!
+[INFO] [1771557102.595696332] [core_functionality_node]: Completed Pose 63
+[INFO] [1771557102.604274865] [core_functionality_node]: 
+--- [64/64] Pose 64 ---
+    x=-0.873, y=0.631, z=1.253
+[INFO] [1771557102.605353255] [core_functionality_node]: Planning to pose: x=-0.873, y=0.631, z=1.253, qx=0.707, qy=0.707, qz=0.000, qw=0.000 in frame 'floor_link'
+[INFO] [1771557102.959770077] [core_functionality_node]: Planning successful!
+[INFO] [1771557102.960797777] [core_functionality_node]: Executing plan...
+[INFO] [1771557106.428953003] [core_functionality_node]: Execution successful!
+[INFO] [1771557106.434090573] [core_functionality_node]: Completed Pose 64
+[INFO] [1771557106.435365484] [core_functionality_node]: Battery scan complete.
+[INFO] [1771557106.437387032] [core_functionality_node]: Removed collision plane 'battery_do_not_cross'

@@ -166,7 +166,12 @@ def launch_setup(context, *args, **kwargs):
             robot_description_semantic,
             robot_description_kinematics, # Needed for local IK
             robot_description_planning,   # Needed for joint limits
-            {"use_sim_time": use_sim_time},
+            {
+                "use_sim_time": use_sim_time,
+                "use_corridor_constraint": True,
+                "corridor_cross_section": 0.25,
+                "corridor_padding": 0.05,
+            },
         ],
     )
 
