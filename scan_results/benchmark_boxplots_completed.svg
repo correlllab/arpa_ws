@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 280" width="400" height="280">
+<style>text { font: 12px sans-serif; } .title { font: 14px sans-serif; }</style>
+<text x="200.0" y="20" text-anchor="middle" class="title">Run-level: completed</text>
+<text x="40" y="140.0" text-anchor="middle" transform="rotate(-90,40,140.0)">Completed (first pass)</text>
+<line x1="153.33333333333331" y1="91.0185185185185" x2="153.33333333333331" y2="214.16666666666669" stroke="#333" stroke-width="1"/>
+<line x1="153.33333333333331" y1="91.0185185185185" x2="153.33333333333331" y2="55.833333333333314" stroke="#333" stroke-width="1"/>
+<line x1="122.33333333333331" y1="214.16666666666669" x2="184.33333333333331" y2="214.16666666666669" stroke="#333" stroke-width="1"/>
+<line x1="122.33333333333331" y1="55.833333333333314" x2="184.33333333333331" y2="55.833333333333314" stroke="#333" stroke-width="1"/>
+<rect x="122.33333333333331" y="58.03240740740739" width="61.99999999999999" height="65.97222222222224" fill="#cce5ff" stroke="#333" stroke-width="1"/>
+<line x1="122.33333333333331" y1="91.0185185185185" x2="184.33333333333331" y2="91.0185185185185" stroke="#333" stroke-width="2"/>
+<text x="153.33333333333331" y="275" text-anchor="middle">false</text>
+<line x1="256.6666666666667" y1="77.82407407407405" x2="256.6666666666667" y2="135.0" stroke="#333" stroke-width="1"/>
+<line x1="256.6666666666667" y1="77.82407407407405" x2="256.6666666666667" y2="55.833333333333314" stroke="#333" stroke-width="1"/>
+<line x1="225.66666666666669" y1="135.0" x2="287.6666666666667" y2="135.0" stroke="#333" stroke-width="1"/>
+<line x1="225.66666666666669" y1="55.833333333333314" x2="287.6666666666667" y2="55.833333333333314" stroke="#333" stroke-width="1"/>
+<rect x="225.66666666666669" y="60.23148148148147" width="61.99999999999999" height="37.38425925925927" fill="#cce5ff" stroke="#333" stroke-width="1"/>
+<line x1="225.66666666666669" y1="77.82407407407405" x2="287.6666666666667" y2="77.82407407407405" stroke="#333" stroke-width="2"/>
+<text x="256.6666666666667" y="275" text-anchor="middle">true</text>
+</svg>

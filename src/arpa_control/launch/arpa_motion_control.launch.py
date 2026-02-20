@@ -61,6 +61,7 @@ def launch_setup(context, *args, **kwargs):
     moveit_config_file = LaunchConfiguration("moveit_config_file")
     prefix = LaunchConfiguration("prefix")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
 
     joint_limit_params = PathJoinSubstitution(
         [FindPackageShare(description_package), "config", ur_type, "joint_limits.yaml"]
@@ -168,7 +169,7 @@ def launch_setup(context, *args, **kwargs):
             robot_description_planning,   # Needed for joint limits
             {
                 "use_sim_time": use_sim_time,
-                "use_corridor_constraint": True,
+                "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
                 "corridor_cross_section": 0.25,
                 "corridor_padding": 0.05,
             },
@@ -279,6 +280,13 @@ def generate_launch_description():
             description="Prefix of the joint names, useful for "
             "multi-robot setup. If changed than also joint names in the controllers' configuration "
             "have to be updated.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_corridor_constraint",
+            default_value="true",
+            description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
 

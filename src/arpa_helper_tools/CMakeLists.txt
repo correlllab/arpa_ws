@@ -16,6 +16,8 @@ install(PROGRAMS
   scripts/goto_recorded_poses.py
   scripts/core_functionality_node.py
   scripts/scan_battery.py
+  scripts/run_benchmark.py
+  scripts/plot_benchmark.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
