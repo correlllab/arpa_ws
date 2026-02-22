@@ -25,6 +25,7 @@ def launch_setup(context, *args, **kwargs):
     safety_limits = LaunchConfiguration("safety_limits")
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
     safety_k_position = LaunchConfiguration("safety_k_position")
+    use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
     # General arguments
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
@@ -253,6 +254,7 @@ def launch_setup(context, *args, **kwargs):
             "sim_gazebo": sim_gazebo,
             "sim_ignition": sim_ignition,
             "initial_positions_file": initial_positions_file,
+            "use_corridor_constraint": use_corridor_constraint
         }.items(),
     )
 
@@ -626,6 +628,13 @@ def generate_launch_description():
             "initial_positions_file",
             default_value="",
             description="Initial positions file for simulation.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_corridor_constraint",
+            default_value="false",
+            description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
 

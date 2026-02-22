@@ -15,6 +15,7 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 import threading
 import time
+import tf2_ros
 
 BASE_FRAME = "floor_link"
 EE_FRAME = "wrist_3_link"
