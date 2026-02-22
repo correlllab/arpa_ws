@@ -69,4 +69,18 @@ RUN rosdep update
 
 #RUN echo "source /root/ros2_ws/install/setup.bash" >> ~/.bashrc
 
+
+# -------------------------------
+# Pip Installs
+# -------------------------------
+RUN pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+RUN python -m pip install ortools
+RUN pip3 install open3d
+RUN pip3 install ultralytics
+WORKDIR /root
+RUN git clone https://github.com/facebookresearch/sam2.git && cd sam2 && pip install -e .
+WORKDIR /root/ros2_ws
+
+
+
 CMD ["bash"]

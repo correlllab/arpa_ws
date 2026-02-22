@@ -4,3 +4,5 @@ log/
 src/.vscode/
 src/.github/
 src/arpa_behavior_trees/
+*.pt
+*.pth

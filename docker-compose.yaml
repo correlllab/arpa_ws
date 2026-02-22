@@ -4,7 +4,7 @@ services:
   ur_arm:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: ArmDockerfile
     container_name: arpa_system
     image: arpa_system:latest
     network_mode: "host"
