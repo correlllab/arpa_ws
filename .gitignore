@@ -6,3 +6,5 @@ src/.github/
 src/arpa_behavior_trees/
 src/gazebo_ros2_control/gazebo_ros2_control/COLCON_IGNORE
 src/gazebo_ros2_control/gazebo_ros2_control_demos/COLCON_IGNORE
+*.pt
+*.pth
