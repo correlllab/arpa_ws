@@ -1,13 +1,15 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <!-- <xacro:include filename="$(find arpa_description)/urdf/materials.xacro" /> -->
-  <!-- <gazebo>
-    <joint name="slider_joint">
-      <plugin name="prismatic_controller" filename="libgazebo_ros_joint_pose_trajectory.so" />
-    </joint>
-  </gazebo> -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="parker_linear_actuator_robot" params="
+    attach_link
+    origin">
 
-  <xacro:macro name="linear_actuator">
+   <xacro:arg name="attach_link" default="" />
+   <xacro:arg name="origin" default="" />
+
+  <!-- Include ros2_control xacro macros -->
+  <xacro:include filename="$(find parker_controller_interface)/urdf/parker_linear_actuator.ros2_control.xacro" />
+
+  <xacro:macro name="parker_linear_actuator" params="attach_link origin">
     <link name="linear_actuator_link">
       <visual>
         <geometry>
@@ -28,6 +30,12 @@
         <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
       </inertial>
     </link>
+
+    <joint name="${attach_link}_to_linear_actuator_joint" type="fixed">
+      <parent link="${attach_link}"/>
+      <child link="linear_actuator_link"/>
+      <origin xyz="${origin.split(' ')[0]} ${origin.split(' ')[1]} ${origin.split(' ')[2]}" rpy="${origin.split(' ')[3]} ${origin.split(' ')[4]} ${origin.split(' ')[5]}"/>
+    </joint>
 
     <link name="linear_actuator_plate_link">
       <visual>
@@ -52,13 +60,19 @@
     </link>
 
     <!-- Prismatic joint for linear actuator movement (0.1-2.0m = 100-2000mm) -->
-    <!-- NOTE: This macro is deprecated - use parker_linear_actuator from parker_controller_interface instead -->
     <joint name="linear_actuator_to_linear_actuator_plate_joint" type="prismatic">
       <parent link="linear_actuator_link"/>
       <child link="linear_actuator_plate_link"/>
       <origin xyz="1.0244 0 -0.04375" rpy="0 0 0"/>
       <axis xyz="-1 0 0"/>
-      <limit lower="0.1" upper="2.0" effort="100.0" velocity="0.5"/>
+      <limit lower="0.2" upper="1.9" effort="100.0" velocity="0.1"/>
     </joint>
+  
+    <!-- Add ros2_control hardware interface -->
+    <xacro:parker_linear_actuator_ros2_control
+      name="ParkerControllerInterface"
+      host="192.168.100.1"
+      port="5002"/>
   </xacro:macro>
+
 </robot>

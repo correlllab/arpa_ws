@@ -52,38 +52,6 @@ planner_configs:
     max_nearest_neighbors: 10  # use k nearest neighbors. default: 10
   PRMstarkConfigDefault:
     type: geometric::PRMstar
-ur_manipulator:
-  planner_configs:
-    - SBLkConfigDefault
-    - ESTkConfigDefault
-    - LBKPIECEkConfigDefault
-    - BKPIECEkConfigDefault
-    - KPIECEkConfigDefault
-    - RRTkConfigDefault
-    - RRTConnectkConfigDefault
-    - RRTstarkConfigDefault
-    - TRRTkConfigDefault
-    - PRMkConfigDefault
-    - PRMstarkConfigDefault
-  ##Note: commenting the following line lets moveit chose RRTConnect as default planner rather than LBKPIECE
-  #projection_evaluator: joints(shoulder_pan_joint,shoulder_lift_joint)
-  longest_valid_segment_fraction: 0.01
-  simplify_solution: true
-  
-ur16e_on_gantry:
-  planner_configs:
-    - SBLkConfigDefault
-    - ESTkConfigDefault
-    - LBKPIECEkConfigDefault
-    - BKPIECEkConfigDefault
-    - KPIECEkConfigDefault
-    - RRTkConfigDefault
-    - RRTConnectkConfigDefault
-    - RRTstarkConfigDefault
-    - TRRTkConfigDefault
-    - PRMkConfigDefault
-    - PRMstarkConfigDefault
-  longest_valid_segment_fraction: 0.01
 
 parker_linear_actuator:
   planner_configs:

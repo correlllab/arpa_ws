@@ -34,7 +34,9 @@ from launch_ros.parameter_descriptions import ParameterFile, ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription, RegisterEventHandler, TimerAction
+from launch.launch_description_sources import AnyLaunchDescriptionSource
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.conditions import IfCondition, UnlessCondition
 from launch.substitutions import (
     AndSubstitution,
@@ -44,13 +46,15 @@ from launch.substitutions import (
     NotSubstitution,
     PathJoinSubstitution,
 )
+from ur_moveit_config.launch_common import load_yaml
+
+import yaml
+import os
 
 
 def launch_setup(context, *args, **kwargs):
-    print("HELLO ARPA UR CONTROL")
     # Initialize Arguments
     ur_type = LaunchConfiguration("ur_type")
-    tf_prefix = LaunchConfiguration("tf_prefix")
     robot_ip = LaunchConfiguration("robot_ip")
     safety_limits = LaunchConfiguration("safety_limits")
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
@@ -61,6 +65,7 @@ def launch_setup(context, *args, **kwargs):
     description_package = LaunchConfiguration("description_package")
     description_file = LaunchConfiguration("description_file")
     kinematics_params_file = LaunchConfiguration("kinematics_params_file")
+    tf_prefix = LaunchConfiguration("tf_prefix")
     use_fake_hardware = LaunchConfiguration("use_fake_hardware")
     fake_sensor_commands = LaunchConfiguration("fake_sensor_commands")
     controller_spawner_timeout = LaunchConfiguration("controller_spawner_timeout")
@@ -83,31 +88,33 @@ def launch_setup(context, *args, **kwargs):
     reverse_port = LaunchConfiguration("reverse_port")
     script_sender_port = LaunchConfiguration("script_sender_port")
     trajectory_port = LaunchConfiguration("trajectory_port")
+    parker_host = LaunchConfiguration("parker_host")
+    parker_port = LaunchConfiguration("parker_port")
 
     joint_limit_params = PathJoinSubstitution(
-        [FindPackageShare("arpa_moveit_config"), "config", "joint_limits.yaml"]
+        [FindPackageShare(description_package), "config", ur_type, "joint_limits.yaml"]
     )
     physical_params = PathJoinSubstitution(
-        [FindPackageShare("arpa_moveit_config"), "config", "physical_parameters.yaml"]
+        [FindPackageShare(description_package), "config", ur_type, "physical_parameters.yaml"]
     )
     visual_params = PathJoinSubstitution(
-        [FindPackageShare("arpa_moveit_config"), "config", "visual_parameters.yaml"]
+        [FindPackageShare(description_package), "config", ur_type, "visual_parameters.yaml"]
     )
     script_filename = PathJoinSubstitution(
         [FindPackageShare("ur_client_library"), "resources", "external_control.urscript"]
     )
-    print(script_filename)
     input_recipe_filename = PathJoinSubstitution(
         [FindPackageShare("ur_robot_driver"), "resources", "rtde_input_recipe.txt"]
     )
     output_recipe_filename = PathJoinSubstitution(
         [FindPackageShare("ur_robot_driver"), "resources", "rtde_output_recipe.txt"]
     )
+
     robot_description_content = Command(
         [
             PathJoinSubstitution([FindExecutable(name="xacro")]),
             " ",
-            PathJoinSubstitution([FindPackageShare("arpa_moveit_config"), "urdf", description_file]),
+            PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
             " ",
             "robot_ip:=",
             robot_ip,
@@ -133,7 +140,7 @@ def launch_setup(context, *args, **kwargs):
             "safety_k_position:=",
             safety_k_position,
             " ",
-            "arpa_model:=",
+            "name:=",
             ur_type,
             " ",
             "script_filename:=",
@@ -199,12 +206,14 @@ def launch_setup(context, *args, **kwargs):
             "trajectory_port:=",
             trajectory_port,
             " ",
-        ],
-        on_stderr="ignore"   # or "warn"
+            "parker_host:=",
+            parker_host,
+            " ",
+            "parker_port:=",
+            parker_port,
+            " ",
+        ]
     )
-
-    print(robot_description_content)
-
     robot_description = {
         "robot_description": ParameterValue(value=robot_description_content, value_type=str)
     }
@@ -214,7 +223,7 @@ def launch_setup(context, *args, **kwargs):
     )
 
     rviz_config_file = PathJoinSubstitution(
-        [FindPackageShare(description_package), "rviz", "moveit.rviz"]
+        [FindPackageShare(description_package), "rviz", "view_robot.rviz"]
     )
 
     # define update rate
@@ -250,16 +259,18 @@ def launch_setup(context, *args, **kwargs):
         condition=UnlessCondition(use_fake_hardware),
     )
 
-    dashboard_client_node = Node(
-        package="ur_robot_driver",
+    dashboard_client_node = IncludeLaunchDescription(
         condition=IfCondition(
             AndSubstitution(launch_dashboard_client, NotSubstitution(use_fake_hardware))
         ),
-        executable="dashboard_client",
-        name="dashboard_client",
-        output="screen",
-        emulate_tty=True,
-        parameters=[{"robot_ip": robot_ip}],
+        launch_description_source=AnyLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("ur_robot_driver"), "launch", "ur_dashboard_client.launch.py"]
+            )
+        ),
+        launch_arguments={
+            "robot_ip": robot_ip,
+        }.items(),
     )
 
     robot_state_helper_node = Node(
@@ -376,24 +387,54 @@ def launch_setup(context, *args, **kwargs):
         "scaled_joint_trajectory_controller",
         "joint_trajectory_controller",
         "forward_velocity_controller",
-        "forward_position_controller",
         "forward_effort_controller",
         "force_mode_controller",
         "passthrough_trajectory_controller",
         "freedrive_mode_controller",
         "tool_contact_controller",
+        "parker_linear_actuator",
     ]
     if activate_joint_controller.perform(context) == "true":
         controllers_active.append(initial_joint_controller.perform(context))
         controllers_inactive.remove(initial_joint_controller.perform(context))
 
+    # Remove parker from main spawner lists - it will be spawned separately with a delay
+    if "parker_linear_actuator" in controllers_inactive:
+        controllers_inactive.remove("parker_linear_actuator")
+
     if use_fake_hardware.perform(context) == "true":
         controllers_active.remove("tcp_pose_broadcaster")
 
+    active_spawner = controller_spawner(controllers_active)
+    inactive_spawner = controller_spawner(controllers_inactive, active=False)
+
     controller_spawners = [
-        controller_spawner(controllers_active),
-        controller_spawner(controllers_inactive, active=False),
+        active_spawner,
+        inactive_spawner,
     ]
+
+    # Spawn parker_linear_actuator after the active controllers are spawned
+    # This ensures Parker hardware has time to initialize
+    if use_fake_hardware.perform(context) != "true":
+        parker_spawner = Node(
+            package="controller_manager",
+            executable="spawner",
+            arguments=[
+                "parker_linear_actuator",
+                "--controller-manager",
+                "/controller_manager",
+                "--controller-manager-timeout",
+                "60",
+            ],
+        )
+        # Wait for active spawner to complete, then spawn parker
+        delayed_parker_spawner = RegisterEventHandler(
+            event_handler=OnProcessExit(
+                target_action=active_spawner,
+                on_exit=[parker_spawner],
+            )
+        )
+        controller_spawners.append(delayed_parker_spawner)
 
     nodes_to_start = [
         control_node,
@@ -404,7 +445,7 @@ def launch_setup(context, *args, **kwargs):
         controller_stopper_node,
         urscript_interface,
         robot_state_publisher_node,
-        # rviz_node,
+        rviz_node,
         trajectory_until_node,
     ] + controller_spawners
 
@@ -412,7 +453,6 @@ def launch_setup(context, *args, **kwargs):
 
 
 def generate_launch_description():
-    print("HELLO GENERATE LAUNCH DESCRIPTION ARPA UR CONTROL")
     declared_arguments = []
     # UR specific arguments
     declared_arguments.append(
@@ -439,15 +479,7 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "tf_prefix",
-            description="TF prefix for the robot.",
-            default_value="",
-        )
-    )
-    declared_arguments.append(
-        DeclareLaunchArgument(
-            "robot_ip", description="IP address by which the robot can be reached.",
-            default_value="128.138.224.247",
+            "robot_ip", description="IP address by which the robot can be reached."
         )
     )
     declared_arguments.append(
@@ -507,12 +539,22 @@ def generate_launch_description():
             "kinematics_params_file",
             default_value=PathJoinSubstitution(
                 [
-                    FindPackageShare("arpa_moveit_config"),
+                    FindPackageShare(LaunchConfiguration("description_package")),
                     "config",
-                    "calib_kinematics.yaml",
+                    LaunchConfiguration("ur_type"),
+                    "default_kinematics.yaml",
                 ]
             ),
             description="The calibration configuration of the actual robot used.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tf_prefix",
+            default_value="",
+            description="tf_prefix of the joint names, useful for "
+            "multi-robot setup. If changed, also joint names in the controllers' configuration "
+            "have to be updated.",
         )
     )
     declared_arguments.append(
@@ -533,7 +575,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "headless_mode",
-            default_value="true",
+            default_value="false",
             description="Enable headless mode for robot control",
         )
     )
@@ -552,7 +594,6 @@ def generate_launch_description():
                 "scaled_joint_trajectory_controller",
                 "joint_trajectory_controller",
                 "forward_velocity_controller",
-                "forward_position_controller",
                 "freedrive_mode_controller",
                 "passthrough_trajectory_controller",
             ],
@@ -678,6 +719,20 @@ def generate_launch_description():
             "trajectory_port",
             default_value="50003",
             description="Port that will be opened for trajectory control.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "parker_host",
+            default_value="192.168.100.1",
+            description="IP address of the Parker linear actuator controller.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "parker_port",
+            default_value="5002",
+            description="Port of the Parker linear actuator controller.",
         )
     )
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])

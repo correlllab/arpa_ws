@@ -56,9 +56,6 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_use_depth = false;
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
-  this->declare_parameter("use_corridor_constraint", false);
-  this->declare_parameter("corridor_padding", 0.05);   // extra length (m) at each end of corridor
-  this->declare_parameter("corridor_cross_section", 0.25);  // half-width (m) perpendicular to segment; 0.5 m total cross-section
   m_arm_padding = this->get_parameter("arm_padding").as_double();
   m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "tool_head_link"};
   for(auto link : m_arm_padding_links) {
@@ -68,15 +65,37 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
 
+  // Create dedicated node for MoveGroupInterface
+  m_move_group_node = rclcpp::Node::make_shared("move_group_interface_node", options);
+
+  // Create executor and add the dedicated node
+  m_move_group_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+  m_move_group_executor->add_node(m_move_group_node);
+
+  // Start spinning the dedicated node in a separate thread
+  m_move_group_thread = std::thread([this]() {
+    m_move_group_executor->spin();
+  });
+
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Constructor Initialized");
+}
+
+MotionControlNode::~MotionControlNode()
+{
+  // Shutdown the executor and join the thread
+  m_move_group_executor->cancel();
+  if (m_move_group_thread.joinable()) {
+    m_move_group_thread.join();
+  }
 }
 
 void MotionControlNode::init()
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Init()");
   m_planning_scene_interface = std::make_shared<moveit::planning_interface::PlanningSceneInterface>();
+  // Use the dedicated node for MoveGroupInterface (has its own spinning thread)
   m_move_group = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
-    shared_from_this(), "ur16e_on_gantry");
+    m_move_group_node, "ur16e_on_gantry");
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Init() END");
 }
 

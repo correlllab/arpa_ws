@@ -13,7 +13,7 @@ controller_manager:
       type: ur_controllers/SpeedScalingStateBroadcaster
 
     force_torque_sensor_broadcaster:
-      type: ur_controllers/ForceTorqueStateBroadcaster
+      type: force_torque_sensor_broadcaster/ForceTorqueSensorBroadcaster
 
     joint_trajectory_controller:
       type: joint_trajectory_controller/JointTrajectoryController
@@ -27,7 +27,31 @@ controller_manager:
     forward_position_controller:
       type: position_controllers/JointGroupPositionController
 
+    forward_effort_controller:
+      type: effort_controllers/JointGroupEffortController
+
+    force_mode_controller:
+      type: ur_controllers/ForceModeController
+
+    freedrive_mode_controller:
+      type: ur_controllers/FreedriveModeController
+
+    passthrough_trajectory_controller:
+      type: ur_controllers/PassthroughTrajectoryController
+
+    tool_contact_controller:
+      type: ur_controllers/ToolContactController
+
+    ur_configuration_controller:
+      type: ur_controllers/URConfigurationController
+
+    tcp_pose_broadcaster:
+      type: pose_broadcaster/PoseBroadcaster
+      
     linear_actuator_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+    parker_linear_actuator:
       type: joint_trajectory_controller/JointTrajectoryController
 
 
@@ -35,6 +59,13 @@ speed_scaling_state_broadcaster:
   ros__parameters:
     state_publish_rate: 100.0
 
+io_and_status_controller:
+  ros__parameters:
+    tf_prefix: ""
+
+ur_configuration_controller:
+  ros__parameters:
+    tf_prefix: ""
 
 force_torque_sensor_broadcaster:
   ros__parameters:
@@ -77,7 +108,6 @@ joint_trajectory_controller:
       wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
       wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
 
-
 scaled_joint_trajectory_controller:
   ros__parameters:
     joints:
@@ -104,6 +134,7 @@ scaled_joint_trajectory_controller:
       wrist_1_joint: { trajectory: 0.2, goal: 0.1 }
       wrist_2_joint: { trajectory: 0.2, goal: 0.1 }
       wrist_3_joint: { trajectory: 0.2, goal: 0.1 }
+    speed_scaling_interface_name: speed_scaling/speed_scaling_factor
 
 forward_velocity_controller:
   ros__parameters:
@@ -126,18 +157,82 @@ forward_position_controller:
       - wrist_2_joint
       - wrist_3_joint
 
+forward_effort_controller:
+  ros__parameters:
+    joints:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+
+passthrough_trajectory_controller:
+  ros__parameters:
+    tf_prefix: ""
+    joints:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
+    state_interfaces:
+      - position
+      - velocity
+    speed_scaling_interface_name: speed_scaling/speed_scaling_factor
+
+force_mode_controller:
+  ros__parameters:
+    tf_prefix: ""
+
+freedrive_mode_controller:
+  ros__parameters:
+    tf_prefix: ""
+
+tool_contact_controller:
+  ros__parameters:
+    tf_prefix: ""
+
+tcp_pose_broadcaster:
+  ros__parameters:
+    frame_id: base
+    pose_name: tcp_pose
+    tf:
+      child_frame_id: tool0_controller
+
+parker_linear_actuator:
+  ros__parameters:
+    joints:
+      - linear_actuator_to_linear_actuator_plate_joint
+    command_interfaces:
+      - position
+      - velocity
+    state_interfaces:
+      - position
+      - velocity
+    state_publish_rate: 50.0
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.005
+      goal_time: 0.0
+      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.5, goal: 0.005 }
+
 linear_actuator_controller:
   ros__parameters:
     joints:
       - linear_actuator_to_linear_actuator_plate_joint
     command_interfaces:
       - position
+      - velocity
     state_interfaces:
       - position
       - velocity
-    state_publish_rate: 100.0
+    state_publish_rate: 50.0
     action_monitor_rate: 20.0
-    allow_partial_joints_goal: true
+    allow_partial_joints_goal: false
     constraints:
-      stopped_velocity_tolerance: 0.2
+      stopped_velocity_tolerance: 0.005
       goal_time: 0.0
+      linear_actuator_to_linear_actuator_plate_joint: { trajectory: 0.5, goal: 0.005 }

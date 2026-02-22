@@ -18,6 +18,7 @@ install(PROGRAMS
   scripts/scan_battery.py
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
+  scripts/move_to_pose.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

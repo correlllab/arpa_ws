@@ -1,0 +1,9 @@
+controller_names:
+  - parker_linear_actuator
+
+parker_linear_actuator:
+  type: FollowJointTrajectory
+  action_ns: /joint_trajectory_controller/follow_joint_trajectory
+  default: true
+  joints:
+    - linear_actuator_to_linear_actuator_plate_joint

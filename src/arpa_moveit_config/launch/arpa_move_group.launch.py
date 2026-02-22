@@ -36,6 +36,32 @@ def launch_setup(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration("use_sim_time")
     launch_rviz = LaunchConfiguration("launch_rviz")
     launch_servo = LaunchConfiguration("launch_servo")
+    # Additional xacro arguments
+    transmission_hw_interface = LaunchConfiguration("transmission_hw_interface")
+    headless_mode = LaunchConfiguration("headless_mode")
+    robot_ip = LaunchConfiguration("robot_ip")
+    script_filename = LaunchConfiguration("script_filename")
+    output_recipe_filename = LaunchConfiguration("output_recipe_filename")
+    input_recipe_filename = LaunchConfiguration("input_recipe_filename")
+    reverse_ip = LaunchConfiguration("reverse_ip")
+    script_command_port = LaunchConfiguration("script_command_port")
+    reverse_port = LaunchConfiguration("reverse_port")
+    script_sender_port = LaunchConfiguration("script_sender_port")
+    trajectory_port = LaunchConfiguration("trajectory_port")
+    use_tool_communication = LaunchConfiguration("use_tool_communication")
+    tool_voltage = LaunchConfiguration("tool_voltage")
+    tool_parity = LaunchConfiguration("tool_parity")
+    tool_baud_rate = LaunchConfiguration("tool_baud_rate")
+    tool_stop_bits = LaunchConfiguration("tool_stop_bits")
+    tool_rx_idle_chars = LaunchConfiguration("tool_rx_idle_chars")
+    tool_tx_idle_chars = LaunchConfiguration("tool_tx_idle_chars")
+    tool_device_name = LaunchConfiguration("tool_device_name")
+    tool_tcp_port = LaunchConfiguration("tool_tcp_port")
+    use_fake_hardware = LaunchConfiguration("use_fake_hardware")
+    fake_sensor_commands = LaunchConfiguration("fake_sensor_commands")
+    sim_gazebo = LaunchConfiguration("sim_gazebo")
+    sim_ignition = LaunchConfiguration("sim_ignition")
+    initial_positions_file = LaunchConfiguration("initial_positions_file")
 
     joint_limit_params = PathJoinSubstitution(
         [FindPackageShare(description_package), "config", ur_type, "joint_limits.yaml"]
@@ -56,7 +82,14 @@ def launch_setup(context, *args, **kwargs):
             " ",
             PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
             " ",
-            "robot_ip:=xxx.yyy.zzz.www",
+            "name:=",
+            "ur",
+            " ",
+            "ur_type:=",
+            ur_type,
+            " ",
+            "tf_prefix:=",
+            prefix,
             " ",
             "joint_limit_params:=",
             joint_limit_params,
@@ -70,6 +103,9 @@ def launch_setup(context, *args, **kwargs):
             "visual_params:=",
             visual_params,
             " ",
+            "transmission_hw_interface:=",
+            transmission_hw_interface,
+            " ",
             "safety_limits:=",
             safety_limits,
             " ",
@@ -79,20 +115,77 @@ def launch_setup(context, *args, **kwargs):
             "safety_k_position:=",
             safety_k_position,
             " ",
-            "name:=",
-            "ur",
+            "headless_mode:=",
+            headless_mode,
             " ",
-            "ur_type:=",
-            ur_type,
+            "robot_ip:=",
+            robot_ip,
             " ",
-            "script_filename:=ros_control.urscript",
+            "script_filename:=",
+            script_filename,
             " ",
-            "input_recipe_filename:=rtde_input_recipe.txt",
+            "output_recipe_filename:=",
+            output_recipe_filename,
             " ",
-            "output_recipe_filename:=rtde_output_recipe.txt",
+            "input_recipe_filename:=",
+            input_recipe_filename,
             " ",
-            "prefix:=",
-            prefix,
+            "reverse_ip:=",
+            reverse_ip,
+            " ",
+            "script_command_port:=",
+            script_command_port,
+            " ",
+            "reverse_port:=",
+            reverse_port,
+            " ",
+            "script_sender_port:=",
+            script_sender_port,
+            " ",
+            "trajectory_port:=",
+            trajectory_port,
+            " ",
+            "use_tool_communication:=",
+            use_tool_communication,
+            " ",
+            "tool_voltage:=",
+            tool_voltage,
+            " ",
+            "tool_parity:=",
+            tool_parity,
+            " ",
+            "tool_baud_rate:=",
+            tool_baud_rate,
+            " ",
+            "tool_stop_bits:=",
+            tool_stop_bits,
+            " ",
+            "tool_rx_idle_chars:=",
+            tool_rx_idle_chars,
+            " ",
+            "tool_tx_idle_chars:=",
+            tool_tx_idle_chars,
+            " ",
+            "tool_device_name:=",
+            tool_device_name,
+            " ",
+            "tool_tcp_port:=",
+            tool_tcp_port,
+            " ",
+            "use_fake_hardware:=",
+            use_fake_hardware,
+            " ",
+            "fake_sensor_commands:=",
+            fake_sensor_commands,
+            " ",
+            "sim_gazebo:=",
+            sim_gazebo,
+            " ",
+            "sim_ignition:=",
+            sim_ignition,
+            " ",
+            "initial_positions_file:=",
+            initial_positions_file,
             " ",
         ]
     )
@@ -177,6 +270,8 @@ def launch_setup(context, *args, **kwargs):
     if change_controllers == "true":
         controllers_yaml["scaled_joint_trajectory_controller"]["default"] = False
         controllers_yaml["joint_trajectory_controller"]["default"] = True
+        controllers_yaml["parker_linear_actuator"]["default"] = False
+        controllers_yaml["linear_actuator_controller"]["default"] = True
 
     moveit_controllers = {
         "moveit_simple_controller_manager": controllers_yaml,
@@ -389,6 +484,182 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument("launch_servo", default_value="true", description="Launch Servo?")
+    )
+    # Additional xacro arguments
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "transmission_hw_interface",
+            default_value="",
+            description="Transmission hardware interface.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "headless_mode",
+            default_value="false",
+            description="Enable headless mode for robot bringup.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "robot_ip",
+            default_value="0.0.0.0",
+            description="IP address of the robot.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "script_filename",
+            default_value="",
+            description="URScript filename for ros_control.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "output_recipe_filename",
+            default_value="",
+            description="RTDE output recipe filename.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "input_recipe_filename",
+            default_value="",
+            description="RTDE input recipe filename.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "reverse_ip",
+            default_value="0.0.0.0",
+            description="IP address for reverse communication.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "script_command_port",
+            default_value="50004",
+            description="Port for script commands.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "reverse_port",
+            default_value="50001",
+            description="Port for reverse communication.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "script_sender_port",
+            default_value="50002",
+            description="Port for script sender.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "trajectory_port",
+            default_value="50003",
+            description="Port for trajectory communication.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_tool_communication",
+            default_value="false",
+            description="Enable tool communication.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_voltage",
+            default_value="0",
+            description="Tool voltage setting.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_parity",
+            default_value="0",
+            description="Tool parity setting.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_baud_rate",
+            default_value="115200",
+            description="Tool baud rate.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_stop_bits",
+            default_value="1",
+            description="Tool stop bits.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_rx_idle_chars",
+            default_value="1.5",
+            description="Tool RX idle chars.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_tx_idle_chars",
+            default_value="3.5",
+            description="Tool TX idle chars.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_device_name",
+            default_value="/tmp/ttyUR",
+            description="Tool device name.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "tool_tcp_port",
+            default_value="54321",
+            description="Tool TCP port.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_fake_hardware",
+            default_value="false",
+            description="Use fake hardware for simulation.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "fake_sensor_commands",
+            default_value="false",
+            description="Enable fake sensor commands.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "sim_gazebo",
+            default_value="false",
+            description="Use Gazebo simulation.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "sim_ignition",
+            default_value="false",
+            description="Use Ignition simulation.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "initial_positions_file",
+            default_value="",
+            description="Initial positions file for simulation.",
+        )
     )
 
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])
