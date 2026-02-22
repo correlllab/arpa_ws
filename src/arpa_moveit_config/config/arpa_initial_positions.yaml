@@ -1,4 +1,4 @@
-linear_actuator_to_linear_actuator_plate_joint: 0.25
+linear_actuator_to_linear_actuator_plate_joint: 0.5
 shoulder_pan_joint: 1.575
 shoulder_lift_joint: -3.44
 elbow_joint: 1.575

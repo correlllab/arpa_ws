@@ -7,14 +7,17 @@ For each pose: plans the motion, waits for user approval, then executes.
 Uses CoreNode from move_to_pose.py for planning and execution.
 """
 
-import argparse
-import sys
 import rclpy
 from core_functionality_node import CoreNode
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PoseStamped
 import time
+import random
+
+from ortools.constraint_solver import routing_enums_pb2
+from ortools.constraint_solver import pywrapcp
+
 
 # 32 predefined scanning poses for battery inspection
 # Reference: Back Center at x=1.0225, y=0.007, z=1.253
@@ -141,15 +144,8 @@ def update_marker_color(marker_array, index, r, g, b, a=1.0):
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(description="Battery scan with optional benchmark output.")
-    parser.add_argument("--benchmark", action="store_true", help="Print BENCHMARK line at end for run_benchmark.py (wall_s, completed, skipped, per-pose plan times and success).")
-    parsed, unknown = parser.parse_known_args(args if args is not None else sys.argv[1:])
-    # Re-inject unknown args for rclpy (e.g. __node:=)
-    sys.argv = [sys.argv[0]] + unknown
-
-    rclpy.init(args=sys.argv[1:] if len(sys.argv) > 1 else None)
+    rclpy.init(args=args)
     node = CoreNode()
-    benchmark_mode = parsed.benchmark
 
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
     pose_stamped_list = scan_points_to_pose_stamped(scan_points, FRAME_ID)
@@ -172,11 +168,6 @@ def main(args=None):
 
     node.get_logger().info(f"Battery scan: {len(pose_arr)} poses to visit")
 
-    if benchmark_mode:
-        start_wall = time.monotonic()
-        benchmark_plan_times = []
-        benchmark_plan_success = []
-
     try:
         skipped_indices = []  # Track skipped poses for retry
         completed_indices = []  # Track successful poses
@@ -193,15 +184,9 @@ def main(args=None):
                 f"\n    x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f}")
 
             o = pose.pose.orientation
-            if benchmark_mode:
-                t0 = time.monotonic()
             success = node.plan_to_pose(
                 p.x, p.y, p.z, o.x, o.y, o.z, o.w,
                 frame_id=pose.header.frame_id)
-            if benchmark_mode:
-                t1 = time.monotonic()
-                benchmark_plan_times.append(t1 - t0)
-                benchmark_plan_success.append(1 if success else 0)
 
             if not success:
                 skipped_indices.append(i)
@@ -283,30 +268,8 @@ def main(args=None):
 
         node.get_logger().info("Battery scan complete.")
 
-        if benchmark_mode:
-            wall_s = time.monotonic() - start_wall
-            completed = len(completed_indices)
-            skipped = len(skipped_indices)
-            total = len(pose_arr)
-            plan_times_csv = ",".join(f"{t:.4f}" for t in benchmark_plan_times)
-            successes_csv = ",".join(str(s) for s in benchmark_plan_success)
-            # Single line for run_benchmark.py to parse
-            print(f"BENCHMARK|{wall_s:.4f}|{completed}|{skipped}|{total}|{plan_times_csv}|{successes_csv}", flush=True)
-
     except KeyboardInterrupt:
         node.get_logger().info("Scan interrupted by user.")
-        if benchmark_mode:
-            wall_s = time.monotonic() - start_wall
-            completed = len(completed_indices)
-            skipped = len(skipped_indices)
-            total = len(pose_arr)
-            # Pad to 64 poses for consistent CSV
-            while len(benchmark_plan_times) < total:
-                benchmark_plan_times.append(-1.0)
-                benchmark_plan_success.append(0)
-            plan_times_csv = ",".join(f"{t:.4f}" for t in benchmark_plan_times)
-            successes_csv = ",".join(str(s) for s in benchmark_plan_success)
-            print(f"BENCHMARK|{wall_s:.4f}|{completed}|{skipped}|{total}|{plan_times_csv}|{successes_csv}", flush=True)
     finally:
         node.remove_collision_plane(_PLANE_ID, FRAME_ID)
         node.destroy_node()

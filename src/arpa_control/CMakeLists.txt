@@ -24,6 +24,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/ExecutePlan.srv"
   "srv/StopMotion.srv"
   "srv/GetPointCloud.srv"
+  "srv/GetPoseCostMatrix.srv"
   DEPENDENCIES geometry_msgs sensor_msgs moveit_msgs
 )
 

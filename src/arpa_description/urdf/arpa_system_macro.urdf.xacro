@@ -201,10 +201,10 @@
     <xacro:tool_holder parent_link="tool0"/>
     
     <!-- Nut runner attached to tool holder (flipped to face left) -->
-    <xacro:runner parent_link="tool_holder_link" runner_mount_rpy="0 0 ${pi/2}"/>
+    <!-- <xacro:runner parent_link="tool_holder_link" runner_mount_rpy="0 0 ${pi/2}"/> -->
     
     <!-- RealSense camera attached to tool head -->
-    <xacro:camera parent_link="tool_head_link" sim_gazebo="${sim_gazebo}"/>
+    <!-- <xacro:camera parent_link="tool_head_link" sim_gazebo="${sim_gazebo}"/> -->
 
     <!-- Gazebo ros2_control plugin - required for controller_manager in simulation -->
     <xacro:if value="${sim_gazebo}">

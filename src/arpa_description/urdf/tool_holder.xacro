@@ -1,38 +1,38 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <!-- Materials (pillar_gray, gantry_gray, camera_black, etc.) defined in gantry.xacro via default_materials -->
 
   <!--
-    Macro to attach a tool holder and camera to a parent link (default: tool0)
+    Macro to attach a tool holder to a parent link (default: tool0)
     Usage:
-      <xacro:tool_holder parent_link="tool0" sim_gazebo="true"/>
+      <xacro:tool_holder parent_link="tool0"/>
   -->
   <xacro:macro name="tool_holder" params="
       parent_link
-      block_mesh:='$(find arpa_description)/meshes/tool_holder.stl'
-      block_origin_xyz:='-0.0055 -0.0055 -0.006'
-      block_origin_rpy:='${pi/2.} ${3*pi/2.} 0'
+      mesh_filename:='$(find arpa_description)/meshes/tool_holder_v2.stl'
       mass:=0.5
-      scale:='1.0 1.0 1.0'
-      sim_gazebo:=false">
+      origin_xyz:='-0.0055 -0.0055 -.006'
+      origin_rpy:='${pi/2.} ${3*pi/2.} 0'
+      scale:='1.0 1.0 1.0'">
 
-    <!-- Grey block (tool holder) at wrist -->
+    <!-- Tool Holder Link -->
     <link name="tool_holder_link">
       <visual>
         <geometry>
-          <mesh filename="file://${block_mesh}" scale="${scale}"/>
+          <mesh filename="file://${mesh_filename}" scale="${scale}"/>
         </geometry>
-        <origin xyz="${block_origin_xyz}" rpy="${block_origin_rpy}"/>
+        <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
         <material name="grey">
           <color rgba="0.5 0.5 0.5 1.0"/>
         </material>
       </visual>
+
       <collision>
         <geometry>
-          <mesh filename="file://${block_mesh}" scale="${scale}"/>
+          <box size="0.365 0.125 0.105"/>
         </geometry>
-        <origin xyz="${block_origin_xyz}" rpy="${block_origin_rpy}"/>
+        <origin xyz="0.055 -0.006 0.015" rpy="${origin_rpy}"/>
       </collision>
+
       <inertial>
         <mass value="${mass}"/>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -42,10 +42,64 @@
       </inertial>
     </link>
 
+    <!-- Fixed joint to attach to the parent link -->
     <joint name="ur_tool_holder_mount" type="fixed">
       <parent link="${parent_link}"/>
       <child link="tool_holder_link"/>
-      <origin xyz="${block_origin_xyz}" rpy="${block_origin_rpy}"/>
+      <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
+    </joint>
+
+    <link name="tool_center_link">
+      <visual>
+        <geometry>
+          <cylinder radius=".025" length="0.4"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="gantry_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius=".025" length="0.4"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <joint name="mount_to_center_joint" type="fixed">
+      <parent link="tool_holder_link"/>
+      <child link="tool_center_link"/>
+      <origin xyz="0.0575 0 -0.03" rpy="0 0 0"/>
+    </joint>
+
+    <link name="tool_head_link">
+      <visual>
+        <geometry>
+          <cylinder radius=".01" length="0.18"/>
+        </geometry>
+        <origin xyz="0 0 0"/>
+        <material name="gantry_gray"/>
+      </visual>
+      <collision>
+        <geometry>
+          <!-- <cylinder radius=".01" length="0.12"/> -->
+          <cylinder radius=".01" length="0.18"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="5.0"/>
+        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+      </inertial>
+    </link>
+
+    <joint name="center_to_tool_head_joint" type="fixed">
+      <parent link="tool_center_link"/>
+      <child link="tool_head_link"/>
+      <!-- <origin xyz="0.06 0 0.175" rpy="0 ${pi/2.} 0"/> -->
+      <origin xyz="0.09 0 0.175" rpy="0 ${pi/2.} 0"/>
+
     </joint>
 
   </xacro:macro>
