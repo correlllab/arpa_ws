@@ -764,22 +764,74 @@ void MotionControlNode::planToPoseCallback(
       return;
     }
 
-    bool success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
-    if (!success) {
-      // Fallback: retry once without corridor constraint (path may have been invalid due to tight corridor)
-      m_move_group->clearPathConstraints();
-      RCLCPP_INFO(get_logger(), "RRT with corridor failed, retrying without path constraints");
-      solutions = configureForPlanning(target_pose_in_planning_frame.pose);
-      if (solutions.empty()) {
-        response->success = false;
-        response->message = "No valid IK solutions found";
+    // Try each IK solution with corridor constraint; set joint target so we plan to the requested pose
+    for (size_t i = 0; i < solutions.size(); ++i) {
+      m_move_group->setStartStateToCurrentState();
+      m_move_group->setJointValueTarget(solutions[i]);
+
+      auto plan_result = m_move_group->plan(m_current_plan);
+      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
+        RCLCPP_INFO(get_logger(), "Planning succeeded (RRT corridor) on IK solution %zu/%zu (%zu trajectory points)",
+                    i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+        m_goal_joint_values = solutions[i];
+
+        auto goal_state = m_move_group->getCurrentState();
+        goal_state->setJointGroupPositions(
+            goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
+        goal_state->update();
+        updateGoalMarker(goal_state);
+
+        m_move_group->clearPathConstraints();
+        response->success = true;
+        response->message = "Planning successful (RRT corridor, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
+        RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
         return;
       }
-      success = (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+      RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT corridor) (MoveItErrorCode: %d)",
+                  i + 1, solutions.size(), plan_result.val);
     }
+
+    // Fallback: retry without corridor constraint (path may have been invalid due to tight corridor)
     m_move_group->clearPathConstraints();
-    response->success = success;
-    response->message = success ? "Planning successful" : "Planning failed";
+    RCLCPP_INFO(get_logger(), "RRT with corridor failed for all solutions, retrying without path constraints");
+    solutions = configureForPlanning(target_pose_in_planning_frame.pose);
+    if (solutions.empty()) {
+      response->success = false;
+      response->message = "No valid IK solutions found (after corridor fallback)";
+      return;
+    }
+
+    for (size_t i = 0; i < solutions.size(); ++i) {
+      m_move_group->setStartStateToCurrentState();
+      m_move_group->setJointValueTarget(solutions[i]);
+
+      auto plan_result = m_move_group->plan(m_current_plan);
+      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
+        RCLCPP_INFO(get_logger(), "Planning succeeded (RRT no corridor fallback) on IK solution %zu/%zu (%zu trajectory points)",
+                    i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+        m_goal_joint_values = solutions[i];
+
+        auto goal_state = m_move_group->getCurrentState();
+        goal_state->setJointGroupPositions(
+            goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
+        goal_state->update();
+        updateGoalMarker(goal_state);
+
+        response->success = true;
+        response->message = "Planning successful (RRT fallback without corridor, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
+        RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+        return;
+      }
+
+      RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT no corridor) (MoveItErrorCode: %d)",
+                  i + 1, solutions.size(), plan_result.val);
+    }
+
+    response->success = false;
+    response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT with corridor and fallback)";
+    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (RRT corridor + fallback)", solutions.size());
+    RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
   } else {
     m_current_target_pose = target_pose_in_planning_frame.pose;
 
