@@ -1,11 +1,14 @@
 import os
+import subprocess
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 def launch_setup(context, *args, **kwargs):
     # ARPA Launch Files
@@ -20,6 +23,7 @@ def launch_setup(context, *args, **kwargs):
 
     # General arguments
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
+    use_special_logic = LaunchConfiguration("use_special_logic")
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
     description_package = LaunchConfiguration("description_package")
@@ -129,7 +133,7 @@ def launch_setup(context, *args, **kwargs):
             "description_package": description_package,
             "description_file": description_file,
             "prefix": prefix,
-            "launch_rviz": "false",
+            "launch_rviz": "false",  # Only move_group starts RViz (MoveIt config); avoids two RViz and wrong config
             "initial_positions_file": initial_positions_file,
             "start_joint_controller": start_joint_controller,
             "initial_joint_controller": initial_joint_controller,
@@ -152,7 +156,7 @@ def launch_setup(context, *args, **kwargs):
             "moveit_config_file": moveit_config_file,
             "prefix": prefix,
             "use_sim_time": "true",
-            "launch_rviz": "true",
+            "launch_rviz": "false",  # RViz started below at launch so it opens immediately
             # Additional xacro arguments
             "transmission_hw_interface": transmission_hw_interface,
             "headless_mode": headless_mode,
@@ -223,7 +227,8 @@ def launch_setup(context, *args, **kwargs):
             "sim_gazebo": sim_gazebo,
             "sim_ignition": sim_ignition,
             "initial_positions_file": initial_positions_file,
-            "use_corridor_constraint": use_corridor_constraint
+            "use_corridor_constraint": use_corridor_constraint,
+            "use_special_logic": use_special_logic,
         }.items(),
     )
 
@@ -240,13 +245,131 @@ def launch_setup(context, *args, **kwargs):
         arguments=["0", "0", "0", "0", "0", "0", "world", "floor_link"]
     )
 
-    return [
+    # RViz at launch (MoveIt config) so it opens immediately; move_group connects when it starts later.
+    # Pass robot_description to RViz so RobotModel can load the URDF (and meshes); otherwise it only sees TF.
+    joint_limit_params = PathJoinSubstitution(
+        [FindPackageShare(description_package), "config", ur_type, "joint_limits.yaml"]
+    )
+    kinematics_params_file = PathJoinSubstitution(
+        [FindPackageShare(description_package), "config", ur_type, "default_kinematics.yaml"]
+    )
+    physical_params = PathJoinSubstitution(
+        [FindPackageShare(description_package), "config", ur_type, "physical_parameters.yaml"]
+    )
+    visual_params = PathJoinSubstitution(
+        [FindPackageShare(description_package), "config", ur_type, "visual_parameters.yaml"]
+    )
+    script_filename = PathJoinSubstitution(
+        [FindPackageShare("ur_client_library"), "resources", "external_control.urscript"]
+    )
+    input_recipe_filename = PathJoinSubstitution(
+        [FindPackageShare("ur_robot_driver"), "resources", "rtde_input_recipe.txt"]
+    )
+    output_recipe_filename = PathJoinSubstitution(
+        [FindPackageShare("ur_robot_driver"), "resources", "rtde_output_recipe.txt"]
+    )
+    robot_description_content = Command(
+        [
+            PathJoinSubstitution([FindExecutable(name="xacro")]),
+            " ",
+            PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file]),
+            " ",
+            "robot_ip:=", robot_ip, " ",
+            "joint_limit_params:=", joint_limit_params, " ",
+            "kinematics_params:=", kinematics_params_file, " ",
+            "physical_params:=", physical_params, " ",
+            "visual_params:=", visual_params, " ",
+            "safety_limits:=", safety_limits, " ",
+            "safety_pos_margin:=", safety_pos_margin, " ",
+            "safety_k_position:=", safety_k_position, " ",
+            "name:=", ur_type, " ",
+            "script_filename:=", script_filename, " ",
+            "input_recipe_filename:=", input_recipe_filename, " ",
+            "output_recipe_filename:=", output_recipe_filename, " ",
+            "tf_prefix:=", prefix, " ",
+            "use_fake_hardware:=", use_fake_hardware, " ",
+            "fake_sensor_commands:=", fake_sensor_commands, " ",
+            "headless_mode:=", headless_mode, " ",
+            "use_tool_communication:=", use_tool_communication, " ",
+            "tool_parity:=", tool_parity, " ",
+            "tool_baud_rate:=", tool_baud_rate, " ",
+            "tool_stop_bits:=", tool_stop_bits, " ",
+            "tool_rx_idle_chars:=", tool_rx_idle_chars, " ",
+            "tool_tx_idle_chars:=", tool_tx_idle_chars, " ",
+            "tool_device_name:=", tool_device_name, " ",
+            "tool_tcp_port:=", tool_tcp_port, " ",
+            "tool_voltage:=", tool_voltage, " ",
+            "reverse_ip:=", reverse_ip, " ",
+            "script_command_port:=", script_command_port, " ",
+            "reverse_port:=", reverse_port, " ",
+            "script_sender_port:=", script_sender_port, " ",
+            "trajectory_port:=", trajectory_port, " ",
+            "parker_host:=", LaunchConfiguration("parker_host", default="192.168.100.1"), " ",
+            "parker_port:=", LaunchConfiguration("parker_port", default="5002"), " ",
+            "sim_gazebo:=true ",
+            "initial_positions_file:=", initial_positions_file, " ",
+        ]
+    )
+    robot_description_param = {"robot_description": ParameterValue(value=robot_description_content, value_type=str)}
+
+    # SRDF for MoveIt MotionPlanning plugin (must be available at RViz start; move_group is delayed).
+    # Generate at launch time so the parameter is a real string (Command substitution can be empty in Node params).
+    moveit_config_pkg = context.perform_substitution(moveit_config_package)
+    moveit_config_f = context.perform_substitution(moveit_config_file)
+    prefix_str = context.perform_substitution(prefix)
+    # Launch default is '""'; xacro must get truly empty for link/group names (ur_manipulator not ""ur_manipulator).
+    prefix_arg = "prefix:=" if (not prefix_str or prefix_str == '""') else ("prefix:=" + prefix_str)
+    srdf_dir = os.path.join(get_package_share_directory(moveit_config_pkg), "srdf")
+    srdf_path = os.path.join(srdf_dir, moveit_config_f)
+    _srdf_warn = None
+    try:
+        srdf_result = subprocess.run(
+            ["xacro", srdf_path, "name:=ur", prefix_arg],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=srdf_dir,
+        )
+        if srdf_result.returncode == 0 and srdf_result.stdout.strip():
+            robot_description_semantic_param = {"robot_description_semantic": srdf_result.stdout}
+        else:
+            robot_description_semantic_param = {}
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+        robot_description_semantic_param = {}
+        _srdf_warn = LogInfo(
+            msg="[arpa_sim] Could not generate robot_description_semantic for RViz: " + str(e) + ". RViz MotionPlanning may stay red until move_group is up."
+        )
+
+    # Full MoveIt config (MotionPlanning + RobotState) for interactive marker and planning in RViz.
+    rviz_config_path = os.path.join(
+        get_package_share_directory(moveit_config_pkg), "rviz", "view_robot.rviz"
+    )
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2_moveit",
+        arguments=["-d", rviz_config_path],
+        parameters=[{"use_sim_time": True}, robot_description_param, robot_description_semantic_param],
+    )
+
+    # Start move_group and motion_control after controllers are loaded (spawners run after entity spawn).
+    # Avoids "controller_manager_ does not exist" / "Unable to identify controllers" at execute.
+    delayed_moveit_and_motion = TimerAction(
+        period=28.0,
+        actions=[arpa_moveit_launch, arpa_motion_control],
+    )
+
+    to_return = [
         arpa_sim_control_launch,
-        arpa_moveit_launch,
-        arpa_motion_control,
-        # arpa_gui,
-        static_tf_world_to_floor
+        delayed_moveit_and_motion,
+        arpa_gui,
+        static_tf_world_to_floor,
     ]
+    if context.perform_substitution(launch_rviz).lower() == "true":
+        to_return.append(rviz_node)
+    if _srdf_warn is not None:
+        to_return.append(_srdf_warn)
+    return to_return
 
 
 def generate_launch_description():
@@ -374,7 +497,7 @@ def generate_launch_description():
         )
     )
     declared_arguments.append(
-        DeclareLaunchArgument("launch_rviz", default_value="false", description="Launch RViz?")
+        DeclareLaunchArgument("launch_rviz", default_value="true", description="Launch RViz?")
     )
     declared_arguments.append(
         DeclareLaunchArgument(
@@ -555,6 +678,13 @@ def generate_launch_description():
             "use_corridor_constraint",
             default_value="true",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_special_logic",
+            default_value="true",
+            description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
         )
     )
 

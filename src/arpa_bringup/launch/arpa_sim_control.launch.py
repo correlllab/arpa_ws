@@ -245,15 +245,6 @@ def launch_setup(context, *args, **kwargs):
         arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
     )
 
-    # Delay rviz start after `joint_state_broadcaster`
-    delay_rviz_after_joint_state_broadcaster_spawner = RegisterEventHandler(
-        event_handler=OnProcessExit(
-            target_action=joint_state_broadcaster_spawner,
-            on_exit=[rviz_node],
-        ),
-        condition=IfCondition(launch_rviz),
-    )
-
     # There may be other controllers of the joints, but this is the initially-started one
     initial_joint_controller_spawner_started = Node(
         package="controller_manager",
@@ -294,15 +285,32 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    # Run spawners only after the entity is spawned so controller_manager exists and we avoid
+    # "already loaded" / "can not be configured from active state" races with the Gazebo plugin.
+    event_spawners_after_spawn = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=gazebo_spawn_robot,
+            on_exit=[joint_state_broadcaster_spawner],
+        ),
+    )
+    event_after_joint_state = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=joint_state_broadcaster_spawner,
+            on_exit=[
+                initial_joint_controller_spawner_stopped,
+                initial_joint_controller_spawner_started,
+                linear_actuator_controller_spawner,
+                rviz_node,
+            ],
+        ),
+    )
+
     nodes_to_start = [
         robot_state_publisher_node,
-        joint_state_broadcaster_spawner,
-        delay_rviz_after_joint_state_broadcaster_spawner,
-        initial_joint_controller_spawner_stopped,
-        initial_joint_controller_spawner_started,
-        linear_actuator_controller_spawner,
         gazebo,
         gazebo_spawn_robot,
+        event_spawners_after_spawn,
+        event_after_joint_state,
     ]
 
     return nodes_to_start

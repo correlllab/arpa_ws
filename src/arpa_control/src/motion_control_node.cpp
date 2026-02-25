@@ -1,4 +1,5 @@
 #include "arpa_control/motion_control_node.hpp"
+#include <rclcpp/exceptions.hpp>
 #include <chrono>
 #include <future>
 #include <cmath>
@@ -7,6 +8,8 @@
 #include <sstream>
 #include <cstdlib>
 #include <Eigen/Geometry>
+#include <Eigen/Dense>
+#include <moveit/robot_state/robot_state.h>
 #include <moveit_msgs/msg/position_constraint.hpp>
 #include <moveit_msgs/msg/bounding_volume.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
@@ -60,6 +63,13 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
       rclcpp::QoS(1));
 
   m_use_depth = false;
+  try {
+    m_special_logic = this->get_parameter("use_special_logic").as_bool();
+  } catch (const rclcpp::exceptions::ParameterNotDeclaredException&) {
+    this->declare_parameter("use_special_logic", true);
+    m_special_logic = this->get_parameter("use_special_logic").as_bool();
+  }
+  RCLCPP_INFO(get_logger(), "use_special_logic (m_special_logic): %s", m_special_logic ? "true" : "false");
   //TODO verify octomap resolution is being used
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
@@ -354,6 +364,141 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   return sorted_solutions;
 }
 
+double MotionControlNode::getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state)
+{
+  const Eigen::Isometry3d& actuator_tf =
+      state->getGlobalLinkTransform("linear_actuator_plate_link");
+  const Eigen::Isometry3d& wrist_tf =
+      state->getGlobalLinkTransform("wrist_3_link");
+  return (actuator_tf.translation() - wrist_tf.translation()).norm();
+}
+
+double MotionControlNode::getManipulability(const std::shared_ptr<moveit::core::RobotState>& state)
+{
+  const auto* jmg = state->getJointModelGroup(m_move_group->getName());
+  const std::string& ee_link_name = m_move_group->getEndEffectorLink();
+  const moveit::core::LinkModel* ee_link = state->getLinkModel(ee_link_name);
+  if (!jmg || !ee_link) return 0.0;
+
+  Eigen::MatrixXd jacobian;
+  state->getJacobian(jmg, ee_link, Eigen::Vector3d::Zero(), jacobian, false);
+  if (jacobian.rows() == 0 || jacobian.cols() == 0) return 0.0;
+
+  Eigen::MatrixXd jjt = jacobian * jacobian.transpose();
+  double det = jjt.determinant();
+  if (det <= 0.0) return 0.0;
+  return std::sqrt(det);
+}
+
+double MotionControlNode::getJointLimitMargin(const std::shared_ptr<moveit::core::RobotState>& state)
+{
+  const auto* jmg = state->getJointModelGroup(m_move_group->getName());
+  if (!jmg) return 0.0;
+
+  const moveit::core::RobotModel& model = *state->getRobotModel();
+  const std::vector<std::string>& var_names = jmg->getActiveJointModelNames();
+  double min_margin = std::numeric_limits<double>::infinity();
+
+  for (const std::string& name : var_names) {
+    const moveit::core::VariableBounds& b = model.getVariableBounds(name);
+    if (!b.position_bounded_) continue;
+    double pos = state->getVariablePosition(name);
+    double margin_lo = pos - b.min_position_;
+    double margin_hi = b.max_position_ - pos;
+    double margin = std::min(margin_lo, margin_hi);
+    if (margin < min_margin) min_margin = margin;
+  }
+  return std::isinf(min_margin) ? 0.0 : min_margin;
+}
+
+double MotionControlNode::getWeightedJointDistance(
+    const std::shared_ptr<moveit::core::RobotState>& current_state,
+    const std::shared_ptr<moveit::core::RobotState>& target_state)
+{
+  const auto* jmg = target_state->getJointModelGroup(m_move_group->getName());
+  std::vector<double> current_values, target_values;
+  current_state->copyJointGroupPositions(jmg, current_values);
+  target_state->copyJointGroupPositions(jmg, target_values);
+  double sum = 0.0;
+  for (size_t i = 0; i < current_values.size(); ++i) {
+    double diff = target_values[i] - current_values[i];
+    sum += m_joint_weights[i] * diff * diff;
+  }
+  return std::sqrt(sum);
+}
+
+std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
+    geometry_msgs::msg::Pose target_pose)
+{
+  auto current_state = m_move_group->getCurrentState();
+  if (!current_state) {
+    RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
+    return {};
+  }
+
+  const auto* jmg = current_state->getJointModelGroup(m_move_group->getName());
+  const std::string& ee_link = m_move_group->getEndEffectorLink();
+  const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
+  double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
+
+  struct ScoredSolution { std::vector<double> joints; double score; };
+  std::vector<ScoredSolution> scored;
+
+  for (int step = 0; step <= 10; ++step) {
+    std::vector<double> offsets;
+    if (step == 0)
+      offsets.push_back(0.0);
+    else {
+      offsets.push_back(step * 0.1);
+      offsets.push_back(-step * 0.1);
+    }
+    for (double offset : offsets) {
+      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+      double shifted_pos = original_actuator_pos + offset;
+      seed_state->setJointPositions(actuator_joint, &shifted_pos);
+      seed_state->update();
+      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) continue;
+      seed_state->update();
+
+      if (getConfigurationCost(current_state, seed_state) == std::numeric_limits<double>::infinity())
+        continue;
+
+      double clearance = getMinClearance(seed_state);
+      double manipulability = getManipulability(seed_state);
+      double joint_dist = getWeightedJointDistance(current_state, seed_state);
+      double limit_margin = getJointLimitMargin(seed_state);
+
+      const double w_clearance = 1.0;
+      const double w_manip = 0.1;
+      const double w_joint = 0.5;
+      const double w_limit = 0.2;
+      double score = w_clearance * clearance + w_manip * manipulability
+          - w_joint * joint_dist + w_limit * limit_margin;
+
+      std::vector<double> joint_positions;
+      seed_state->copyJointGroupPositions(jmg, joint_positions);
+      scored.push_back({joint_positions, score});
+    }
+  }
+
+  if (scored.empty()) {
+    RCLCPP_ERROR(get_logger(), "No valid IK solution found (special logic)");
+    return {};
+  }
+
+  std::sort(scored.begin(), scored.end(),
+      [](const ScoredSolution& a, const ScoredSolution& b) { return a.score > b.score; });
+
+  std::vector<std::vector<double>> sorted_solutions;
+  sorted_solutions.reserve(scored.size());
+  for (const auto& s : scored)
+    sorted_solutions.push_back(s.joints);
+
+  RCLCPP_INFO(get_logger(), "Special logic: %zu IK solutions (best score=%.4f, worst=%.4f)",
+      sorted_solutions.size(), scored.front().score, scored.back().score);
+  return sorted_solutions;
+}
+
 void MotionControlNode::planToPoseCallback(
     const std::shared_ptr<arpa_control::srv::PlanToPose::Request> request,
     std::shared_ptr<arpa_control::srv::PlanToPose::Response> response)
@@ -432,6 +577,50 @@ void MotionControlNode::planToPoseCallback(
   static_transform.transform.rotation = target_pose_in_planning_frame.pose.orientation;
   m_static_transform_broadcaster->sendTransform(static_transform);
 
+  // Multi-objective (MOGA-style) IK seed selection: clearance, manipulability, joint distance, limit margin.
+  if (m_special_logic && !request->use_cartesian) {
+    RCLCPP_INFO(get_logger(), "Using special logic (multi-objective IK seed selection)");
+    m_current_target_pose = target_pose_in_planning_frame.pose;
+    m_move_group->clearPoseTargets();
+
+    auto solutions = configureForPlanningSpecial(m_current_target_pose);
+    if (solutions.empty()) {
+      response->success = false;
+      response->message = "No valid IK solutions (special logic)";
+      return;
+    }
+
+    for (size_t i = 0; i < solutions.size(); ++i) {
+      m_move_group->setStartStateToCurrentState();
+      m_move_group->setJointValueTarget(solutions[i]);
+
+      auto plan_result = m_move_group->plan(m_current_plan);
+      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
+        RCLCPP_INFO(get_logger(), "Planning succeeded (special logic) on IK solution %zu/%zu (%zu trajectory points)",
+                    i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+        m_goal_joint_values = solutions[i];
+
+        auto goal_state = m_move_group->getCurrentState();
+        goal_state->setJointGroupPositions(
+            goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
+        goal_state->update();
+        updateGoalMarker(goal_state);
+
+        response->success = true;
+        response->message = "Planning successful (special logic, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
+        return;
+      }
+
+      RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (special logic) (MoveItErrorCode: %d)",
+                  i + 1, solutions.size(), plan_result.val);
+    }
+
+    response->success = false;
+    response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (special logic)";
+    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (special logic)", solutions.size());
+    return;
+  }
+
   // [Checklist 1] When use_cartesian is true, use computeCartesianPath() for straight-line motion (no RRT).
   if (request->use_cartesian) {
     // Cartesian path planning: straight-line motion to target.
@@ -465,8 +654,8 @@ void MotionControlNode::planToPoseCallback(
     waypoints.push_back(target_pose_in_planning_frame.pose);
 
     moveit_msgs::msg::RobotTrajectory trajectory;
-    const double eef_step = 0.005;  // 5mm interpolation resolution
-    const double jump_threshold = 0.0;  // Disable jump detection
+    const double eef_step = 0.01;   // 1cm step; coarser than 5mm so IK chain is less likely to abort
+    const double jump_threshold = 1.5;  // Allow small joint-space jumps (0 can abort on achievable paths)
     double fraction = m_move_group->computeCartesianPath(
         waypoints, eef_step, jump_threshold, trajectory);
 

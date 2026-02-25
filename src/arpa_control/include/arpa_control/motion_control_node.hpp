@@ -92,6 +92,14 @@ private:
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
   std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose);
+  /** Multi-objective IK seed selection (clearance, manipulability, joint distance, limit margin). */
+  std::vector<std::vector<double>> configureForPlanningSpecial(geometry_msgs::msg::Pose target_pose);
+  double getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state);
+  double getManipulability(const std::shared_ptr<moveit::core::RobotState>& state);
+  double getJointLimitMargin(const std::shared_ptr<moveit::core::RobotState>& state);
+  double getWeightedJointDistance(
+      const std::shared_ptr<moveit::core::RobotState>& current_state,
+      const std::shared_ptr<moveit::core::RobotState>& target_state);
   geometry_msgs::msg::PoseStamped poseToPlanningFrame(const geometry_msgs::msg::PoseStamped& pose_stamped);
   double computePairwiseCost(
       const geometry_msgs::msg::PoseStamped& src_pose,
@@ -119,6 +127,9 @@ private:
 
   std::mt19937 m_rng;
   std::uniform_real_distribution<double> m_arm_noise_dist;
+
+  /** When true, use multi-objective (MOGA-style) IK seed selection in planToPoseCallback. */
+  bool m_special_logic;
 };
 
 #endif // __MOTION_CONTROL_NODE__

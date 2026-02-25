@@ -62,6 +62,7 @@ def launch_setup(context, *args, **kwargs):
     prefix = LaunchConfiguration("prefix")
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
+    use_special_logic = LaunchConfiguration("use_special_logic")
     # Additional xacro arguments
     transmission_hw_interface = LaunchConfiguration("transmission_hw_interface")
     headless_mode = LaunchConfiguration("headless_mode")
@@ -263,6 +264,7 @@ def launch_setup(context, *args, **kwargs):
             {
                 "use_sim_time": use_sim_time,
                 "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
+                "use_special_logic": use_special_logic.perform(context).lower() == "true",
                 "corridor_cross_section": 0.25,
                 "corridor_padding": 0.05,
             },
@@ -380,6 +382,13 @@ def generate_launch_description():
             "use_corridor_constraint",
             default_value="false",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_special_logic",
+            default_value="true",
+            description="If true, use multi-objective (MOGA-style) IK seed selection in motion planning. Set to false to use original corridor/default logic.",
         )
     )
     # Additional xacro arguments

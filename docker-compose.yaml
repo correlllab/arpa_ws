@@ -31,7 +31,8 @@ services:
       - ROS_DISTRO=humble
       - RCUTILS_COLORIZED_OUTPUT=1
       - ROS_DOMAIN_ID=21
-      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      # Use Fast DDS (default in desktop-full). Set to rmw_cyclonedds_cpp only if image has ros-humble-rmw-cyclonedds-cpp installed.
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
       - TZ=America/Denver
 
     # Mount X11 and GPU devices
@@ -47,18 +48,18 @@ services:
       # - /etc/hosts:/etc/hosts:ro
 
     # Allocate sufficient resources
-    deploy:
-      resources:
-        limits:
-          cpus: '8'
-          memory: 32G
-        reservations:
-          cpus: '4'
-          memory: 2G
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '8'
+    #       memory: 32G
+    #     reservations:
+    #       cpus: '4'
+    #       memory: 2G
 
-    cap_add:
-      - SYS_NICE
-      - SYS_TIME
+    # cap_add:
+    #   - SYS_NICE
+    #   - SYS_TIME
 
     stdin_open: true
     tty: true

@@ -2,20 +2,21 @@
 """
 Run battery scan benchmark N times and append results to CSV files.
 
-Assumes sim + motion_control are already running (with desired use_corridor_constraint).
-Run twice: once with corridor false (launch with use_corridor_constraint:=false),
-then with corridor true (use_corridor_constraint:=true).
+Assumes sim + motion_control are already running (with desired use_corridor_constraint
+and use_special_logic). Match launch args to script args.
 
 Usage:
-  # Start sim + motion_control with corridor FALSE, then:
-  ros2 run arpa_helper_tools run_benchmark.py --corridor false --runs 10
+  # Corridor false, special logic true (default):
+  ros2 launch arpa_bringup arpa_sim.launch.py use_corridor_constraint:=false
+  ros2 run arpa_helper_tools run_benchmark.py --corridor false --special-logic true --runs 10
 
-  # Restart motion_control with corridor TRUE, then:
-  ros2 run arpa_helper_tools run_benchmark.py --corridor true --runs 10
+  # Corridor true, special logic false:
+  ros2 launch arpa_bringup arpa_sim.launch.py use_corridor_constraint:=true use_special_logic:=false
+  ros2 run arpa_helper_tools run_benchmark.py --corridor true --special-logic false --runs 10
 
 Output (CSV, in --output-dir):
-  benchmark_corridor_false.csv, benchmark_corridor_false_detail.csv
-  benchmark_corridor_true.csv,  benchmark_corridor_true_detail.csv
+  benchmark_corridor_{true|false}_special_{true|false}.csv
+  benchmark_corridor_{true|false}_special_{true|false}_detail.csv
 """
 
 import argparse
@@ -71,6 +72,13 @@ def main():
         help="Corridor setting for this batch (must match running motion_control).",
     )
     parser.add_argument(
+        "--special-logic",
+        dest="special_logic",
+        required=True,
+        choices=["true", "false"],
+        help="Special logic (multi-objective IK) setting for this batch (must match running motion_control).",
+    )
+    parser.add_argument(
         "--runs",
         type=int,
         default=10,
@@ -86,7 +94,7 @@ def main():
     output_dir = os.path.abspath(args.output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
-    base = f"benchmark_corridor_{args.corridor}"
+    base = f"benchmark_corridor_{args.corridor}_special_{args.special_logic}"
     run_csv_path = os.path.join(output_dir, f"{base}.csv")
     detail_csv_path = os.path.join(output_dir, f"{base}_detail.csv")
 
@@ -95,7 +103,7 @@ def main():
     detail_file_exists = os.path.isfile(detail_csv_path)
 
     for run_id in range(1, args.runs + 1):
-        print(f"Run {run_id}/{args.runs} (corridor={args.corridor})...", flush=True)
+        print(f"Run {run_id}/{args.runs} (corridor={args.corridor}, special_logic={args.special_logic})...", flush=True)
         out, ret = run_one_scan()
         data = None
         for line in out.splitlines():
@@ -113,11 +121,12 @@ def main():
         with open(run_csv_path, "a", newline="") as f:
             w = csv.writer(f)
             if not run_file_exists:
-                w.writerow(["run_id", "corridor", "completed", "skipped", "total", "wall_s"])
+                w.writerow(["run_id", "corridor", "special_logic", "completed", "skipped", "total", "wall_s"])
                 run_file_exists = True
             w.writerow([
                 run_id,
                 args.corridor,
+                args.special_logic,
                 data["completed"],
                 data["skipped"],
                 data["total"],
@@ -128,7 +137,7 @@ def main():
         with open(detail_csv_path, "a", newline="") as f:
             w = csv.writer(f)
             if not detail_file_exists:
-                w.writerow(["run_id", "corridor", "pose_index", "plan_time_s", "success"])
+                w.writerow(["run_id", "corridor", "special_logic", "pose_index", "plan_time_s", "success"])
                 detail_file_exists = True
             plan_times = data["plan_times"]
             successes = data["successes"]
@@ -136,7 +145,7 @@ def main():
                 pose_index = idx + 1
                 plan_time_s = plan_times[idx] if idx < len(plan_times) else -1.0
                 success = successes[idx] if idx < len(successes) else 0
-                w.writerow([run_id, args.corridor, pose_index, f"{plan_time_s:.4f}", success])
+                w.writerow([run_id, args.corridor, args.special_logic, pose_index, f"{plan_time_s:.4f}", success])
 
         print(f"  completed={data['completed']}, skipped={data['skipped']}, wall_s={data['wall_s']:.1f}", flush=True)
 
