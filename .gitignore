@@ -8,3 +8,7 @@ src/gazebo_ros2_control/gazebo_ros2_control/COLCON_IGNORE
 src/gazebo_ros2_control/gazebo_ros2_control_demos/COLCON_IGNORE
 *.pt
 *.pth
+src/arpa_vision/arpa_vision/scripts/runs/
+src/arpa_vision/arpa_vision/scripts/dataset/
+__pycache__/
+

@@ -287,8 +287,16 @@ def launch_setup(context, *args, **kwargs):
         arguments=["0", "0", "0", "0", "0", "0", "world", "floor_link"]
     )
 
+    vision_node = Node(
+        package="arpa_vision",
+        executable="vision_node",
+        name="arpa_vision_node"
+    )
 
-
+    vision_node_delayed = TimerAction(
+        period=10.0,
+        actions=[vision_node]
+    )
 
     return [
         ur_driver,
@@ -299,7 +307,8 @@ def launch_setup(context, *args, **kwargs):
         # arpa_gui,
         arpa_depth,
         ethernet_motor_interface_node,
-        static_tf_world_to_floor
+        static_tf_world_to_floor,
+        # vision_node_delayed
     ]
 
 
