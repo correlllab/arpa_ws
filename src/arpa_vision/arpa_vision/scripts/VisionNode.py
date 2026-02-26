@@ -184,13 +184,13 @@ class VisionNode(Node):
             self._update_detections(pcds, bboxes_3d, labels_3d, probs_3d)
             update_ms = (time.time() - t2) * 1000
             total_tracked = sum(len(v) for v in self.detections.values())
-            self.get_logger().info(
-                f'[process_queue][success]YOLO {yolo_ms:.0f}ms | pcd {pcd_ms:.0f}ms | update {update_ms:.0f}ms '
-                f'({len(pcds)} PCDs) | tracked={total_tracked}'
-            )
+            # self.get_logger().info(
+            #     f'[process_queue][success]YOLO {yolo_ms:.0f}ms | pcd {pcd_ms:.0f}ms | update {update_ms:.0f}ms '
+            #     f'({len(pcds)} PCDs) | tracked={total_tracked}'
+            # )
         else:
-            self.get_logger().info(f'[process_queue][failed]YOLO {yolo_ms:.0f}ms | no detections')
-
+            # self.get_logger().info(f'[process_queue][failed]YOLO {yolo_ms:.0f}ms | no detections')
+            pass
         self.last_header = rgb_msg.header
 
     def _bbox_to_pcd(self, img, depth_m, box, intrinsics, obs_pose):

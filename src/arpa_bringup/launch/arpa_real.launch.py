@@ -308,7 +308,7 @@ def launch_setup(context, *args, **kwargs):
         arpa_depth,
         ethernet_motor_interface_node,
         static_tf_world_to_floor,
-        # vision_node_delayed
+        vision_node_delayed
     ]
 
 

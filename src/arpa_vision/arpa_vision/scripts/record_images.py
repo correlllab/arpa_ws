@@ -13,6 +13,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import CompressedImage
+from std_srvs.srv import Trigger
 from cv_bridge import CvBridge
 
 rgb_topic = "/realsense/ee_cam/color/image_raw/compressed"
@@ -37,9 +38,10 @@ class RecordImagesNode(Node):
             depth=1,
         )
         self.sub = self.create_subscription(CompressedImage, rgb_topic, self._cb, qos)
+        self.capture_srv = self.create_service(Trigger, 'record_images/capture', self._capture_cb)
         self.get_logger().info(f'Subscribed to {rgb_topic}')
         self.get_logger().info(f'Saving images to: {self.dataset_folder}')
-        self.get_logger().info('Press Enter to save a frame.')
+        self.get_logger().info('Press Enter to save a frame, or call /record_images/capture.')
 
     def _cb(self, msg):
         frame = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -51,11 +53,22 @@ class RecordImagesNode(Node):
             frame = self.latest_frame.copy() if self.latest_frame is not None else None
         if frame is None:
             self.get_logger().warn('No frame received yet.')
-            return
+            return None
         timestamp = time.strftime('%Y%m%d_%H%M%S')
         filename = os.path.join(self.dataset_folder, f'{timestamp}.png')
         cv2.imwrite(filename, frame)
         self.get_logger().info(f'Saved: {filename}')
+        return filename
+
+    def _capture_cb(self, request, response):
+        filename = self.save_latest()
+        if filename is None:
+            response.success = False
+            response.message = 'No frame received yet'
+        else:
+            response.success = True
+            response.message = f'Saved: {filename}'
+        return response
 
 
 def input_loop(node):

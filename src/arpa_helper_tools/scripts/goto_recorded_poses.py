@@ -46,13 +46,11 @@ def main(args=None):
 
     node.get_logger().info(f"Connected to record_poses. {len(recorded_poses)} poses available.")
 
-    node.motor_control(100)
     try:
         for pose in recorded_poses:
             x, y, z, qx, qy, qz, qw = pose
             plan_successful = False
             while not plan_successful:
-                time.sleep(2)
                 success = node.plan_to_pose(x, y, z, qx, qy, qz, qw)
                 if success:
                     plan_successful = True
@@ -60,16 +58,21 @@ def main(args=None):
                 else:
                     node.get_logger().warn("Planning failed, retrying...")
             node.execute_plan()
+
             node.get_logger().info("Triggering zforce behavior...")
             node.trigger_behavior("zforce")
             node.get_logger().info("Zforce behavior completed.")
+            node.motor_control(100)
             node.trigger_behavior("play")
-            time.sleep(1)
+            time.sleep(2)
+
             node.get_logger().info("Triggering retract behavior...")
             node.trigger_behavior("retract")
             node.get_logger().info("Retract behavior completed.")
             node.trigger_behavior("play")
-            time.sleep(3)
+            time.sleep(1)
+            
+            node.motor_control(0)
             node.trigger_behavior("ros2control")
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
