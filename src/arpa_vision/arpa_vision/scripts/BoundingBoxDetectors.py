@@ -64,7 +64,7 @@ class YOLO_WORLD:
         """
         self.model.set_classes(queries)
         with torch.no_grad():
-            results = self.model.predict(img, show=False, verbose=debug, conf=0.01, nms=True, iou=0.01)[0]
+            results = self.model.predict(img, show=False, verbose=debug, conf=0.5, nms=True, iou=0.01)[0]
         if debug:
             print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
 

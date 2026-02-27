@@ -75,7 +75,7 @@ N_X_STEPS = 8 # Number of positions along X
 N_Y_STEPS = 8  # Number of positions along Y
 
 # When True, only visit the three outermost rows and columns (border band of depth 3)
-only_outside_points = True
+only_outside_points = False
 
 # Orientation quaternion (pointing down for scanning)
 # Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
@@ -84,21 +84,27 @@ _QX, _QY, _QZ, _QW = 0.7071068, 0.7071068, 0.0, 0.0
 # 9 scan orientations per spatial point:
 #   straight down + ±45° pitch (tilt around world Y) x ±45° roll (tilt around world X)
 #   Ordered as a 3×3 grid: pitch in {-45, 0, +45} × roll in {-45, 0, +45}
-_SCAN_TILT_DEG = 45.0
+_SCAN_TILT_DEG = 25.0
 _BASE_ROT = R.from_euler('xyz', [180.0, 0.0, 90.0], degrees=True)
 _SCAN_ORIENTATIONS = []
-for _pitch in [-_SCAN_TILT_DEG, 0.0, _SCAN_TILT_DEG]:
-    for _roll in [-_SCAN_TILT_DEG, 0.0, _SCAN_TILT_DEG]:
-        _tilt = R.from_euler('y', _pitch, degrees=True) * R.from_euler('x', _roll, degrees=True)
-        _q = (_tilt * _BASE_ROT).as_quat()  # [qx, qy, qz, qw]
-        _SCAN_ORIENTATIONS.append((float(_q[0]), float(_q[1]), float(_q[2]), float(_q[3])))
+# Straight down always first, then the 8 tilted orientations
+_tilt_pairs = [(0.0, 0.0)] + [
+    (_p, _r)
+    for _p in [-_SCAN_TILT_DEG, 0.0, _SCAN_TILT_DEG]
+    for _r in [-_SCAN_TILT_DEG, 0.0, _SCAN_TILT_DEG]
+    if not (_p == 0.0 and _r == 0.0)
+]
+for _pitch, _roll in _tilt_pairs:
+    _tilt = R.from_euler('y', _pitch, degrees=True) * R.from_euler('x', _roll, degrees=True)
+    _q = (_tilt * _BASE_ROT).as_quat()  # [qx, qy, qz, qw]
+    _SCAN_ORIENTATIONS.append((float(_q[0]), float(_q[1]), float(_q[2]), float(_q[3])))
 
 # Generate X and Y positions from bounds
 _X_POSITIONS = [LOWER_LEFT[0] + i * (UPPER_RIGHT[0] - LOWER_LEFT[0]) / (N_X_STEPS - 1) for i in range(N_X_STEPS)]
 _Y_POSITIONS = [LOWER_LEFT[1] + i * (UPPER_RIGHT[1] - LOWER_LEFT[1]) / (N_Y_STEPS - 1) for i in range(N_Y_STEPS)]
 
 # Generate poses in zigzag pattern (scan along Y at each X row, alternating Y direction)
-_OUTSIDE_DEPTH = 3  # Number of outermost rows/columns to include when only_outside_points is True
+_OUTSIDE_DEPTH = 2  # Number of outermost rows/columns to include when only_outside_points is True
 scan_points = []
 for row_idx, x_pos in enumerate(_X_POSITIONS):
     y_range = _Y_POSITIONS# if row_idx % 2 == 0 else list(reversed(_Y_POSITIONS))
@@ -210,60 +216,72 @@ def main(args=None):
         successes_list = []    # Per-pose 1/0 for --benchmark
         scan_start_time = time.time() if benchmark_mode else None
 
-        # First pass: visit all poses, skip failures
+        # Use 9 tilted orientations for the outer-edge scan, straight-down only otherwise
+        active_orientations = _SCAN_ORIENTATIONS if only_outside_points else [(_QX, _QY, _QZ, _QW)]
+
+        # First pass: visit all spatial positions, skip failures
         for i, pose in enumerate(pose_arr):
-            # Highlight current pose in yellow
+            # Highlight current position in yellow
             update_marker_color(marker_array, i, r=1.0, g=1.0, b=0.0)
             marker_pub.publish(marker_array)
 
             p = pose.pose.position
             node.get_logger().info(
-                f"\n--- [{i+1}/{len(pose_arr)}] Pose {i+1} ---"
+                f"\n--- [{i+1}/{len(pose_arr)}] Position {i+1} ---"
                 f"\n    x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f}")
 
-            o = pose.pose.orientation
-            t0 = time.time()
-            success = node.plan_to_pose(
-                p.x, p.y, p.z, o.x, o.y, o.z, o.w,
-                frame_id=pose.header.frame_id)
-            plan_time_s = time.time() - t0
+            orientation_successes = 0
+            for j, (qx, qy, qz, qw) in enumerate(active_orientations):
+                if len(active_orientations) > 1:
+                    node.get_logger().info(f"  Orientation [{j+1}/{len(active_orientations)}]")
 
-            if benchmark_mode:
-                plan_times_list.append(plan_time_s)
+                t0 = time.time()
+                success = node.plan_to_pose(
+                    p.x, p.y, p.z, qx, qy, qz, qw,
+                    frame_id=pose.header.frame_id)
+                plan_time_s = time.time() - t0
 
-            if not success:
                 if benchmark_mode:
-                    successes_list.append(0)
-                skipped_indices.append(i)
-                update_marker_color(marker_array, i, r=1.0, g=0.5, b=0.0, a=0.8)
-                marker_pub.publish(marker_array)
-                node.get_logger().warn(f"Skipping Pose {i+1} (will retry later)")
-                continue
+                    plan_times_list.append(plan_time_s)
 
-            if not node.execute_plan():
+                if not success:
+                    if benchmark_mode:
+                        successes_list.append(0)
+                    node.get_logger().warn(f"  Orientation {j+1} planning failed, skipping")
+                    continue
+
+                if not node.execute_plan():
+                    if benchmark_mode:
+                        successes_list.append(0)
+                    node.get_logger().error(f"  Orientation {j+1} execution failed, skipping")
+                    continue
+
                 if benchmark_mode:
-                    successes_list.append(0)
+                    successes_list.append(1)
+                orientation_successes += 1
+
+                time.sleep(0.666)  # Brief pause to stabilize before capture
+
+                if capture_client.service_is_ready():
+                    future = capture_client.call_async(Trigger.Request())
+                    rclpy.spin_until_future_complete(node, future, timeout_sec=2.0)
+                    if future.done():
+                        node.get_logger().info(f"  Captured at orientation {j+1}: {future.result().message}")
+                    else:
+                        node.get_logger().warn(f"  Capture timed out at orientation {j+1}")
+                else:
+                    node.get_logger().warn(f"  Capture service not available at orientation {j+1}, skipping")
+
+            if orientation_successes == 0:
                 skipped_indices.append(i)
                 update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)
-                marker_pub.publish(marker_array)
-                node.get_logger().error(f"Execution failed for Pose {i+1} (will retry later)")
-                continue
-            if benchmark_mode:
-                successes_list.append(1)
-            completed_indices.append(i)
-            update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
-            marker_pub.publish(marker_array)
-            node.get_logger().info(f"Completed Pose {i+1}")
-
-            if capture_client.service_is_ready():
-                future = capture_client.call_async(Trigger.Request())
-                rclpy.spin_until_future_complete(node, future, timeout_sec=2.0)
-                if future.done():
-                    node.get_logger().info(f"Captured: {future.result().message}")
-                else:
-                    node.get_logger().warn("Capture service timed out")
+                node.get_logger().warn(f"All orientations failed at Position {i+1}")
             else:
-                node.get_logger().warn("Capture service not available, skipping")
+                completed_indices.append(i)
+                update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
+                node.get_logger().info(
+                    f"Completed Position {i+1} ({orientation_successes}/{len(active_orientations)} orientations)")
+            marker_pub.publish(marker_array)
 
         node.get_logger().info("Battery scan complete.")
 

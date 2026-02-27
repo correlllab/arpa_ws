@@ -62,6 +62,10 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
       "/goal_robot_state",
       rclcpp::QoS(1));
 
+  m_corridor_marker_pub = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/corridor_marker",
+      rclcpp::QoS(1));
+
   m_use_depth = false;
   try {
     m_special_logic = this->get_parameter("use_special_logic").as_bool();
@@ -129,16 +133,16 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
   //RVIZ uses 5s, 10 attempts, 0.1 vel scaling, 0.1 accel scaling
-  m_move_group->setPlanningTime(5.0);//(5.0);
-  m_move_group->setNumPlanningAttempts(10);//(10);
+  m_move_group->setPlanningTime(2.5);//(5.0);
+  m_move_group->setNumPlanningAttempts(5);//(10);
   m_move_group->setMaxVelocityScalingFactor(0.1);
   m_move_group->setMaxAccelerationScalingFactor(0.1);
-  m_move_group->setGoalPositionTolerance(0.001);  // 1mm tolerance
-  m_move_group->setGoalOrientationTolerance(0.001);  // ~0.057 degrees
-  m_move_group->setGoalJointTolerance(0.001);  // 0.001 rad (~0.057 degrees) per joint
+  m_move_group->setGoalPositionTolerance(0.005);  // 1mm tolerance
+  m_move_group->setGoalOrientationTolerance(0.005);  // ~0.057 degrees
+  m_move_group->setGoalJointTolerance(0.005);  // 0.001 rad (~0.057 degrees) per joint
 
   m_move_group->allowReplanning(true);
-  m_move_group->setReplanAttempts(3);
+  m_move_group->setReplanAttempts(1);
   m_move_group->setReplanDelay(0.1);  // seconds between replans
 
   // Allow sensor updates during planning
@@ -291,7 +295,7 @@ void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::Rob
   m_goal_state_pub->publish(display_state);
 }
 
-std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
+std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose, bool multi_seed)
 {
   auto current_state = m_move_group->getCurrentState();
   if (!current_state) {
@@ -310,35 +314,56 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   std::vector<double> all_costs;
 
   // Try IK with linear actuator offsets: 0, +0.1, -0.1, +0.2, -0.2, ... +/-1.0
-  for (int step = 0; step <= 10; ++step) {
-    std::vector<double> offsets;
-    if (step == 0) {
-      offsets.push_back(0.0);
-    } else {
-      offsets.push_back(step * 0.1);
-      offsets.push_back(-step * 0.1);
-    }
-
-    for (double offset : offsets) {
-      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-      double shifted_pos = original_actuator_pos + offset;
-      seed_state->setJointPositions(actuator_joint, &shifted_pos);
-      seed_state->update();
-
-      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
-        RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
-        continue;
+  if(multi_seed){
+    for (int step = 0; step <= 10; ++step) {
+      std::vector<double> offsets;
+      if (step == 0) {
+        offsets.push_back(0.0);
+      } else {
+        offsets.push_back(step * 0.1);
+        offsets.push_back(-step * 0.1);
       }
-      seed_state->update();
 
-      double cost = getConfigurationCost(current_state, seed_state);
-      if (std::isinf(cost)) continue;
+      for (double offset : offsets) {
+        auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+        double shifted_pos = original_actuator_pos + offset;
+        seed_state->setJointPositions(actuator_joint, &shifted_pos);
+        seed_state->update();
 
-      std::vector<double> joint_positions;
-      seed_state->copyJointGroupPositions(jmg, joint_positions);
-      all_solutions.push_back(joint_positions);
-      all_costs.push_back(cost);
+        if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
+          RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
+          continue;
+        }
+        seed_state->update();
+
+        double cost = getConfigurationCost(current_state, seed_state);
+        if (std::isinf(cost)) continue;
+
+        std::vector<double> joint_positions;
+        seed_state->copyJointGroupPositions(jmg, joint_positions);
+        all_solutions.push_back(joint_positions);
+        all_costs.push_back(cost);
+      }
     }
+  } else {
+    // Original logic: just try the current actuator position as the seed
+    auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+    if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
+      RCLCPP_ERROR(get_logger(), "IK failed for current actuator position %.3f m", original_actuator_pos);
+      return {};
+    }
+    seed_state->update();
+
+    double cost = getConfigurationCost(current_state, seed_state);
+    if (std::isinf(cost)) {
+      RCLCPP_ERROR(get_logger(), "Current configuration has infinite cost, likely due to proximity issues");
+      return {};
+    }
+
+    std::vector<double> joint_positions;
+    seed_state->copyJointGroupPositions(jmg, joint_positions);
+    all_solutions.push_back(joint_positions);
+    all_costs.push_back(1);
   }
 
   if (all_solutions.empty()) {
@@ -505,6 +530,7 @@ void MotionControlNode::planToPoseCallback(
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() START");
   const bool use_corridor = this->get_parameter("use_corridor_constraint").as_bool();
+  const bool constrain_orientation = this->get_parameter("constrain_corridor_orientation").as_bool();
 
   if (m_use_depth)
   {
@@ -687,16 +713,16 @@ void MotionControlNode::planToPoseCallback(
     }
   } else if (use_corridor) {
     // #region agent log
-    {
-      std::ostringstream o;
-      o << "{\"hypothesisId\":\"H3,H4\",\"location\":\"motion_control:rrt_branch\",\"message\":\"planning_branch\",\"data\":{\"branch\":\"rrt\"}";
-      o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
-      const char* lp = std::getenv("DEBUG_LOG_PATH");
-      std::string log_path = lp ? lp : "/root/ros2_ws/.cursor/debug.log";
-      std::ofstream f(log_path, std::ios::app);
-      if (f) f << o.str();
-    }
+    // {
+    //   std::ostringstream o;
+    //   o << "{\"hypothesisId\":\"H3,H4\",\"location\":\"motion_control:rrt_branch\",\"message\":\"planning_branch\",\"data\":{\"branch\":\"rrt\"}";
+    //   o << ",\"timestamp\":" << std::chrono::duration_cast<std::chrono::milliseconds>(
+    //         std::chrono::system_clock::now().time_since_epoch()).count() << "}\n";
+    //   const char* lp = std::getenv("DEBUG_LOG_PATH");
+    //   std::string log_path = lp ? lp : "/root/ros2_ws/.cursor/debug.log";
+    //   std::ofstream f(log_path, std::ios::app);
+    //   if (f) f << o.str();
+    // }
     RCLCPP_INFO(get_logger(), "[DEBUG_H4] branch=rrt");
     // #endregion
     m_move_group->setStartStateToCurrentState();
@@ -749,8 +775,39 @@ void MotionControlNode::planToPoseCallback(
           pos_constraint.constraint_region.primitives.push_back(box);
           pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
 
+          // Publish corridor box for visualization in RViz
+          visualization_msgs::msg::Marker corridor_marker;
+          corridor_marker.header.frame_id = planning_frame;
+          corridor_marker.header.stamp = now();
+          corridor_marker.ns = "corridor";
+          corridor_marker.id = 0;
+          corridor_marker.type = visualization_msgs::msg::Marker::CUBE;
+          corridor_marker.action = visualization_msgs::msg::Marker::ADD;
+          corridor_marker.pose = box_pose;
+          corridor_marker.scale.x = box.dimensions[0];
+          corridor_marker.scale.y = box.dimensions[1];
+          corridor_marker.scale.z = box.dimensions[2];
+          corridor_marker.color.r = 0.0f;
+          corridor_marker.color.g = 0.8f;
+          corridor_marker.color.b = 1.0f;
+          corridor_marker.color.a = 0.25f;
+          m_corridor_marker_pub->publish(corridor_marker);
+
           moveit_msgs::msg::Constraints path_constraints;
           path_constraints.position_constraints.push_back(pos_constraint);
+
+          if (constrain_orientation) {
+            moveit_msgs::msg::OrientationConstraint oc;
+            oc.header.frame_id = planning_frame;
+            oc.link_name = ee_link;
+            oc.orientation = target_pose_in_planning_frame.pose.orientation;
+            oc.absolute_x_axis_tolerance = 0.4;
+            oc.absolute_y_axis_tolerance = 0.4;
+            oc.absolute_z_axis_tolerance = 0.4;
+            oc.weight = 1.0;
+            path_constraints.orientation_constraints.push_back(oc);
+          }
+
           m_move_group->setPathConstraints(path_constraints);
           RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
         }
@@ -1076,8 +1133,16 @@ double MotionControlNode::computePairwiseCost(
     const geometry_msgs::msg::PoseStamped& src_pose,
     const geometry_msgs::msg::PoseStamped& tgt_pose,
     const moveit::core::JointModelGroup* jmg,
-    const std::string& ee_link)
+    const std::string& ee_link,
+    bool euclidean)
 {
+  if (euclidean) {
+    const auto& sp = src_pose.pose.position;
+    const auto& tp = tgt_pose.pose.position;
+    double dx = sp.x - tp.x, dy = sp.y - tp.y, dz = sp.z - tp.z;
+    return std::sqrt(dx*dx + dy*dy + dz*dz);
+  }
+
   const int num_samples = 25;
   double min_cost = std::numeric_limits<double>::infinity();
   int src_ik_failures = 0;
@@ -1180,7 +1245,7 @@ void MotionControlNode::getPoseCostMatrixCallback(
       if (i == j) continue;
       futures.push_back({i, j, std::async(std::launch::async,
           &MotionControlNode::computePairwiseCost, this,
-          std::cref(planning_poses[i]), std::cref(planning_poses[j]), jmg, ee_link)});
+          std::cref(planning_poses[i]), std::cref(planning_poses[j]), jmg, ee_link, request->euclidean)});
     }
   }
 

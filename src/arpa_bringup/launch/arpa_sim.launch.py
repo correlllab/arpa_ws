@@ -23,6 +23,7 @@ def launch_setup(context, *args, **kwargs):
 
     # General arguments
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
+    constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
     use_special_logic = LaunchConfiguration("use_special_logic")
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
@@ -228,6 +229,7 @@ def launch_setup(context, *args, **kwargs):
             "sim_ignition": sim_ignition,
             "initial_positions_file": initial_positions_file,
             "use_corridor_constraint": use_corridor_constraint,
+            "constrain_corridor_orientation": constrain_corridor_orientation,
             "use_special_logic": use_special_logic,
         }.items(),
     )
@@ -678,6 +680,13 @@ def generate_launch_description():
             "use_corridor_constraint",
             default_value="true",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "constrain_corridor_orientation",
+            default_value="true",
+            description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
         )
     )
     declared_arguments.append(

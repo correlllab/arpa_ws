@@ -1,6 +1,6 @@
 """
 record_images.py
-Subscribes to the EE camera RGB topic. Press Enter to save the latest frame as a PNG.
+Subscribes to the EE camera RGB topic and exposes a /record_images/capture service to save frames.
 Usage:
     ros2 run arpa_vision record_images
     ros2 run arpa_vision record_images --ros-args -p dataset_folder:=/path/to/folder
@@ -41,7 +41,7 @@ class RecordImagesNode(Node):
         self.capture_srv = self.create_service(Trigger, 'record_images/capture', self._capture_cb)
         self.get_logger().info(f'Subscribed to {rgb_topic}')
         self.get_logger().info(f'Saving images to: {self.dataset_folder}')
-        self.get_logger().info('Press Enter to save a frame, or call /record_images/capture.')
+        self.get_logger().info('Call /record_images/capture to save a frame.')
 
     def _cb(self, msg):
         frame = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -71,35 +71,12 @@ class RecordImagesNode(Node):
         return response
 
 
-def input_loop(node):
-    while rclpy.ok():
-        try:
-            input()  # blocks until Enter
-        except EOFError:
-            break
-        node.save_latest()
-
-
 def main(args=None):
     rclpy.init(args=args)
     node = RecordImagesNode()
-
-    spin_thread  = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
-    input_thread = threading.Thread(target=input_loop, args=(node,), daemon=True)
-    spin_thread.start()
-    input_thread.start()
-
-    cv2.namedWindow('Record Images', cv2.WINDOW_NORMAL)
     try:
-        while rclpy.ok():
-            with node.lock:
-                frame = node.latest_frame.copy() if node.latest_frame is not None else None
-            if frame is not None:
-                cv2.imshow('Record Images', frame)
-            if cv2.waitKey(33) == ord('q'):  # ~30 fps; q to quit
-                break
+        rclpy.spin(node)
     finally:
-        cv2.destroyAllWindows()
         node.destroy_node()
         rclpy.shutdown()
 

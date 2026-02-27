@@ -23,6 +23,7 @@
 #include <moveit_msgs/msg/orientation_constraint.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <visualization_msgs/msg/interactive_marker_feedback.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 
 
 // lidar
@@ -91,7 +92,7 @@ private:
   double getConfigurationCost(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
-  std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose);
+  std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose, bool multi_seed = true);
   /** Multi-objective IK seed selection (clearance, manipulability, joint distance, limit margin). */
   std::vector<std::vector<double>> configureForPlanningSpecial(geometry_msgs::msg::Pose target_pose);
   double getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state);
@@ -105,9 +106,11 @@ private:
       const geometry_msgs::msg::PoseStamped& src_pose,
       const geometry_msgs::msg::PoseStamped& tgt_pose,
       const moveit::core::JointModelGroup* jmg,
-      const std::string& ee_link);
+      const std::string& ee_link,
+      bool euclidean = false);
   void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
   rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_goal_state_pub;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr m_corridor_marker_pub;
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;
   float m_arm_padding;
   std::map<std::string, double> m_arm_padding_map;

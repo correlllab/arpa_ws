@@ -62,6 +62,7 @@ def launch_setup(context, *args, **kwargs):
     prefix = LaunchConfiguration("prefix")
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
+    constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
     use_special_logic = LaunchConfiguration("use_special_logic")
     # Additional xacro arguments
     transmission_hw_interface = LaunchConfiguration("transmission_hw_interface")
@@ -264,9 +265,10 @@ def launch_setup(context, *args, **kwargs):
             {
                 "use_sim_time": use_sim_time,
                 "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
+                "constrain_corridor_orientation": constrain_corridor_orientation.perform(context).lower() == "true",
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
-                "corridor_cross_section": 0.25,
-                "corridor_padding": 0.05,
+                "corridor_cross_section": 0.5,
+                "corridor_padding": 0.25,
             },
         ],
     )
@@ -382,6 +384,13 @@ def generate_launch_description():
             "use_corridor_constraint",
             default_value="true",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "constrain_corridor_orientation",
+            default_value="true",
+            description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
         )
     )
     declared_arguments.append(

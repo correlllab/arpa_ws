@@ -270,7 +270,7 @@ class CoreNode(Node):
         return result.success
 
 
-    def get_tsp_order(self, poses):
+    def get_tsp_order(self, poses, euclidean=True):
         """
         poses: list of PoseStamped
 
@@ -311,6 +311,7 @@ class CoreNode(Node):
         self.get_logger().info(f"Requesting {n}x{n} cost matrix from service...")
         req = GetPoseCostMatrix.Request()
         req.poses = all_poses
+        req.euclidean = euclidean
         start_time = time.time()
         future = self.pose_cost_matrix_client.call_async(req)
         while not future.done():
