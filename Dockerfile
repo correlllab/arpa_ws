@@ -23,13 +23,26 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
 RUN apt update && apt install -y \
     ros-humble-desktop-full \
     ros-humble-moveit \
+    ros-humble-moveit-ros-planning-interface \
+    ros-humble-moveit-ros-visualization \
+    ros-humble-moveit-simple-controller-manager \
+    ros-humble-moveit-planners-ompl \
+    ros-humble-moveit-servo \
     ros-humble-gazebo-ros \
     ros-humble-gazebo-ros-pkgs \
+    ros-humble-gazebo-dev \
     ros-humble-gazebo-plugins \
     ros-humble-gazebo-msgs \
     ros-humble-ros2-control \
+    ros-humble-controller-manager \
+    ros-humble-control-toolbox \
     ros-humble-ros2-controllers \
+    ros-humble-ros2-control-test-assets \
+    ros-humble-joint-trajectory-controller \
+    ros-humble-ur-msgs \
+    ros-humble-ur-client-library \
     gazebo \
+    libgazebo-dev \
     python3-colcon-common-extensions \
     git build-essential cmake
 
@@ -51,7 +64,7 @@ RUN mkdir -p src
 
 COPY src/custom_ros_messages/ src/custom_ros_messages/
 COPY src/arpa_control/ src/arpa_control/
-COPY src/arpa_behavior_trees/ src/arpa_behavior_trees/
+COPY src/arpa_bt_executor/ src/arpa_bt_executor/
 COPY src/arpa_description/ src/arpa_description/
 COPY src/Universal_Robots_ROS2_Driver/ src/Universal_Robots_ROS2_Driver/
 COPY src/Universal_Robots_ROS2_Gazebo_Simulation/ src/Universal_Robots_ROS2_Gazebo_Simulation/

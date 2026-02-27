@@ -16,6 +16,7 @@ from ortools.constraint_solver import pywrapcp
 import threading
 import time
 import tf2_ros
+from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
 
 BASE_FRAME = "floor_link"
 EE_FRAME = "wrist_3_link"
@@ -38,15 +39,33 @@ class CoreNode(Node):
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix')
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
 
+        # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
-        self.plan_client.wait_for_service()
+        if not self.plan_client.wait_for_service(timeout_sec=30.0):
+            raise RuntimeError("Timed out waiting for plan_to_pose service")
         self.get_logger().info("Waiting for execute_plan service...")
-        self.exec_client.wait_for_service()
-        self.get_logger().info("Waiting for motor_control service...")
-        self.motor_client.wait_for_service()
-        self.get_logger().info("Waiting for ur16e_rest/BehaviorTrigger service...")
-        self.behavior_client.wait_for_service()
-        self.get_logger().info("Services ready!")
+        if not self.exec_client.wait_for_service(timeout_sec=30.0):
+            raise RuntimeError("Timed out waiting for execute_plan service")
+
+        # Optional services (available on real robot / full stack; skip in sim if missing)
+        self.get_logger().info("Checking optional services...")
+        self._motor_available = self.motor_client.wait_for_service(timeout_sec=2.0)
+        if not self._motor_available:
+            self.get_logger().warn("motor_control service not available (continuing without motor control)")
+
+        self._behavior_available = self.behavior_client.wait_for_service(timeout_sec=2.0)
+        if not self._behavior_available:
+            self.get_logger().warn("ur16e_rest/BehaviorTrigger service not available (continuing without behavior triggers)")
+
+        self._update_depth_available = self.update_depth_client.wait_for_service(timeout_sec=2.0)
+        if not self._update_depth_available:
+            self.get_logger().warn("update_depth service not available (continuing without depth updates)")
+
+        self._pose_cost_matrix_available = self.pose_cost_matrix_client.wait_for_service(timeout_sec=5.0)
+        if not self._pose_cost_matrix_available:
+            self.get_logger().warn("get_pose_cost_matrix service not available (will use pose list order without TSP optimization)")
+
+        self.get_logger().info("Core services ready!")
 
 
         self.tf_buffer = tf2_ros.Buffer()
@@ -130,6 +149,9 @@ class CoreNode(Node):
             return False
 
     def motor_control(self, speed):
+        if not getattr(self, "_motor_available", False):
+            self.get_logger().warn("Motor control requested but motor_control service is unavailable (skipping)")
+            return False
         if not self.motor_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("Motor control service not available")
             return False
@@ -153,6 +175,9 @@ class CoreNode(Node):
         return result.success
 
     def update_depth(self):
+        if not getattr(self, "_update_depth_available", False):
+            self.get_logger().warn("Depth update requested but update_depth service is unavailable (skipping)")
+            return False
         if not self.update_depth_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("Update depth service not available")
             return False
@@ -221,6 +246,9 @@ class CoreNode(Node):
         return False
 
     def trigger_behavior(self, behavior):
+        if not getattr(self, "_behavior_available", False):
+            self.get_logger().warn(f"Behavior '{behavior}' requested but BehaviorTrigger service is unavailable (skipping)")
+            return False
         if not self.behavior_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("Behavior service not available")
             return False
@@ -248,14 +276,23 @@ class CoreNode(Node):
 
         returns: list of PoseStamped in optimal visit order from current robot position
         """
+        if not getattr(self, "_pose_cost_matrix_available", False):
+            return poses
 
-        # Get current EE pose as start node
-        transform: TransformStamped = self.tf_buffer.lookup_transform(
-            BASE_FRAME,
-            EE_FRAME,
-            rclpy.time.Time(),
-            timeout=rclpy.duration.Duration(seconds=2.0)
-        )
+        # Get current EE pose as start node (required for TSP). If TF not ready, use pose order.
+        try:
+            transform: TransformStamped = self.tf_buffer.lookup_transform(
+                BASE_FRAME,
+                EE_FRAME,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=2.0)
+            )
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            self.get_logger().warn(
+                f"TF not available for TSP ({e}). Using pose list order."
+            )
+            return poses
+
         start_pose = PoseStamped()
         start_pose.header.frame_id = BASE_FRAME
         start_pose.pose.position.x = transform.transform.translation.x

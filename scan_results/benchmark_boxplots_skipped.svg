@@ -1,20 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 280" width="400" height="280">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 280" width="500" height="280">
 <style>text { font: 12px sans-serif; } .title { font: 14px sans-serif; }</style>
-<text x="200.0" y="20" text-anchor="middle" class="title">Run-level: skipped</text>
+<text x="250.0" y="20" text-anchor="middle" class="title">Run-level: skipped</text>
 <text x="40" y="140.0" text-anchor="middle" transform="rotate(-90,40,140.0)">Skipped</text>
-<line x1="153.33333333333331" y1="178.9814814814815" x2="153.33333333333331" y2="214.16666666666666" stroke="#333" stroke-width="1"/>
-<line x1="153.33333333333331" y1="178.9814814814815" x2="153.33333333333331" y2="55.83333333333334" stroke="#333" stroke-width="1"/>
-<line x1="122.33333333333331" y1="214.16666666666666" x2="184.33333333333331" y2="214.16666666666666" stroke="#333" stroke-width="1"/>
-<line x1="122.33333333333331" y1="55.83333333333334" x2="184.33333333333331" y2="55.83333333333334" stroke="#333" stroke-width="1"/>
-<rect x="122.33333333333331" y="145.99537037037038" width="61.99999999999999" height="65.97222222222223" fill="#cce5ff" stroke="#333" stroke-width="1"/>
-<line x1="122.33333333333331" y1="178.9814814814815" x2="184.33333333333331" y2="178.9814814814815" stroke="#333" stroke-width="2"/>
-<text x="153.33333333333331" y="275" text-anchor="middle">false</text>
-<line x1="256.6666666666667" y1="192.17592592592592" x2="256.6666666666667" y2="214.16666666666666" stroke="#333" stroke-width="1"/>
-<line x1="256.6666666666667" y1="192.17592592592592" x2="256.6666666666667" y2="135.0" stroke="#333" stroke-width="1"/>
-<line x1="225.66666666666669" y1="214.16666666666666" x2="287.6666666666667" y2="214.16666666666666" stroke="#333" stroke-width="1"/>
-<line x1="225.66666666666669" y1="135.0" x2="287.6666666666667" y2="135.0" stroke="#333" stroke-width="1"/>
-<rect x="225.66666666666669" y="172.38425925925927" width="61.99999999999999" height="37.38425925925927" fill="#cce5ff" stroke="#333" stroke-width="1"/>
-<line x1="225.66666666666669" y1="192.17592592592592" x2="287.6666666666667" y2="192.17592592592592" stroke="#333" stroke-width="2"/>
-<text x="256.6666666666667" y="275" text-anchor="middle">true</text>
+<line x1="152.5" y1="165.44871794871796" x2="152.5" y2="189.80769230769232" stroke="#333" stroke-width="1"/>
+<line x1="152.5" y1="165.44871794871796" x2="152.5" y2="104.55128205128206" stroke="#333" stroke-width="1"/>
+<line x1="121.75" y1="189.80769230769232" x2="183.25" y2="189.80769230769232" stroke="#333" stroke-width="1"/>
+<line x1="121.75" y1="104.55128205128206" x2="183.25" y2="104.55128205128206" stroke="#333" stroke-width="1"/>
+<rect x="121.75" y="131.95512820512823" width="61.5" height="45.673076923076906" fill="#cce5ff" stroke="#333" stroke-width="1"/>
+<line x1="121.75" y1="165.44871794871796" x2="183.25" y2="165.44871794871796" stroke="#333" stroke-width="2"/>
+<text x="152.5" y="275" text-anchor="middle">c=false,s=false</text>
+<line x1="255.0" y1="159.35897435897436" x2="255.0" y2="201.9871794871795" stroke="#333" stroke-width="1"/>
+<line x1="255.0" y1="159.35897435897436" x2="255.0" y2="55.83333333333334" stroke="#333" stroke-width="1"/>
+<line x1="224.25" y1="201.9871794871795" x2="285.75" y2="201.9871794871795" stroke="#333" stroke-width="1"/>
+<line x1="224.25" y1="55.83333333333334" x2="285.75" y2="55.83333333333334" stroke="#333" stroke-width="1"/>
+<rect x="224.25" y="122.82051282051282" width="61.5" height="51.762820512820525" fill="#cce5ff" stroke="#333" stroke-width="1"/>
+<line x1="224.25" y1="159.35897435897436" x2="285.75" y2="159.35897435897436" stroke="#333" stroke-width="2"/>
+<text x="255.0" y="275" text-anchor="middle">c=false,s=true</text>
+<line x1="357.5" y1="214.16666666666666" x2="357.5" y2="214.16666666666666" stroke="#333" stroke-width="1"/>
+<line x1="357.5" y1="214.16666666666666" x2="357.5" y2="201.9871794871795" stroke="#333" stroke-width="1"/>
+<line x1="326.75" y1="214.16666666666666" x2="388.25" y2="214.16666666666666" stroke="#333" stroke-width="1"/>
+<line x1="326.75" y1="201.9871794871795" x2="388.25" y2="201.9871794871795" stroke="#333" stroke-width="1"/>
+<rect x="326.75" y="201.9871794871795" width="61.5" height="12.179487179487154" fill="#cce5ff" stroke="#333" stroke-width="1"/>
+<line x1="326.75" y1="214.16666666666666" x2="388.25" y2="214.16666666666666" stroke="#333" stroke-width="2"/>
+<text x="357.5" y="275" text-anchor="middle">c=true,s=false</text>
 </svg>

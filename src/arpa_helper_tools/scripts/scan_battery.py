@@ -7,14 +7,22 @@ For each pose: plans the motion, waits for user approval, then executes.
 Uses CoreNode from move_to_pose.py for planning and execution.
 """
 
+import argparse
+import random
+import sys
+import time
+
 import rclpy
 from core_functionality_node import CoreNode
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PoseStamped
+<<<<<<< HEAD
 from std_srvs.srv import Trigger
 import time
 import random
+=======
+>>>>>>> allen-main
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
@@ -145,6 +153,11 @@ def update_marker_color(marker_array, index, r, g, b, a=1.0):
 
 
 def main(args=None):
+    parser = argparse.ArgumentParser(description="Battery scan poses; use --benchmark for run_benchmark.py.")
+    parser.add_argument("--benchmark", action="store_true", help="Print BENCHMARK|... line to stdout for run_benchmark.py")
+    parsed, unknown = parser.parse_known_args(args)
+    benchmark_mode = parsed.benchmark
+
     rclpy.init(args=args)
     node = CoreNode()
 
@@ -174,6 +187,9 @@ def main(args=None):
     try:
         skipped_indices = []  # Track skipped poses for retry
         completed_indices = []  # Track successful poses
+        plan_times_list = []  # Per-pose plan time (s) for --benchmark
+        successes_list = []    # Per-pose 1/0 for --benchmark
+        scan_start_time = time.time() if benchmark_mode else None
 
         # First pass: visit all poses, skip failures
         for i, pose in enumerate(pose_arr):
@@ -187,11 +203,18 @@ def main(args=None):
                 f"\n    x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f}")
 
             o = pose.pose.orientation
+            t0 = time.time()
             success = node.plan_to_pose(
                 p.x, p.y, p.z, o.x, o.y, o.z, o.w,
                 frame_id=pose.header.frame_id)
+            plan_time_s = time.time() - t0
+
+            if benchmark_mode:
+                plan_times_list.append(plan_time_s)
 
             if not success:
+                if benchmark_mode:
+                    successes_list.append(0)
                 skipped_indices.append(i)
                 update_marker_color(marker_array, i, r=1.0, g=0.5, b=0.0, a=0.8)
                 marker_pub.publish(marker_array)
@@ -199,11 +222,15 @@ def main(args=None):
                 continue
 
             if not node.execute_plan():
+                if benchmark_mode:
+                    successes_list.append(0)
                 skipped_indices.append(i)
                 update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)
                 marker_pub.publish(marker_array)
                 node.get_logger().error(f"Execution failed for Pose {i+1} (will retry later)")
                 continue
+            if benchmark_mode:
+                successes_list.append(1)
             completed_indices.append(i)
             update_marker_color(marker_array, i, r=0.0, g=1.0, b=0.0)
             marker_pub.publish(marker_array)
@@ -220,6 +247,16 @@ def main(args=None):
                 node.get_logger().warn("Capture service not available, skipping")
 
         node.get_logger().info("Battery scan complete.")
+
+        if benchmark_mode and scan_start_time is not None:
+            wall_s = time.time() - scan_start_time
+            completed = len(completed_indices)
+            skipped = len(skipped_indices)
+            total = len(pose_arr)
+            plan_times_csv = ",".join(f"{t:.4f}" for t in plan_times_list)
+            successes_csv = ",".join(str(s) for s in successes_list)
+            # Single line for run_benchmark.py to parse (must match parse_benchmark_line)
+            print(f"BENCHMARK|{wall_s:.4f}|{completed}|{skipped}|{total}|{plan_times_csv}|{successes_csv}", flush=True)
 
     except KeyboardInterrupt:
         node.get_logger().info("Scan interrupted by user.")

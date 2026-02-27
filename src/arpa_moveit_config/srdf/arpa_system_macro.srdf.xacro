@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <robot xmlns:xacro="http://wiki.ros.org/xacro">
   <xacro:macro name="arpa_system" params="name prefix">
-    <group name="linear_actuator_axis">
-      <joint name="linear_actuator_to_linear_actuator_plate_joint"/>
-    </group>
+    <!-- ur_manipulator first so Motion Planning plugin defaults to arm-only group -->
     <group name="${prefix}${name}ur_manipulator">
       <chain base_link="${prefix}base_link" tip_link="${prefix}tool0"/>
+    </group>
+    <group name="linear_actuator_axis">
+      <joint name="linear_actuator_to_linear_actuator_plate_joint"/>
     </group>
     <group name="${prefix}end_effector">
       <chain base_link="${prefix}tool0" tip_link="${prefix}tool_head_link"/>

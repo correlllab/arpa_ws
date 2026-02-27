@@ -21,11 +21,46 @@ RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
       > /etc/apt/sources.list.d/ros2.list
 
 RUN apt update && apt install -y \
-    ros-humble-desktop-full \
-    python3-colcon-common-extensions \
-    git build-essential cmake \
-    ros-humble-rmw-cyclonedds-cpp
+    # ros-humble-desktop-full \
+    # ros-humble-moveit-ros-visualization \
+    # ros-humble-moveit-servo \
+    # ros-humble-moveit-planners-ompl \
+    # ros-humble-moveit-simple-controller-manager \
+    # ros-humble-ur-client-library \
+    # ros-humble-gazebo-ros \
+    # ros-humble-gazebo-ros-pkgs \
+    # ros-humble-controller-manager \
+    # ros-humble-control-toolbox \
+    # ros-humble-ros2-controllers \
+    # python3-colcon-common-extensions \
+    # git build-essential cmake \
+    # ros-humble-rmw-cyclonedds-cpp
 
+
+    ros-humble-desktop-full \
+    ros-humble-moveit \
+    ros-humble-moveit-ros-planning-interface \
+    ros-humble-moveit-ros-visualization \
+    ros-humble-moveit-simple-controller-manager \
+    ros-humble-moveit-planners-ompl \
+    ros-humble-moveit-servo \
+    ros-humble-gazebo-ros \
+    ros-humble-gazebo-ros-pkgs \
+    ros-humble-gazebo-dev \
+    ros-humble-gazebo-plugins \
+    ros-humble-gazebo-msgs \
+    ros-humble-ros2-control \
+    ros-humble-controller-manager \
+    ros-humble-control-toolbox \
+    ros-humble-ros2-controllers \
+    ros-humble-ros2-control-test-assets \
+    ros-humble-joint-trajectory-controller \
+    ros-humble-ur-msgs \
+    ros-humble-ur-client-library \
+    gazebo \
+    libgazebo-dev \
+    python3-colcon-common-extensions \
+    git build-essential cmake
 # -------------------------------
 # 2. Install BehaviorTree.CPP v4
 # -------------------------------
