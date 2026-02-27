@@ -23,6 +23,7 @@
 #include <moveit_msgs/msg/orientation_constraint.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <visualization_msgs/msg/interactive_marker_feedback.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 
 
 // lidar
@@ -107,7 +108,34 @@ private:
       const moveit::core::JointModelGroup* jmg,
       const std::string& ee_link);
   void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
+  /** Set path constraints to a cuboid corridor between start_pos and end_pos. */
+  void setCorridorPathConstraints(
+      const Eigen::Vector3d& start_pos,
+      const Eigen::Vector3d& end_pos,
+      double padding,
+      double cross_section,
+      const geometry_msgs::msg::Quaternion& desired_orientation,
+      const std::string& planning_frame,
+      const std::string& ee_link);
+  /** Set path constraints to a square flat corridor (axis-aligned box, large XY, small Z). Used as fallback when rectangular corridor planning fails. */
+  void setSquareFlatCorridorPathConstraints(
+      const Eigen::Vector3d& center,
+      double xy_half_extent,
+      double z_half_extent,
+      const geometry_msgs::msg::Quaternion& desired_orientation,
+      const std::string& planning_frame,
+      const std::string& ee_link);
+  /** Publish a corridor box marker to RViz (rectangular or square-flat). */
+  void publishCorridorMarker(
+      const std::string& frame_id,
+      const Eigen::Vector3d& position,
+      const Eigen::Quaterniond& orientation,
+      double dim_x, double dim_y, double dim_z,
+      bool is_flat_corridor);
+  /** Remove the corridor marker from RViz (call before showing a new corridor or when planning ends). */
+  void clearCorridorMarker();
   rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_goal_state_pub;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr m_corridor_marker_pub;
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;
   float m_arm_padding;
   std::map<std::string, double> m_arm_padding_map;

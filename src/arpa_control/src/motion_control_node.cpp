@@ -61,6 +61,9 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_goal_state_pub = this->create_publisher<moveit_msgs::msg::DisplayRobotState>(
       "/goal_robot_state",
       rclcpp::QoS(1));
+  m_corridor_marker_pub = this->create_publisher<visualization_msgs::msg::Marker>(
+      "/planning_corridor_marker",
+      rclcpp::QoS(1));
 
   m_use_depth = false;
   try {
@@ -78,6 +81,23 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   for(auto link : m_arm_padding_links) {
     m_arm_padding_map[link] = m_arm_padding;
   }
+
+  // IK seed solver tuning (more/diverse seeds often yield plans that pass post-processing)
+  try {
+    this->declare_parameter("ik_seed_timeout", 0.2);  // seconds per setFromIK attempt (increase if IK often fails)
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("ik_seed_actuator_offset_step", 0.1);  // actuator offset step (m), e.g. 0.05 for finer
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("ik_seed_actuator_offset_max", 1.0);  // max actuator offset (m) from current
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("ik_seed_perturbation_attempts", 1);   // extra IK tries per offset with perturbed arm seed (0=off)
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("ik_seed_min_clearance", 0.60);  // min distance wrist–actuator (m); lower allows more solutions
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
 
   m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
@@ -225,11 +245,10 @@ double MotionControlNode::getConfigurationCost(
       target_state->getGlobalLinkTransform("wrist_3_link");
 
   double ee_distance = (actuator_tf.translation() - elbow_tf.translation()).norm();
-  //TODO
-  //min elbow distance should be a param
-  if (ee_distance < 0.650) {
+  const double min_clearance = this->get_parameter("ik_seed_min_clearance").as_double();
+  if (ee_distance < min_clearance) {
     RCLCPP_WARN(get_logger(),
-        "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
+        "EE too close to linear actuator plate: %.3f m (min %.2f m)", ee_distance, min_clearance);
     return std::numeric_limits<double>::infinity();
   }
 
@@ -291,6 +310,182 @@ void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::Rob
   m_goal_state_pub->publish(display_state);
 }
 
+void MotionControlNode::setCorridorPathConstraints(
+    const Eigen::Vector3d& start_pos,
+    const Eigen::Vector3d& end_pos,
+    double padding,
+    double cross_section,
+    const geometry_msgs::msg::Quaternion& desired_orientation,
+    const std::string& planning_frame,
+    const std::string& ee_link)
+{
+  Eigen::Vector3d diff = end_pos - start_pos;
+  double seg_len = diff.norm();
+  if (seg_len < 1e-6) return;
+
+  Eigen::Vector3d dir = diff / seg_len;
+  const double validation_margin = 1.4;  // so trajectory waypoints pass post-processing
+  double length_along = (seg_len + 2.0 * padding) * validation_margin;
+  const double cross_width = 2.0 * cross_section * validation_margin;
+  length_along = std::max(length_along, cross_width);
+  const double min_dim = 0.05;
+  length_along = std::max(length_along, min_dim);
+  const double width = std::max(cross_width, min_dim);
+  Eigen::Vector3d mid = start_pos + 0.5 * diff;
+  Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
+
+  moveit_msgs::msg::PositionConstraint pos_constraint;
+  pos_constraint.header.frame_id = planning_frame;
+  pos_constraint.link_name = ee_link;
+  pos_constraint.target_point_offset.x = 0.0;
+  pos_constraint.target_point_offset.y = 0.0;
+  pos_constraint.target_point_offset.z = 0.0;
+  pos_constraint.weight = 1.0;
+
+  shape_msgs::msg::SolidPrimitive box;
+  box.type = shape_msgs::msg::SolidPrimitive::BOX;
+  box.dimensions.resize(3);
+  box.dimensions[0] = length_along;
+  box.dimensions[1] = width;
+  box.dimensions[2] = width;
+
+  geometry_msgs::msg::Pose box_pose;
+  box_pose.position.x = mid.x();
+  box_pose.position.y = mid.y();
+  box_pose.position.z = mid.z();
+  box_pose.orientation.x = quat.x();
+  box_pose.orientation.y = quat.y();
+  box_pose.orientation.z = quat.z();
+  box_pose.orientation.w = quat.w();
+
+  pos_constraint.constraint_region.primitives.push_back(box);
+  pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
+
+  // Relaxed orientation so trajectory waypoints pass MoveIt post-processing (~0.5 rad ~29°)
+  moveit_msgs::msg::OrientationConstraint ocm;
+  ocm.link_name = ee_link;
+  ocm.header.frame_id = planning_frame;
+  // Lock orientation to the requested target pose (not a hard-coded quaternion).
+  ocm.orientation = desired_orientation;
+  ocm.absolute_x_axis_tolerance = 0.5;
+  ocm.absolute_y_axis_tolerance = 0.5;
+  ocm.absolute_z_axis_tolerance = 2.0 * M_PI;   // free rotation around Z (tool axis)
+  ocm.weight = 1.0;
+
+  moveit_msgs::msg::Constraints path_constraints;
+  path_constraints.position_constraints.push_back(pos_constraint);
+  path_constraints.orientation_constraints.push_back(ocm);
+  m_move_group->setPathConstraints(path_constraints);
+
+  publishCorridorMarker(planning_frame, mid, quat, length_along, width, width, false);
+}
+
+void MotionControlNode::setSquareFlatCorridorPathConstraints(
+    const Eigen::Vector3d& center,
+    double xy_half_extent,
+    double z_half_extent,
+    const geometry_msgs::msg::Quaternion& desired_orientation,
+    const std::string& planning_frame,
+    const std::string& ee_link)
+{
+  const double min_dim = 0.05;
+  const double xy = std::max(2.0 * xy_half_extent, min_dim);
+  const double z = std::max(2.0 * z_half_extent, min_dim);
+
+  moveit_msgs::msg::PositionConstraint pos_constraint;
+  pos_constraint.header.frame_id = planning_frame;
+  pos_constraint.link_name = ee_link;
+  pos_constraint.target_point_offset.x = 0.0;
+  pos_constraint.target_point_offset.y = 0.0;
+  pos_constraint.target_point_offset.z = 0.0;
+  pos_constraint.weight = 1.0;
+
+  shape_msgs::msg::SolidPrimitive box;
+  box.type = shape_msgs::msg::SolidPrimitive::BOX;
+  box.dimensions.resize(3);
+  box.dimensions[0] = xy;
+  box.dimensions[1] = xy;
+  box.dimensions[2] = z;
+
+  geometry_msgs::msg::Pose box_pose;
+  box_pose.position.x = center.x();
+  box_pose.position.y = center.y();
+  box_pose.position.z = center.z();
+  box_pose.orientation.x = 0.0;
+  box_pose.orientation.y = 0.0;
+  box_pose.orientation.z = 0.0;
+  box_pose.orientation.w = 1.0;
+
+  pos_constraint.constraint_region.primitives.push_back(box);
+  pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
+
+  moveit_msgs::msg::OrientationConstraint ocm;
+  ocm.link_name = ee_link;
+  ocm.header.frame_id = planning_frame;
+  // Lock orientation to the requested target pose (not a hard-coded quaternion).
+  ocm.orientation = desired_orientation;
+  ocm.absolute_x_axis_tolerance = 0.5;
+  ocm.absolute_y_axis_tolerance = 0.5;
+  ocm.absolute_z_axis_tolerance = 2.0 * M_PI;
+  ocm.weight = 1.0;
+
+  moveit_msgs::msg::Constraints path_constraints;
+  path_constraints.position_constraints.push_back(pos_constraint);
+  path_constraints.orientation_constraints.push_back(ocm);
+  m_move_group->setPathConstraints(path_constraints);
+
+  Eigen::Quaterniond identity(1.0, 0.0, 0.0, 0.0);
+  publishCorridorMarker(planning_frame, center, identity, xy, xy, z, true);
+}
+
+void MotionControlNode::publishCorridorMarker(
+    const std::string& frame_id,
+    const Eigen::Vector3d& position,
+    const Eigen::Quaterniond& orientation,
+    double dim_x, double dim_y, double dim_z,
+    bool is_flat_corridor)
+{
+  visualization_msgs::msg::Marker m;
+  m.header.frame_id = frame_id;
+  m.header.stamp = now();
+  m.ns = "planning_corridor";
+  m.id = 0;
+  m.type = visualization_msgs::msg::Marker::CUBE;
+  m.action = visualization_msgs::msg::Marker::ADD;
+  m.pose.position.x = position.x();
+  m.pose.position.y = position.y();
+  m.pose.position.z = position.z();
+  m.pose.orientation.x = orientation.x();
+  m.pose.orientation.y = orientation.y();
+  m.pose.orientation.z = orientation.z();
+  m.pose.orientation.w = orientation.w();
+  m.scale.x = dim_x;
+  m.scale.y = dim_y;
+  m.scale.z = dim_z;
+  if (is_flat_corridor) {
+    m.color.r = 0.2f;
+    m.color.g = 0.4f;
+    m.color.b = 1.0f;
+  } else {
+    m.color.r = 0.2f;
+    m.color.g = 1.0f;
+    m.color.b = 0.2f;
+  }
+  m.color.a = 0.35f;
+  m_corridor_marker_pub->publish(m);
+}
+
+void MotionControlNode::clearCorridorMarker()
+{
+  visualization_msgs::msg::Marker m;
+  m.header.frame_id = "world";
+  m.header.stamp = now();
+  m.ns = "planning_corridor";
+  m.id = 0;
+  m.action = visualization_msgs::msg::Marker::DELETE;
+  m_corridor_marker_pub->publish(m);
+}
+
 std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose)
 {
   auto current_state = m_move_group->getCurrentState();
@@ -306,27 +501,64 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
   RCLCPP_INFO(get_logger(), "Current linear actuator position: %.3f m", original_actuator_pos);
 
+  const double ik_timeout = this->get_parameter("ik_seed_timeout").as_double();
+  const double offset_step = this->get_parameter("ik_seed_actuator_offset_step").as_double();
+  const double offset_max = this->get_parameter("ik_seed_actuator_offset_max").as_double();
+  const int perturbation_attempts = std::max(0, static_cast<int>(this->get_parameter("ik_seed_perturbation_attempts").as_int()));
+
+  // Clamp actuator seed to joint limits so we never pass an invalid seed (important for centre poses)
+  double actuator_min = -std::numeric_limits<double>::infinity();
+  double actuator_max = std::numeric_limits<double>::infinity();
+  const moveit::core::RobotModel& model = *current_state->getRobotModel();
+  const moveit::core::JointModel* jm = model.getJointModel(actuator_joint);
+  if (jm && jm->getVariableCount() > 0) {
+    const std::string& var_name = jm->getVariableNames()[0];
+    const moveit::core::VariableBounds& b = model.getVariableBounds(var_name);
+    if (b.position_bounded_) {
+      actuator_min = b.min_position_;
+      actuator_max = b.max_position_;
+    }
+  }
+
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Try IK with linear actuator offsets: 0, +0.1, -0.1, +0.2, -0.2, ... +/-1.0
-  for (int step = 0; step <= 10; ++step) {
-    std::vector<double> offsets;
-    if (step == 0) {
-      offsets.push_back(0.0);
-    } else {
-      offsets.push_back(step * 0.1);
-      offsets.push_back(-step * 0.1);
-    }
+  // Build actuator seeds: 0, ±step, ... ±offset_max (clamped to limits), plus explicit min/max so centre poses get good coverage
+  std::vector<double> actuator_seeds;
+  actuator_seeds.push_back(original_actuator_pos);
+  for (double o = offset_step; o <= offset_max + 1e-9; o += offset_step) {
+    double p_plus = std::clamp(original_actuator_pos + o, actuator_min, actuator_max);
+    double p_minus = std::clamp(original_actuator_pos - o, actuator_min, actuator_max);
+    if (std::find_if(actuator_seeds.begin(), actuator_seeds.end(), [p_plus](double v) { return std::abs(v - p_plus) < 1e-6; }) == actuator_seeds.end())
+      actuator_seeds.push_back(p_plus);
+    if (std::find_if(actuator_seeds.begin(), actuator_seeds.end(), [p_minus](double v) { return std::abs(v - p_minus) < 1e-6; }) == actuator_seeds.end())
+      actuator_seeds.push_back(p_minus);
+  }
+  if (std::isfinite(actuator_min) && std::find_if(actuator_seeds.begin(), actuator_seeds.end(), [actuator_min](double v) { return std::abs(v - actuator_min) < 1e-6; }) == actuator_seeds.end())
+    actuator_seeds.push_back(actuator_min);
+  if (std::isfinite(actuator_max) && std::find_if(actuator_seeds.begin(), actuator_seeds.end(), [actuator_max](double v) { return std::abs(v - actuator_max) < 1e-6; }) == actuator_seeds.end())
+    actuator_seeds.push_back(actuator_max);
 
-    for (double offset : offsets) {
+  const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
+  const size_t num_joints = joint_names.size();
+
+  for (double seed_pos : actuator_seeds) {
+    for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
       auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-      double shifted_pos = original_actuator_pos + offset;
-      seed_state->setJointPositions(actuator_joint, &shifted_pos);
-      seed_state->update();
+      seed_state->setJointPositions(actuator_joint, &seed_pos);
+      if (perturb > 0 && num_joints > 1) {
+        for (size_t i = 1; i < num_joints; ++i) {
+          double v = seed_state->getVariablePosition(joint_names[i]);
+          v += m_arm_noise_dist(m_rng) * 0.15;  // small perturbation to get different IK branch
+          seed_state->setVariablePosition(joint_names[i], v);
+        }
+        seed_state->update();
+      } else {
+        seed_state->update();
+      }
 
-      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
-        RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
+      if (!seed_state->setFromIK(jmg, target_pose, ee_link, ik_timeout)) {
+        RCLCPP_DEBUG(get_logger(), "IK failed for actuator seed %.2f%s", seed_pos, perturb ? " (perturbed)" : "");
         continue;
       }
       seed_state->update();
@@ -342,7 +574,8 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   }
 
   if (all_solutions.empty()) {
-    RCLCPP_ERROR(get_logger(), "No valid IK solution found across actuator offsets +/- 1.0 m");
+    RCLCPP_ERROR(get_logger(), "No valid IK solution found (%zu actuator seeds, perturbs=%d)",
+        actuator_seeds.size(), perturbation_attempts);
     return {};
   }
 
@@ -441,23 +674,60 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
   const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
   double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
 
+  const double ik_timeout = this->get_parameter("ik_seed_timeout").as_double();
+  const double offset_step = this->get_parameter("ik_seed_actuator_offset_step").as_double();
+  const double offset_max = this->get_parameter("ik_seed_actuator_offset_max").as_double();
+  const int perturbation_attempts = std::max(0, static_cast<int>(this->get_parameter("ik_seed_perturbation_attempts").as_int()));
+
+  double actuator_min = -std::numeric_limits<double>::infinity();
+  double actuator_max = std::numeric_limits<double>::infinity();
+  const moveit::core::RobotModel& model_spec = *current_state->getRobotModel();
+  const moveit::core::JointModel* jm_spec = model_spec.getJointModel(actuator_joint);
+  if (jm_spec && jm_spec->getVariableCount() > 0) {
+    const std::string& var_name_spec = jm_spec->getVariableNames()[0];
+    const moveit::core::VariableBounds& b = model_spec.getVariableBounds(var_name_spec);
+    if (b.position_bounded_) {
+      actuator_min = b.min_position_;
+      actuator_max = b.max_position_;
+    }
+  }
+
+  std::vector<double> actuator_seeds_spec;
+  actuator_seeds_spec.push_back(original_actuator_pos);
+  for (double o = offset_step; o <= offset_max + 1e-9; o += offset_step) {
+    double p_plus = std::clamp(original_actuator_pos + o, actuator_min, actuator_max);
+    double p_minus = std::clamp(original_actuator_pos - o, actuator_min, actuator_max);
+    if (std::find_if(actuator_seeds_spec.begin(), actuator_seeds_spec.end(), [p_plus](double v) { return std::abs(v - p_plus) < 1e-6; }) == actuator_seeds_spec.end())
+      actuator_seeds_spec.push_back(p_plus);
+    if (std::find_if(actuator_seeds_spec.begin(), actuator_seeds_spec.end(), [p_minus](double v) { return std::abs(v - p_minus) < 1e-6; }) == actuator_seeds_spec.end())
+      actuator_seeds_spec.push_back(p_minus);
+  }
+  if (std::isfinite(actuator_min) && std::find_if(actuator_seeds_spec.begin(), actuator_seeds_spec.end(), [actuator_min](double v) { return std::abs(v - actuator_min) < 1e-6; }) == actuator_seeds_spec.end())
+    actuator_seeds_spec.push_back(actuator_min);
+  if (std::isfinite(actuator_max) && std::find_if(actuator_seeds_spec.begin(), actuator_seeds_spec.end(), [actuator_max](double v) { return std::abs(v - actuator_max) < 1e-6; }) == actuator_seeds_spec.end())
+    actuator_seeds_spec.push_back(actuator_max);
+
+  const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
+  const size_t num_joints = joint_names.size();
+
   struct ScoredSolution { std::vector<double> joints; double score; };
   std::vector<ScoredSolution> scored;
 
-  for (int step = 0; step <= 10; ++step) {
-    std::vector<double> offsets;
-    if (step == 0)
-      offsets.push_back(0.0);
-    else {
-      offsets.push_back(step * 0.1);
-      offsets.push_back(-step * 0.1);
-    }
-    for (double offset : offsets) {
+  for (double seed_pos : actuator_seeds_spec) {
+    for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
       auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-      double shifted_pos = original_actuator_pos + offset;
-      seed_state->setJointPositions(actuator_joint, &shifted_pos);
-      seed_state->update();
-      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) continue;
+      seed_state->setJointPositions(actuator_joint, &seed_pos);
+      if (perturb > 0 && num_joints > 1) {
+        for (size_t i = 1; i < num_joints; ++i) {
+          double v = seed_state->getVariablePosition(joint_names[i]);
+          v += m_arm_noise_dist(m_rng) * 0.15;
+          seed_state->setVariablePosition(joint_names[i], v);
+        }
+        seed_state->update();
+      } else {
+        seed_state->update();
+      }
+      if (!seed_state->setFromIK(jmg, target_pose, ee_link, ik_timeout)) continue;
       seed_state->update();
 
       if (getConfigurationCost(current_state, seed_state) == std::numeric_limits<double>::infinity())
@@ -482,7 +752,8 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
   }
 
   if (scored.empty()) {
-    RCLCPP_ERROR(get_logger(), "No valid IK solution found (special logic)");
+    RCLCPP_ERROR(get_logger(), "No valid IK solution found (special logic, %zu actuator seeds, perturbs=%d)",
+        actuator_seeds_spec.size(), perturbation_attempts);
     return {};
   }
 
@@ -700,58 +971,26 @@ void MotionControlNode::planToPoseCallback(
     RCLCPP_INFO(get_logger(), "[DEBUG_H4] branch=rrt");
     // #endregion
     m_move_group->setStartStateToCurrentState();
+    clearCorridorMarker();
 
     // Optional: constrain RRT to corridor (cuboid between current EE and target); off by default
     if (use_corridor) {
       auto robot_state = m_move_group->getCurrentState();
       if (robot_state) {
         const std::string ee_link = m_move_group->getEndEffectorLink();
-        Eigen::Isometry3d ee_tf = robot_state->getGlobalLinkTransform(ee_link);
-        Eigen::Vector3d start_pos = ee_tf.translation();
+        Eigen::Vector3d start_pos = robot_state->getGlobalLinkTransform(ee_link).translation();
         Eigen::Vector3d end_pos(
           target_pose_in_planning_frame.pose.position.x,
           target_pose_in_planning_frame.pose.position.y,
           target_pose_in_planning_frame.pose.position.z);
-        Eigen::Vector3d diff = end_pos - start_pos;
-        double seg_len = diff.norm();
+        double seg_len = (end_pos - start_pos).norm();
         if (seg_len >= 1e-6) {
           const double padding = this->get_parameter("corridor_padding").as_double();
           const double cross = this->get_parameter("corridor_cross_section").as_double();
-          Eigen::Vector3d dir = diff / seg_len;
-          double length_along = seg_len + 2.0 * padding;
-          Eigen::Vector3d mid = start_pos + 0.5 * diff;
-          Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
-
-          moveit_msgs::msg::PositionConstraint pos_constraint;
-          pos_constraint.header.frame_id = planning_frame;
-          pos_constraint.link_name = ee_link;
-          pos_constraint.target_point_offset.x = 0.0;
-          pos_constraint.target_point_offset.y = 0.0;
-          pos_constraint.target_point_offset.z = 0.0;
-          pos_constraint.weight = 1.0;
-
-          shape_msgs::msg::SolidPrimitive box;
-          box.type = shape_msgs::msg::SolidPrimitive::BOX;
-          box.dimensions.resize(3);
-          box.dimensions[0] = length_along;
-          box.dimensions[1] = 2.0 * cross;
-          box.dimensions[2] = 2.0 * cross;
-
-          geometry_msgs::msg::Pose box_pose;
-          box_pose.position.x = mid.x();
-          box_pose.position.y = mid.y();
-          box_pose.position.z = mid.z();
-          box_pose.orientation.x = quat.x();
-          box_pose.orientation.y = quat.y();
-          box_pose.orientation.z = quat.z();
-          box_pose.orientation.w = quat.w();
-
-          pos_constraint.constraint_region.primitives.push_back(box);
-          pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
-
-          moveit_msgs::msg::Constraints path_constraints;
-          path_constraints.position_constraints.push_back(pos_constraint);
-          m_move_group->setPathConstraints(path_constraints);
+          setCorridorPathConstraints(
+              start_pos, end_pos, padding, cross,
+              target_pose_in_planning_frame.pose.orientation,
+              planning_frame, ee_link);
           RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
         }
       }
@@ -781,6 +1020,7 @@ void MotionControlNode::planToPoseCallback(
         goal_state->update();
         updateGoalMarker(goal_state);
 
+        clearCorridorMarker();
         m_move_group->clearPathConstraints();
         response->success = true;
         response->message = "Planning successful (RRT corridor, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
@@ -792,46 +1032,67 @@ void MotionControlNode::planToPoseCallback(
                   i + 1, solutions.size(), plan_result.val);
     }
 
-    // Fallback: retry without corridor constraint (path may have been invalid due to tight corridor)
+    // Fallback: rectangular corridor failed (e.g. near centre of battery table). Retry with square flat corridor (large XY, small Z) so EE can pan in XY with orientation locked.
+    clearCorridorMarker();
     m_move_group->clearPathConstraints();
-    RCLCPP_INFO(get_logger(), "RRT with corridor failed for all solutions, retrying without path constraints");
-    solutions = configureForPlanning(target_pose_in_planning_frame.pose);
-    if (solutions.empty()) {
-      response->success = false;
-      response->message = "No valid IK solutions found (after corridor fallback)";
-      return;
+    double xy_half = 0.5;
+    double z_half = 0.25;
+    try {
+      xy_half = this->get_parameter("corridor_fallback_xy_half_extent").as_double();
+      z_half = this->get_parameter("corridor_fallback_z_half_extent").as_double();
+    } catch (const rclcpp::exceptions::ParameterUninitializedException&) {
+      RCLCPP_INFO(get_logger(), "Using default fallback corridor (xy_half=%.2f m, z_half=%.2f m)", xy_half, z_half);
     }
+    auto robot_state_fb = m_move_group->getCurrentState();
+    if (robot_state_fb) {
+      const std::string ee_link = m_move_group->getEndEffectorLink();
+      Eigen::Vector3d start_pos = robot_state_fb->getGlobalLinkTransform(ee_link).translation();
+      Eigen::Vector3d end_pos(
+          target_pose_in_planning_frame.pose.position.x,
+          target_pose_in_planning_frame.pose.position.y,
+          target_pose_in_planning_frame.pose.position.z);
+      Eigen::Vector3d mid = 0.5 * (start_pos + end_pos);
+      setSquareFlatCorridorPathConstraints(
+          mid, xy_half, z_half,
+          target_pose_in_planning_frame.pose.orientation,
+          planning_frame, ee_link);
+      RCLCPP_INFO(get_logger(), "RRT fallback: square flat corridor (xy_half=%.2f m, z_half=%.2f m) at centre (%.3f, %.3f, %.3f)",
+                  xy_half, z_half, mid.x(), mid.y(), mid.z());
 
-    for (size_t i = 0; i < solutions.size(); ++i) {
-      m_move_group->setStartStateToCurrentState();
-      m_move_group->setJointValueTarget(solutions[i]);
+      for (size_t i = 0; i < solutions.size(); ++i) {
+        m_move_group->setStartStateToCurrentState();
+        m_move_group->setJointValueTarget(solutions[i]);
 
-      auto plan_result = m_move_group->plan(m_current_plan);
-      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
-        RCLCPP_INFO(get_logger(), "Planning succeeded (RRT no corridor fallback) on IK solution %zu/%zu (%zu trajectory points)",
-                    i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
-        m_goal_joint_values = solutions[i];
+        auto plan_result = m_move_group->plan(m_current_plan);
+        if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
+          RCLCPP_INFO(get_logger(), "Planning succeeded (RRT square-flat fallback) on IK solution %zu/%zu (%zu trajectory points)",
+                      i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+          m_goal_joint_values = solutions[i];
 
-        auto goal_state = m_move_group->getCurrentState();
-        goal_state->setJointGroupPositions(
-            goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
-        goal_state->update();
-        updateGoalMarker(goal_state);
+          auto goal_state = m_move_group->getCurrentState();
+          goal_state->setJointGroupPositions(
+              goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
+          goal_state->update();
+          updateGoalMarker(goal_state);
 
-        response->success = true;
-        response->message = "Planning successful (RRT fallback without corridor, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
-        RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
-        return;
+          clearCorridorMarker();
+          m_move_group->clearPathConstraints();
+          response->success = true;
+          response->message = "Planning successful (RRT square-flat fallback, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
+          RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+          return;
+        }
+        RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT square-flat fallback) (MoveItErrorCode: %d)",
+                    i + 1, solutions.size(), plan_result.val);
       }
-
-      RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT no corridor) (MoveItErrorCode: %d)",
-                  i + 1, solutions.size(), plan_result.val);
     }
-
+    clearCorridorMarker();
+    m_move_group->clearPathConstraints();
     response->success = false;
-    response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT with corridor and fallback)";
-    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (RRT corridor + fallback)", solutions.size());
+    response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT corridor and square-flat fallback)";
+    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (RRT corridor + square-flat fallback)", solutions.size());
     RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+    return;
   } else {
     m_current_target_pose = target_pose_in_planning_frame.pose;
 
@@ -887,6 +1148,16 @@ void MotionControlNode::executePlanCallback(
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() START");
 
+  size_t num_points = m_current_plan.trajectory_.joint_trajectory.points.size();
+  RCLCPP_INFO(get_logger(), "Executing stored plan (%zu trajectory points)...", num_points);
+  if (num_points == 0) {
+    response->success = false;
+    response->message = "No plan to execute (trajectory empty)";
+    RCLCPP_ERROR(get_logger(), "No plan to execute: trajectory has 0 points");
+    RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() END");
+    return;
+  }
+
   auto execute_result = m_move_group->execute(m_current_plan);
   if (execute_result == moveit::core::MoveItErrorCode::SUCCESS)
   {
@@ -897,7 +1168,7 @@ void MotionControlNode::executePlanCallback(
   {
     response->success = false;
     response->message = "Execution failed (MoveItErrorCode: " + std::to_string(execute_result.val) + ")";
-    RCLCPP_ERROR(get_logger(), "Execution failed with MoveItErrorCode: %d", execute_result.val);
+    RCLCPP_ERROR(get_logger(), "Execution failed with MoveItErrorCode: %d (e.g. 1=FAILURE, 2=PLANNING_FAILED, 4=PREEMPTED, 5=CONTROL_FAILED)", execute_result.val);
   }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() END");
 }

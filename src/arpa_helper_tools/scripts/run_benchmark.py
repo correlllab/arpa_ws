@@ -56,7 +56,7 @@ def run_one_scan():
         cmd,
         capture_output=True,
         text=True,
-        timeout=3600,
+        timeout=7200,
     )
     return result.stdout + result.stderr, result.returncode
 

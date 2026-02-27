@@ -96,7 +96,7 @@ class CoreNode(Node):
 
         result = future.result()
         if result.success:
-            self.get_logger().info("Planning successful!")
+            self.get_logger().info(f"Planning successful! ({result.message}); calling execute_plan next.")
         else:
             self.get_logger().error(f"Planning failed: {result.message}")
         return result.success
@@ -104,7 +104,7 @@ class CoreNode(Node):
     def execute_plan(self):
         req = ExecutePlan.Request()
 
-        self.get_logger().info("Executing plan...")
+        self.get_logger().info("Calling execute_plan service (running stored trajectory)...")
         future = self.exec_client.call_async(req)
         while not future.done():
             time.sleep(0.05)
