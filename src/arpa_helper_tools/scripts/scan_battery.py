@@ -23,6 +23,7 @@ import random
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
+from scipy.spatial.transform import Rotation as R
 
 
 # 32 predefined scanning poses for battery inspection
@@ -73,19 +74,40 @@ _Z_HEIGHT = 1.253
 N_X_STEPS = 8 # Number of positions along X
 N_Y_STEPS = 8  # Number of positions along Y
 
+# When True, only visit the three outermost rows and columns (border band of depth 3)
+only_outside_points = True
+
 # Orientation quaternion (pointing down for scanning)
 # Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
 _QX, _QY, _QZ, _QW = 0.7071068, 0.7071068, 0.0, 0.0
+
+# 9 scan orientations per spatial point:
+#   straight down + ±45° pitch (tilt around world Y) x ±45° roll (tilt around world X)
+#   Ordered as a 3×3 grid: pitch in {-45, 0, +45} × roll in {-45, 0, +45}
+_SCAN_TILT_DEG = 45.0
+_BASE_ROT = R.from_euler('xyz', [180.0, 0.0, 90.0], degrees=True)
+_SCAN_ORIENTATIONS = []
+for _pitch in [-_SCAN_TILT_DEG, 0.0, _SCAN_TILT_DEG]:
+    for _roll in [-_SCAN_TILT_DEG, 0.0, _SCAN_TILT_DEG]:
+        _tilt = R.from_euler('y', _pitch, degrees=True) * R.from_euler('x', _roll, degrees=True)
+        _q = (_tilt * _BASE_ROT).as_quat()  # [qx, qy, qz, qw]
+        _SCAN_ORIENTATIONS.append((float(_q[0]), float(_q[1]), float(_q[2]), float(_q[3])))
 
 # Generate X and Y positions from bounds
 _X_POSITIONS = [LOWER_LEFT[0] + i * (UPPER_RIGHT[0] - LOWER_LEFT[0]) / (N_X_STEPS - 1) for i in range(N_X_STEPS)]
 _Y_POSITIONS = [LOWER_LEFT[1] + i * (UPPER_RIGHT[1] - LOWER_LEFT[1]) / (N_Y_STEPS - 1) for i in range(N_Y_STEPS)]
 
 # Generate poses in zigzag pattern (scan along Y at each X row, alternating Y direction)
+_OUTSIDE_DEPTH = 3  # Number of outermost rows/columns to include when only_outside_points is True
 scan_points = []
 for row_idx, x_pos in enumerate(_X_POSITIONS):
     y_range = _Y_POSITIONS# if row_idx % 2 == 0 else list(reversed(_Y_POSITIONS))
     for col_idx, y_pos in enumerate(y_range):
+        if only_outside_points:
+            row_is_outside = row_idx < _OUTSIDE_DEPTH or row_idx >= N_X_STEPS - _OUTSIDE_DEPTH
+            col_is_outside = col_idx < _OUTSIDE_DEPTH or col_idx >= N_Y_STEPS - _OUTSIDE_DEPTH
+            if not (row_is_outside or col_is_outside):
+                continue
         scan_points.append((x_pos, y_pos))
 
 def scan_points_to_pose_stamped(points, frame_id):

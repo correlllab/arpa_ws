@@ -295,6 +295,12 @@ def launch_setup(context, *args, **kwargs):
         name="arpa_vision_node"
     )
 
+    record_images_node = Node(
+        package="arpa_vision",
+        executable="record_images",
+        name="record_images_node"
+    )
+
     vision_node_delayed = TimerAction(
         period=10.0,
         actions=[vision_node]
@@ -310,7 +316,8 @@ def launch_setup(context, *args, **kwargs):
         arpa_depth,
         ethernet_motor_interface_node,
         static_tf_world_to_floor,
-        vision_node_delayed
+        vision_node_delayed,
+        record_images_node
     ]
 
 
@@ -644,14 +651,14 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_corridor_constraint",
-            default_value="false",
+            default_value="true",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_special_logic",
-            default_value="true",
+            default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
         )
     )
