@@ -262,7 +262,7 @@ def launch_setup(context, *args, **kwargs):
             robot_description_planning,   # Needed for joint limits
             {
                 "use_sim_time": use_sim_time,
-                "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
+                "use_corridor_constraint": use_corridor_constraint,
                 "corridor_cross_section": 0.25,
                 "corridor_padding": 0.05,
             },
