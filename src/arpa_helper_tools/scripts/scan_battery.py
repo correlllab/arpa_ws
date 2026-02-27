@@ -17,12 +17,9 @@ from core_functionality_node import CoreNode
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PoseStamped
-<<<<<<< HEAD
 from std_srvs.srv import Trigger
 import time
 import random
-=======
->>>>>>> allen-main
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp

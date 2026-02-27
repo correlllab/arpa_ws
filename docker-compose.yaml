@@ -46,6 +46,7 @@ services:
       - /usr/lib/aarch64-linux-gnu/nvidia:/usr/lib/aarch64-linux-gnu/nvidia:ro
       - /tmp/.gazebo:/tmp/.gazebo
       - /dev/shm:/dev/shm
+      - /dev/bus/usb:/dev/bus/usb
       # - /etc/ntp.conf:/etc/ntp.conf:ro
       # - /etc/hosts:/etc/hosts:ro
 
