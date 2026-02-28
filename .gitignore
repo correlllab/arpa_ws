@@ -14,3 +14,4 @@ __pycache__/
 .cursor/*
 src/ur_msgs/
 scan_results/*
+*.pkl

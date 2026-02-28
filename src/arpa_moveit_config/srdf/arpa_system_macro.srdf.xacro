@@ -9,7 +9,7 @@
       <joint name="linear_actuator_to_linear_actuator_plate_joint"/>
     </group>
     <group name="${prefix}end_effector">
-      <chain base_link="${prefix}tool0" tip_link="${prefix}tool_head_link"/>
+      <chain base_link="${prefix}tool0" tip_link="${prefix}ratchet_extension_link"/>
     </group>
     <group_state group="ur_manipulator" name="home">
       <joint name="elbow_joint" value="0"/>
@@ -98,7 +98,7 @@
     <disable_collisions link1="left_leg_link" link2="right_leg_link" reason="Never"/>
     <disable_collisions link1="left_leg_link" link2="shoulder_link" reason="Never"/>
     <disable_collisions link1="left_leg_link" link2="tool_center_link" reason="Never"/>
-    <disable_collisions link1="left_leg_link" link2="tool_head_link" reason="Never"/>
+    <disable_collisions link1="left_leg_link" link2="ratchet_extension_link" reason="Never"/>
     <disable_collisions link1="left_leg_link" link2="tool_holder_link" reason="Never"/>
     <disable_collisions link1="left_leg_link" link2="upper_arm_link" reason="Never"/>
     <disable_collisions link1="left_leg_link" link2="wrist_1_link" reason="Never"/>
@@ -121,7 +121,7 @@
     <disable_collisions link1="pillar_right_link" link2="shoulder_link" reason="Never"/>
     <disable_collisions link1="right_leg_link" link2="shoulder_link" reason="Never"/>
     <disable_collisions link1="right_leg_link" link2="tool_center_link" reason="Never"/>
-    <disable_collisions link1="right_leg_link" link2="tool_head_link" reason="Never"/>
+    <disable_collisions link1="right_leg_link" link2="ratchet_extension_link" reason="Never"/>
     <disable_collisions link1="right_leg_link" link2="tool_holder_link" reason="Never"/>
     <disable_collisions link1="right_leg_link" link2="upper_arm_link" reason="Never"/>
     <disable_collisions link1="right_leg_link" link2="wrist_1_link" reason="Never"/>
@@ -129,15 +129,15 @@
     <disable_collisions link1="right_leg_link" link2="wrist_3_link" reason="Never"/>
     <disable_collisions link1="shoulder_link" link2="upper_arm_link" reason="Adjacent"/>
     <disable_collisions link1="shoulder_link" link2="wrist_1_link" reason="Never"/>
-    <disable_collisions link1="tool_center_link" link2="tool_head_link" reason="Adjacent"/>
+    <disable_collisions link1="tool_center_link" link2="ratchet_extension_link" reason="Adjacent"/>
     <disable_collisions link1="tool_center_link" link2="tool_holder_link" reason="Adjacent"/>
     <disable_collisions link1="tool_center_link" link2="wrist_1_link" reason="Never"/>
     <disable_collisions link1="tool_center_link" link2="wrist_2_link" reason="Never"/>
     <disable_collisions link1="tool_center_link" link2="wrist_3_link" reason="Never"/>
-    <disable_collisions link1="tool_head_link" link2="tool_holder_link" reason="Never"/>
-    <disable_collisions link1="tool_head_link" link2="wrist_1_link" reason="Never"/>
-    <disable_collisions link1="tool_head_link" link2="wrist_2_link" reason="Never"/>
-    <disable_collisions link1="tool_head_link" link2="wrist_3_link" reason="Never"/>
+    <disable_collisions link1="ratchet_extension_link" link2="tool_holder_link" reason="Never"/>
+    <disable_collisions link1="ratchet_extension_link" link2="wrist_1_link" reason="Never"/>
+    <disable_collisions link1="ratchet_extension_link" link2="wrist_2_link" reason="Never"/>
+    <disable_collisions link1="ratchet_extension_link" link2="wrist_3_link" reason="Never"/>
     <disable_collisions link1="tool_holder_link" link2="wrist_1_link" reason="Never"/>
     <disable_collisions link1="tool_holder_link" link2="wrist_2_link" reason="Never"/>
     <disable_collisions link1="tool_holder_link" link2="wrist_3_link" reason="Adjacent"/>

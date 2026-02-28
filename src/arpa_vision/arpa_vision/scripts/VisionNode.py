@@ -15,9 +15,12 @@ from geometry_msgs.msg import Point
 from std_msgs.msg import ColorRGBA
 from cv_bridge import CvBridge
 import message_filters
+import pickle
+import json
 import tf2_ros
 import open3d.t.geometry as o3tg
 import open3d.core as o3c
+from std_srvs.srv import Trigger
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from BoundingBoxDetectors import YOLO_WORLD
@@ -42,10 +45,12 @@ RADIUS_OUTLIER_NB_POINTS      = 10     # min neighbours within radius
 RADIUS_OUTLIER_RADIUS         = 0.03   # search radius in metres
 
 STATISTICAL_OUTLIER_REMOVAL   = True
-STATISTICAL_OUTLIER_NB_NEIGHBORS = 20  # neighbours to analyse
-STATISTICAL_OUTLIER_STD_RATIO    = 2.0 # std-dev multiplier threshold
+STATISTICAL_OUTLIER_NB_NEIGHBORS = 30  # neighbours to analyse
+STATISTICAL_OUTLIER_STD_RATIO    = 1.0 # std-dev multiplier threshold
 
 PCD_MIN_POINTS = 5  # discard clouds with fewer points than this
+
+SUBSCRIBER_RATE_HZ = 6.0
 
 COLORS = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
 MARKER_COLORS = [ColorRGBA(r=float(r)/255.0, g=float(g)/255.0, b=float(b)/255.0, a=0.1) for r, g, b in COLORS]
@@ -87,6 +92,9 @@ class VisionNode(Node):
         self.last_header = None
         self.last_annotated = None
 
+        self._last_sync_time = 0.0
+        self._sync_interval = 1.0 / SUBSCRIBER_RATE_HZ
+
         self.tf_buffer   = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -105,9 +113,27 @@ class VisionNode(Node):
         self.markers_pub = self.create_publisher(MarkerArray, markers_topic,   10)
         self.cloud_pub   = self.create_publisher(PointCloud2, cloud_topic,     10)
 
+        _default_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'object_detections.pkl')
+        self.declare_parameter('detections_save_path', _default_save_path)
+        self.create_service(Trigger, '~/save_object_detection', self._save_detections_cb)
+        self.create_service(Trigger, '~/load_object_detection', self._load_detections_cb)
+        self.create_service(Trigger, '~/get_detections_json',   self._get_detections_json_cb)
+
+        _save_path = self.get_parameter('detections_save_path').get_parameter_value().string_value
+        if os.path.exists(_save_path):
+            # self._load_detections(_save_path)
+            pass
+        else:
+            self.get_logger().info(f'No saved detections found at {_save_path}, starting fresh.')
+
         self.get_logger().info(f'VisionNode started. Detecting: {QUERIES}')
 
     def sync_callback(self, rgb_msg, depth_msg, info_msg):
+        now = time.time()
+        if now - self._last_sync_time < self._sync_interval:
+            return
+        self._last_sync_time = now
+
         with self.lock:
             self.sync_queue.put((rgb_msg, depth_msg, info_msg))
 
@@ -382,6 +408,82 @@ class VisionNode(Node):
         cloud_msg.is_dense        = True
         self.cloud_pub.publish(cloud_msg)
         # self.get_logger().info(f'Published PointCloud2 with {len(all_pts)} points')
+
+    def _get_detections_json_cb(self, request, response):
+        try:
+            result = {}
+            with self.lock:
+                for label, dets in self.detections.items():
+                    for i, det in enumerate(dets):
+                        mn = det['bbox'].min_bound.numpy()
+                        mx = det['bbox'].max_bound.numpy()
+                        centroid = ((mn + mx) / 2.0).tolist()
+                        result[f'{label}_{i}'] = centroid
+            response.success = True
+            response.message = json.dumps(result)
+        except Exception as e:
+            response.success = False
+            response.message = str(e)
+            self.get_logger().error(f'get_detections_json failed: {e}')
+        return response
+
+    def _save_detections_cb(self, request, response):
+        path = self.get_parameter('detections_save_path').get_parameter_value().string_value
+        try:
+            save_data = {}
+            with self.lock:
+                for label, dets in self.detections.items():
+                    save_data[label] = [
+                        {
+                            'positions': det['pcd'].point["positions"].numpy(),
+                            'colors':    det['pcd'].point["colors"].numpy(),
+                            'prob':      det['prob'],
+                        }
+                        for det in dets
+                    ]
+            with open(path, 'wb') as f:
+                pickle.dump(save_data, f)
+            n = sum(len(v) for v in save_data.values())
+            response.success = True
+            response.message = f'Saved {n} detections to {path}'
+            self.get_logger().info(response.message)
+        except Exception as e:
+            response.success = False
+            response.message = str(e)
+            self.get_logger().error(f'save_object_detection failed: {e}')
+        return response
+
+    def _load_detections(self, path):
+        with open(path, 'rb') as f:
+            save_data = pickle.load(f)
+        new_detections = {}
+        for label, dets in save_data.items():
+            new_detections[label] = []
+            for det in dets:
+                pcd = o3tg.PointCloud()
+                pcd.point["positions"] = o3c.Tensor(det['positions'].astype(np.float32), o3c.float32)
+                pcd.point["colors"]    = o3c.Tensor(det['colors'].astype(np.float32),    o3c.float32)
+                new_detections[label].append({
+                    'pcd':  pcd,
+                    'bbox': pcd.get_axis_aligned_bounding_box(),
+                    'prob': det['prob'],
+                })
+        with self.lock:
+            self.detections = new_detections
+        n = sum(len(v) for v in new_detections.values())
+        self.get_logger().info(f'Loaded {n} detections from {path}')
+
+    def _load_detections_cb(self, request, response):
+        path = self.get_parameter('detections_save_path').get_parameter_value().string_value
+        try:
+            self._load_detections(path)
+            response.success = True
+            response.message = f'Loaded detections from {path}'
+        except Exception as e:
+            response.success = False
+            response.message = str(e)
+            self.get_logger().error(f'load_object_detection failed: {e}')
+        return response
 
     def _transform_to_matrix(self, transform):
         from scipy.spatial.transform import Rotation

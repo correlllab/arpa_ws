@@ -49,6 +49,9 @@ class YOLO_WORLD:
         
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.model.to(device)
+        if device.type == "cuda":
+            self.model.model.fuse()  # fuse conv/bn in FP32 before converting dtype
+            self.model.half()
 
         self.count = 0
         

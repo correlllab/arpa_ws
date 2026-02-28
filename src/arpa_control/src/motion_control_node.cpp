@@ -78,7 +78,7 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
   m_arm_padding = this->get_parameter("arm_padding").as_double();
-  m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "tool_head_link"};
+  m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "ratchet_extension_link"};
   for(auto link : m_arm_padding_links) {
     m_arm_padding_map[link] = m_arm_padding;
   }
@@ -137,9 +137,9 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setNumPlanningAttempts(5);//(10);
   m_move_group->setMaxVelocityScalingFactor(0.1);
   m_move_group->setMaxAccelerationScalingFactor(0.1);
-  m_move_group->setGoalPositionTolerance(0.005);  // 1mm tolerance
-  m_move_group->setGoalOrientationTolerance(0.005);  // ~0.057 degrees
-  m_move_group->setGoalJointTolerance(0.005);  // 0.001 rad (~0.057 degrees) per joint
+  m_move_group->setGoalPositionTolerance(0.001);  // 1mm tolerance
+  m_move_group->setGoalOrientationTolerance(0.001);  // ~0.057 degrees
+  m_move_group->setGoalJointTolerance(0.001);  // 0.001 rad (~0.057 degrees) per joint
 
   m_move_group->allowReplanning(true);
   m_move_group->setReplanAttempts(1);
@@ -313,37 +313,27 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Try IK with linear actuator offsets: 0, +0.1, -0.1, +0.2, -0.2, ... +/-1.0
+  // Try IK with linear actuator offsets
   if(multi_seed){
-    for (int step = 0; step <= 10; ++step) {
-      std::vector<double> offsets;
-      if (step == 0) {
-        offsets.push_back(0.0);
-      } else {
-        offsets.push_back(step * 0.1);
-        offsets.push_back(-step * 0.1);
+    for (double offset : {0.0, -0.25, 0.25, 0.5, -0.5, -0.75, 0.75, -1.0, 1.0}) {
+      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+      double shifted_pos = original_actuator_pos + offset;
+      seed_state->setJointPositions(actuator_joint, &shifted_pos);
+      seed_state->update();
+
+      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
+        RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
+        continue;
       }
+      seed_state->update();
 
-      for (double offset : offsets) {
-        auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-        double shifted_pos = original_actuator_pos + offset;
-        seed_state->setJointPositions(actuator_joint, &shifted_pos);
-        seed_state->update();
+      double cost = getConfigurationCost(current_state, seed_state);
+      if (std::isinf(cost)) continue;
 
-        if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
-          RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
-          continue;
-        }
-        seed_state->update();
-
-        double cost = getConfigurationCost(current_state, seed_state);
-        if (std::isinf(cost)) continue;
-
-        std::vector<double> joint_positions;
-        seed_state->copyJointGroupPositions(jmg, joint_positions);
-        all_solutions.push_back(joint_positions);
-        all_costs.push_back(cost);
-      }
+      std::vector<double> joint_positions;
+      seed_state->copyJointGroupPositions(jmg, joint_positions);
+      all_solutions.push_back(joint_positions);
+      all_costs.push_back(cost);
     }
   } else {
     // Original logic: just try the current actuator position as the seed

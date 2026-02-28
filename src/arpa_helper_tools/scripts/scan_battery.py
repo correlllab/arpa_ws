@@ -75,7 +75,7 @@ N_X_STEPS = 8 # Number of positions along X
 N_Y_STEPS = 8  # Number of positions along Y
 
 # When True, only visit the three outermost rows and columns (border band of depth 3)
-only_outside_points = False
+only_outside_points = True
 
 # Orientation quaternion (pointing down for scanning)
 # Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
@@ -84,7 +84,7 @@ _QX, _QY, _QZ, _QW = 0.7071068, 0.7071068, 0.0, 0.0
 # 9 scan orientations per spatial point:
 #   straight down + ±45° pitch (tilt around world Y) x ±45° roll (tilt around world X)
 #   Ordered as a 3×3 grid: pitch in {-45, 0, +45} × roll in {-45, 0, +45}
-_SCAN_TILT_DEG = 25.0
+_SCAN_TILT_DEG = 0
 _BASE_ROT = R.from_euler('xyz', [180.0, 0.0, 90.0], degrees=True)
 _SCAN_ORIENTATIONS = []
 # Straight down always first, then the 8 tilted orientations
@@ -245,22 +245,25 @@ def main(args=None):
                     plan_times_list.append(plan_time_s)
 
                 if not success:
+
                     if benchmark_mode:
                         successes_list.append(0)
                     node.get_logger().warn(f"  Orientation {j+1} planning failed, skipping")
+                    time.sleep(0.5)  # Brief pause before next attempt
                     continue
 
                 if not node.execute_plan():
                     if benchmark_mode:
                         successes_list.append(0)
                     node.get_logger().error(f"  Orientation {j+1} execution failed, skipping")
+                    time.sleep(0.5)
                     continue
 
                 if benchmark_mode:
                     successes_list.append(1)
                 orientation_successes += 1
 
-                time.sleep(0.666)  # Brief pause to stabilize before capture
+                time.sleep(0.67)  # Brief pause to stabilize before capture
 
                 if capture_client.service_is_ready():
                     future = capture_client.call_async(Trigger.Request())

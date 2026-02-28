@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
 from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger
 from std_srvs.srv import Trigger
@@ -10,6 +11,7 @@ from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import Pose, PoseStamped
+from scipy.spatial.transform import Rotation
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
@@ -75,6 +77,29 @@ class CoreNode(Node):
         self._spin_thread = threading.Thread(target=rclpy.spin, args=(self,), daemon=True)
         self._spin_thread.start()
 
+        self.get_logger().info("Looking up wrist_3_link -> tool_head_link transform...")
+        self.T_wrist3_to_toolhead = None
+        while self.T_wrist3_to_toolhead is None:
+            try:
+                tf = self.tf_buffer.lookup_transform(
+                    'tool_head_link', 'wrist_3_link',
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=1.0)
+                )
+                t = tf.transform.translation
+                r = tf.transform.rotation
+                from scipy.spatial.transform import Rotation
+                rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
+                mat = np.eye(4)
+                mat[:3, :3] = rot
+                mat[:3,  3] = [t.x, t.y, t.z]
+                self.T_wrist3_to_toolhead = mat
+                self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
+            except (LookupException, ConnectivityException, ExtrapolationException) as e:
+                self.get_logger().warn(f"TF not ready yet: {e}. Retrying...")
+                time.sleep(0.5)
+        self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
+
     def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         req = PlanToPose.Request()
         req.target_pose.header.frame_id = frame_id
@@ -100,6 +125,21 @@ class CoreNode(Node):
         else:
             self.get_logger().error(f"Planning failed: {result.message}")
         return result.success
+
+    def plan_toolhead_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
+        # Convert toolhead pose to wrist_3_link pose using the known transform
+        target_toolhead = np.eye(4)
+        target_toolhead[:3, :3] = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
+        target_toolhead[:3, 3] = [x, y, z]
+        # target_wrist3 = target_toolhead @ self.T_toolhead_to_wrist3
+        target_wrist3 = target_toolhead @ self.T_wrist3_to_toolhead 
+
+
+        wx, wy, wz = target_wrist3[:3, 3]
+        rot = target_wrist3[:3, :3]
+        qx, qy, qz, qw = Rotation.from_matrix(rot).as_quat()
+
+        return self.plan_to_pose(wx, wy, wz, qx, qy, qz, qw, frame_id)
 
     def execute_plan(self):
         req = ExecutePlan.Request()
@@ -237,13 +277,18 @@ class CoreNode(Node):
         self.planning_scene_pub.publish(planning_scene)
         self.get_logger().info(f"Removed collision plane '{plane_id}'")
 
-    def go_home(self, frame_id="floor_link"):
+    def go_home(self, frame_id="floor_link", toolhead=False):
         self.get_logger().info("Going home...")
-
-        if self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id):
-            return self.execute_plan()
-        self.get_logger().error("Failed to plan home position")
-        return False
+        plan_success = False
+        exec_success = False
+        if toolhead:
+            plan_success = self.plan_toolhead_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
+            exec_success = self.execute_plan()
+        else:
+            plan_success = self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
+            exec_success = self.execute_plan()
+        self.get_logger().error(f"go home {plan_success=}, {exec_success=}")
+        return plan_success and exec_success
 
     def trigger_behavior(self, behavior):
         if not getattr(self, "_behavior_available", False):
@@ -385,6 +430,7 @@ def print_menu():
     print("3. Trigger behavior")
     print("4. Update depth")
     print("5. Motor control")
+    print("6. Send toolhead home")
     print("0. Quit")
     print("========================")
 
@@ -401,7 +447,7 @@ def main(args=None):
             choice = input("Select: ").strip()
 
             if choice == "1":
-                node.go_home()
+                node.go_home(toolhead=False)
 
             elif choice == "2":
                 plane_id = input("Plane ID [battery_do_not_cross]: ").strip() or "battery_do_not_cross"
@@ -420,8 +466,12 @@ def main(args=None):
                 speed = int(input("Speed (0=off): ").strip() or "0")
                 node.motor_control(speed)
 
+            elif choice == "6":
+                node.go_home(toolhead=True)
+
             elif choice == "0":
                 break
+
 
             else:
                 print("Invalid choice")
