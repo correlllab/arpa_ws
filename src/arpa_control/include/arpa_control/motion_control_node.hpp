@@ -101,6 +101,8 @@ private:
   double getWeightedJointDistance(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
+  /** Returns 1.0 when actuator is at table centre (midpoint of range), 0.0 at limits. Used to prefer planning through middle of table. */
+  double getActuatorCentreBonus(const std::shared_ptr<moveit::core::RobotState>& state);
   geometry_msgs::msg::PoseStamped poseToPlanningFrame(const geometry_msgs::msg::PoseStamped& pose_stamped);
   double computePairwiseCost(
       const geometry_msgs::msg::PoseStamped& src_pose,
@@ -108,24 +110,17 @@ private:
       const moveit::core::JointModelGroup* jmg,
       const std::string& ee_link);
   void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
-  /** Set path constraints to a cuboid corridor between start_pos and end_pos. */
+  /** Set path constraints to a flat cuboid corridor: long axis along segment, wide in XY (sides), flatter in Z. */
   void setCorridorPathConstraints(
       const Eigen::Vector3d& start_pos,
       const Eigen::Vector3d& end_pos,
       double padding,
-      double cross_section,
+      double cross_section_side,
+      double cross_section_z,
       const geometry_msgs::msg::Quaternion& desired_orientation,
       const std::string& planning_frame,
       const std::string& ee_link);
-  /** Set path constraints to a square flat corridor (axis-aligned box, large XY, small Z). Used as fallback when rectangular corridor planning fails. */
-  void setSquareFlatCorridorPathConstraints(
-      const Eigen::Vector3d& center,
-      double xy_half_extent,
-      double z_half_extent,
-      const geometry_msgs::msg::Quaternion& desired_orientation,
-      const std::string& planning_frame,
-      const std::string& ee_link);
-  /** Publish a corridor box marker to RViz (rectangular or square-flat). */
+  /** Publish a corridor box marker to RViz (rectangular corridor). */
   void publishCorridorMarker(
       const std::string& frame_id,
       const Eigen::Vector3d& position,
@@ -146,7 +141,9 @@ private:
   // Store the goal joint values from best_state for comparison after execution
   std::vector<double> m_goal_joint_values;
 
-  const std::vector<double> m_joint_weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  // Joint weights for cost metrics: [linear actuator, shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3].
+  // Linear actuator weight 0 so the planner can move it freely (avoids "actuator stuck" near pose 7/8 when only arm moves).
+  const std::vector<double> m_joint_weights = {0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 
   // Dedicated node and thread for MoveGroupInterface
   rclcpp::Node::SharedPtr m_move_group_node;

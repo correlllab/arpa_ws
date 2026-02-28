@@ -27,11 +27,13 @@ import sys
 
 
 def parse_benchmark_line(line: str):
-    """Parse BENCHMARK|wall_s|completed|skipped|total|plan_times_csv|successes_csv"""
+    """Parse BENCHMARK|wall_s|completed|skipped|total|plan_times_csv|successes_csv|[positions_csv]
+    positions_csv (optional): "x1,y1;x2,y2;..." in TSP order for free pose_index -> (x,y) mapping.
+    """
     if not line.strip().startswith("BENCHMARK|"):
         return None
     parts = line.strip().split("|")
-    if len(parts) != 7:
+    if len(parts) < 7:
         return None
     wall_s = float(parts[1])
     completed = int(parts[2])
@@ -39,6 +41,18 @@ def parse_benchmark_line(line: str):
     total = int(parts[4])
     plan_times = [float(x) for x in parts[5].split(",") if x.strip()]
     successes = [int(x) for x in parts[6].split(",") if x.strip()]
+    positions = []
+    if len(parts) >= 8 and parts[7].strip():
+        for pair in parts[7].strip().split(";"):
+            pair = pair.strip()
+            if not pair:
+                continue
+            xy = pair.split(",", 1)
+            if len(xy) == 2:
+                try:
+                    positions.append((float(xy[0]), float(xy[1])))
+                except ValueError:
+                    pass
     return {
         "wall_s": wall_s,
         "completed": completed,
@@ -46,6 +60,7 @@ def parse_benchmark_line(line: str):
         "total": total,
         "plan_times": plan_times,
         "successes": successes,
+        "positions": positions,
     }
 
 
@@ -133,19 +148,32 @@ def main():
                 f"{data['wall_s']:.4f}",
             ])
 
-        # Append detail rows (one per pose)
+        # Append detail rows (one per pose); include x,y when present for free mapping
+        positions = data.get("positions") or []
+        has_xy_header = False
+        if detail_file_exists and os.path.isfile(detail_csv_path):
+            with open(detail_csv_path, "r", newline="") as f:
+                first_line = f.readline()
+            has_xy_header = "x" in first_line and "y" in first_line
+        use_xy = bool(positions) and (not detail_file_exists or has_xy_header)
         with open(detail_csv_path, "a", newline="") as f:
             w = csv.writer(f)
             if not detail_file_exists:
-                w.writerow(["run_id", "corridor", "special_logic", "pose_index", "plan_time_s", "success"])
+                w.writerow(["run_id", "corridor", "special_logic", "pose_index", "x", "y", "plan_time_s", "success"])
                 detail_file_exists = True
+                use_xy = bool(positions)
             plan_times = data["plan_times"]
             successes = data["successes"]
             for idx in range(64):
                 pose_index = idx + 1
                 plan_time_s = plan_times[idx] if idx < len(plan_times) else -1.0
                 success = successes[idx] if idx < len(successes) else 0
-                w.writerow([run_id, args.corridor, args.special_logic, pose_index, f"{plan_time_s:.4f}", success])
+                if use_xy:
+                    x = f"{positions[idx][0]:.4f}" if idx < len(positions) else ""
+                    y = f"{positions[idx][1]:.4f}" if idx < len(positions) else ""
+                    w.writerow([run_id, args.corridor, args.special_logic, pose_index, x, y, f"{plan_time_s:.4f}", success])
+                else:
+                    w.writerow([run_id, args.corridor, args.special_logic, pose_index, f"{plan_time_s:.4f}", success])
 
         print(f"  completed={data['completed']}, skipped={data['skipped']}, wall_s={data['wall_s']:.1f}", flush=True)
 

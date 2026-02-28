@@ -61,13 +61,20 @@ def load_detail(input_dir):
         with open(path, newline="") as f:
             r = csv.DictReader(f)
             for row in r:
-                rows.append({
+                r = {
                     "corridor": row["corridor"],
                     "special_logic": row.get("special_logic", ""),
                     "pose_index": int(row["pose_index"]),
                     "plan_time_s": float(row["plan_time_s"]),
                     "success": int(row["success"]),
-                })
+                }
+                if "x" in row and "y" in row and row["x"].strip() and row["y"].strip():
+                    try:
+                        r["x"] = float(row["x"])
+                        r["y"] = float(row["y"])
+                    except ValueError:
+                        pass
+                rows.append(r)
     return rows
 
 

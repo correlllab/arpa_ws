@@ -98,6 +98,12 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   try {
     this->declare_parameter("ik_seed_min_clearance", 0.60);  // min distance wrist–actuator (m); lower allows more solutions
   } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("ik_seed_table_centre_bonus", 0.25);  // cost reduction / score bonus when actuator near table centre (linear actuator + two-link arm planning)
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("corridor_cross_section_z", 0.10);  // flat corridor height (Z half-extent); side extent from corridor_cross_section
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
 
   m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
@@ -148,9 +154,11 @@ void MotionControlNode::initMoveGroup()
 
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
-  //RVIZ uses 5s, 10 attempts, 0.1 vel scaling, 0.1 accel scaling
-  m_move_group->setPlanningTime(5.0);//(5.0);
-  m_move_group->setNumPlanningAttempts(10);//(10);
+  // RViz defaults: 5s, 10 attempts, 0.1 vel scaling, 0.1 accel scaling.
+  // Give the corridor-constrained RRT more time to find a path, especially for
+  // corner edges and middle (long segments, tight turns).
+  m_move_group->setPlanningTime(28.0);
+  m_move_group->setNumPlanningAttempts(28);
   m_move_group->setMaxVelocityScalingFactor(0.1);
   m_move_group->setMaxAccelerationScalingFactor(0.1);
   m_move_group->setGoalPositionTolerance(0.001);  // 1mm tolerance
@@ -158,8 +166,8 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setGoalJointTolerance(0.001);  // 0.001 rad (~0.057 degrees) per joint
 
   m_move_group->allowReplanning(true);
-  m_move_group->setReplanAttempts(3);
-  m_move_group->setReplanDelay(0.1);  // seconds between replans
+  m_move_group->setReplanAttempts(5);
+  m_move_group->setReplanDelay(0.15);  // seconds between replans
 
   // Allow sensor updates during planning
   // m_move_group->allowLooking(true);
@@ -271,8 +279,18 @@ double MotionControlNode::getConfigurationCost(
 
   double total_cost = joint_cost + proximity_penalty;
 
-  // RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f (dist=%.3fm), Total: %.4f",
-  //             joint_cost, proximity_penalty, actuator_wrist_distance, total_cost);
+  // Prefer planning through middle of table: reduce cost when linear actuator is near centre (and arm two-link posture is used)
+  double centre_bonus = getActuatorCentreBonus(target_state);
+  const double table_centre_weight = this->get_parameter("ik_seed_table_centre_bonus").as_double();
+  total_cost -= table_centre_weight * centre_bonus;
+
+  // Prefer solutions that move the linear actuator so it does not get stuck (e.g. near pose 7 only arm moves).
+  const double current_actuator = current_values.empty() ? 0.0 : current_values[0];
+  const double target_actuator = target_values.empty() ? 0.0 : target_values[0];
+  const double actuator_stuck_penalty = (std::abs(target_actuator - current_actuator) < 0.02) ? 0.15 : 0.0;
+  total_cost += actuator_stuck_penalty;
+
+  if (total_cost < 0.0) total_cost = 0.0;
 
   return total_cost;
 }
@@ -314,7 +332,8 @@ void MotionControlNode::setCorridorPathConstraints(
     const Eigen::Vector3d& start_pos,
     const Eigen::Vector3d& end_pos,
     double padding,
-    double cross_section,
+    double cross_section_side,
+    double cross_section_z,
     const geometry_msgs::msg::Quaternion& desired_orientation,
     const std::string& planning_frame,
     const std::string& ee_link)
@@ -323,16 +342,31 @@ void MotionControlNode::setCorridorPathConstraints(
   double seg_len = diff.norm();
   if (seg_len < 1e-6) return;
 
-  Eigen::Vector3d dir = diff / seg_len;
-  const double validation_margin = 1.4;  // so trajectory waypoints pass post-processing
+  // Orient corridor: long axis along segment (horizontal), wide along sides (XY panning), flat in Z.
+  // Box frame: X = along segment, Y = sideways in XY (perp_xy), Z = world up.
+  Eigen::Vector3d dir_xy(diff.x(), diff.y(), 0.0);
+  double len_xy = dir_xy.norm();
+  if (len_xy < 1e-6) {
+    dir_xy = Eigen::Vector3d::UnitX();
+  } else {
+    dir_xy /= len_xy;
+  }
+  Eigen::Vector3d perp_xy(-dir_xy.y(), dir_xy.x(), 0.0);
+  Eigen::Vector3d z_axis(0.0, 0.0, 1.0);
+
+  const double validation_margin = 1.35;
   double length_along = (seg_len + 2.0 * padding) * validation_margin;
-  const double cross_width = 2.0 * cross_section * validation_margin;
-  length_along = std::max(length_along, cross_width);
-  const double min_dim = 0.05;
-  length_along = std::max(length_along, min_dim);
-  const double width = std::max(cross_width, min_dim);
+  const double width_side = std::max(2.0 * cross_section_side * validation_margin, 0.05);
+  const double width_z = std::max(2.0 * cross_section_z * validation_margin, 0.05);
+  length_along = std::max(length_along, std::max(width_side, width_z));
+
   Eigen::Vector3d mid = start_pos + 0.5 * diff;
-  Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
+  // Rotation from box frame to world: box X -> dir_xy, box Y -> perp_xy, box Z -> z_axis
+  Eigen::Matrix3d R;
+  R.col(0) = dir_xy;
+  R.col(1) = perp_xy;
+  R.col(2) = z_axis;
+  Eigen::Quaterniond quat(R);
 
   moveit_msgs::msg::PositionConstraint pos_constraint;
   pos_constraint.header.frame_id = planning_frame;
@@ -346,8 +380,8 @@ void MotionControlNode::setCorridorPathConstraints(
   box.type = shape_msgs::msg::SolidPrimitive::BOX;
   box.dimensions.resize(3);
   box.dimensions[0] = length_along;
-  box.dimensions[1] = width;
-  box.dimensions[2] = width;
+  box.dimensions[1] = width_side;
+  box.dimensions[2] = width_z;
 
   geometry_msgs::msg::Pose box_pose;
   box_pose.position.x = mid.x();
@@ -361,68 +395,9 @@ void MotionControlNode::setCorridorPathConstraints(
   pos_constraint.constraint_region.primitives.push_back(box);
   pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
 
-  // Relaxed orientation so trajectory waypoints pass MoveIt post-processing (~0.5 rad ~29°)
   moveit_msgs::msg::OrientationConstraint ocm;
   ocm.link_name = ee_link;
   ocm.header.frame_id = planning_frame;
-  // Lock orientation to the requested target pose (not a hard-coded quaternion).
-  ocm.orientation = desired_orientation;
-  ocm.absolute_x_axis_tolerance = 0.5;
-  ocm.absolute_y_axis_tolerance = 0.5;
-  ocm.absolute_z_axis_tolerance = 2.0 * M_PI;   // free rotation around Z (tool axis)
-  ocm.weight = 1.0;
-
-  moveit_msgs::msg::Constraints path_constraints;
-  path_constraints.position_constraints.push_back(pos_constraint);
-  path_constraints.orientation_constraints.push_back(ocm);
-  m_move_group->setPathConstraints(path_constraints);
-
-  publishCorridorMarker(planning_frame, mid, quat, length_along, width, width, false);
-}
-
-void MotionControlNode::setSquareFlatCorridorPathConstraints(
-    const Eigen::Vector3d& center,
-    double xy_half_extent,
-    double z_half_extent,
-    const geometry_msgs::msg::Quaternion& desired_orientation,
-    const std::string& planning_frame,
-    const std::string& ee_link)
-{
-  const double min_dim = 0.05;
-  const double xy = std::max(2.0 * xy_half_extent, min_dim);
-  const double z = std::max(2.0 * z_half_extent, min_dim);
-
-  moveit_msgs::msg::PositionConstraint pos_constraint;
-  pos_constraint.header.frame_id = planning_frame;
-  pos_constraint.link_name = ee_link;
-  pos_constraint.target_point_offset.x = 0.0;
-  pos_constraint.target_point_offset.y = 0.0;
-  pos_constraint.target_point_offset.z = 0.0;
-  pos_constraint.weight = 1.0;
-
-  shape_msgs::msg::SolidPrimitive box;
-  box.type = shape_msgs::msg::SolidPrimitive::BOX;
-  box.dimensions.resize(3);
-  box.dimensions[0] = xy;
-  box.dimensions[1] = xy;
-  box.dimensions[2] = z;
-
-  geometry_msgs::msg::Pose box_pose;
-  box_pose.position.x = center.x();
-  box_pose.position.y = center.y();
-  box_pose.position.z = center.z();
-  box_pose.orientation.x = 0.0;
-  box_pose.orientation.y = 0.0;
-  box_pose.orientation.z = 0.0;
-  box_pose.orientation.w = 1.0;
-
-  pos_constraint.constraint_region.primitives.push_back(box);
-  pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
-
-  moveit_msgs::msg::OrientationConstraint ocm;
-  ocm.link_name = ee_link;
-  ocm.header.frame_id = planning_frame;
-  // Lock orientation to the requested target pose (not a hard-coded quaternion).
   ocm.orientation = desired_orientation;
   ocm.absolute_x_axis_tolerance = 0.5;
   ocm.absolute_y_axis_tolerance = 0.5;
@@ -434,8 +409,7 @@ void MotionControlNode::setSquareFlatCorridorPathConstraints(
   path_constraints.orientation_constraints.push_back(ocm);
   m_move_group->setPathConstraints(path_constraints);
 
-  Eigen::Quaterniond identity(1.0, 0.0, 0.0, 0.0);
-  publishCorridorMarker(planning_frame, center, identity, xy, xy, z, true);
+  publishCorridorMarker(planning_frame, mid, quat, length_along, width_side, width_z, true);
 }
 
 void MotionControlNode::publishCorridorMarker(
@@ -523,8 +497,13 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Build actuator seeds: 0, ±step, ... ±offset_max (clamped to limits), plus explicit min/max so centre poses get good coverage
+  // Build actuator seeds: table centre (midpoint) first, then current, ±step, ... ±offset_max, then min/max
   std::vector<double> actuator_seeds;
+  const bool has_limits = std::isfinite(actuator_min) && std::isfinite(actuator_max);
+  if (has_limits) {
+    double actuator_mid = 0.5 * (actuator_min + actuator_max);
+    actuator_seeds.push_back(actuator_mid);  // try middle of table first
+  }
   actuator_seeds.push_back(original_actuator_pos);
   for (double o = offset_step; o <= offset_max + 1e-9; o += offset_step) {
     double p_plus = std::clamp(original_actuator_pos + o, actuator_min, actuator_max);
@@ -541,35 +520,54 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
 
   const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
   const size_t num_joints = joint_names.size();
+  size_t idx_pan = num_joints, idx_lift = num_joints;
+  for (size_t i = 0; i < num_joints; ++i) {
+    if (joint_names[i] == "shoulder_pan_joint") idx_pan = i;
+    if (joint_names[i] == "shoulder_lift_joint") idx_lift = i;
+  }
+  const bool has_two_link_seeds = (idx_pan < num_joints && idx_lift < num_joints);
+  // Offsets (rad) for shoulder_pan, shoulder_lift to bias table-centre reaches (linear actuator + two links)
+  const std::vector<std::pair<double, double>> arm_centre_offsets = {{0.0, 0.0}, {0.0, -0.4}, {0.0, -0.8}};
 
   for (double seed_pos : actuator_seeds) {
-    for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
-      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-      seed_state->setJointPositions(actuator_joint, &seed_pos);
-      if (perturb > 0 && num_joints > 1) {
-        for (size_t i = 1; i < num_joints; ++i) {
-          double v = seed_state->getVariablePosition(joint_names[i]);
-          v += m_arm_noise_dist(m_rng) * 0.15;  // small perturbation to get different IK branch
-          seed_state->setVariablePosition(joint_names[i], v);
+    bool is_midpoint_seed = has_limits && (std::abs(seed_pos - 0.5 * (actuator_min + actuator_max)) < 1e-6);
+    const size_t arm_iters = (is_midpoint_seed && has_two_link_seeds) ? arm_centre_offsets.size() : 1u;
+
+    for (size_t arm_idx = 0; arm_idx < arm_iters; ++arm_idx) {
+      for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
+        auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+        seed_state->setJointPositions(actuator_joint, &seed_pos);
+        if (arm_iters > 1 && arm_idx < arm_centre_offsets.size()) {
+          double pan = current_state->getVariablePosition(joint_names[idx_pan]) + arm_centre_offsets[arm_idx].first;
+          double lift = current_state->getVariablePosition(joint_names[idx_lift]) + arm_centre_offsets[arm_idx].second;
+          seed_state->setVariablePosition(joint_names[idx_pan], pan);
+          seed_state->setVariablePosition(joint_names[idx_lift], lift);
+        }
+        if (perturb > 0 && num_joints > 1) {
+          for (size_t i = 1; i < num_joints; ++i) {
+            double v = seed_state->getVariablePosition(joint_names[i]);
+            v += m_arm_noise_dist(m_rng) * 0.15;  // small perturbation to get different IK branch
+            seed_state->setVariablePosition(joint_names[i], v);
+          }
+          seed_state->update();
+        } else {
+          seed_state->update();
+        }
+
+        if (!seed_state->setFromIK(jmg, target_pose, ee_link, ik_timeout)) {
+          RCLCPP_DEBUG(get_logger(), "IK failed for actuator seed %.2f%s", seed_pos, perturb ? " (perturbed)" : "");
+          continue;
         }
         seed_state->update();
-      } else {
-        seed_state->update();
+
+        double cost = getConfigurationCost(current_state, seed_state);
+        if (std::isinf(cost)) continue;
+
+        std::vector<double> joint_positions;
+        seed_state->copyJointGroupPositions(jmg, joint_positions);
+        all_solutions.push_back(joint_positions);
+        all_costs.push_back(cost);
       }
-
-      if (!seed_state->setFromIK(jmg, target_pose, ee_link, ik_timeout)) {
-        RCLCPP_DEBUG(get_logger(), "IK failed for actuator seed %.2f%s", seed_pos, perturb ? " (perturbed)" : "");
-        continue;
-      }
-      seed_state->update();
-
-      double cost = getConfigurationCost(current_state, seed_state);
-      if (std::isinf(cost)) continue;
-
-      std::vector<double> joint_positions;
-      seed_state->copyJointGroupPositions(jmg, joint_positions);
-      all_solutions.push_back(joint_positions);
-      all_costs.push_back(cost);
     }
   }
 
@@ -660,6 +658,23 @@ double MotionControlNode::getWeightedJointDistance(
   return std::sqrt(sum);
 }
 
+double MotionControlNode::getActuatorCentreBonus(const std::shared_ptr<moveit::core::RobotState>& state)
+{
+  const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
+  const moveit::core::RobotModel& model = *state->getRobotModel();
+  const moveit::core::JointModel* jm = model.getJointModel(actuator_joint);
+  if (!jm || jm->getVariableCount() == 0) return 0.0;
+  const std::string& var_name = jm->getVariableNames()[0];
+  const moveit::core::VariableBounds& b = model.getVariableBounds(var_name);
+  if (!b.position_bounded_) return 0.0;
+  double pos = state->getVariablePosition(var_name);
+  double mid = 0.5 * (b.min_position_ + b.max_position_);
+  double half_range = 0.5 * (b.max_position_ - b.min_position_);
+  if (half_range < 1e-9) return 1.0;
+  double dist_from_mid = std::abs(pos - mid);
+  return 1.0 - std::min(1.0, dist_from_mid / half_range);
+}
+
 std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
     geometry_msgs::msg::Pose target_pose)
 {
@@ -693,6 +708,11 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
   }
 
   std::vector<double> actuator_seeds_spec;
+  const bool has_limits_spec = std::isfinite(actuator_min) && std::isfinite(actuator_max);
+  if (has_limits_spec) {
+    double actuator_mid_spec = 0.5 * (actuator_min + actuator_max);
+    actuator_seeds_spec.push_back(actuator_mid_spec);
+  }
   actuator_seeds_spec.push_back(original_actuator_pos);
   for (double o = offset_step; o <= offset_max + 1e-9; o += offset_step) {
     double p_plus = std::clamp(original_actuator_pos + o, actuator_min, actuator_max);
@@ -709,45 +729,67 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
 
   const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
   const size_t num_joints = joint_names.size();
+  size_t idx_pan_spec = num_joints, idx_lift_spec = num_joints;
+  for (size_t i = 0; i < num_joints; ++i) {
+    if (joint_names[i] == "shoulder_pan_joint") idx_pan_spec = i;
+    if (joint_names[i] == "shoulder_lift_joint") idx_lift_spec = i;
+  }
+  const bool has_two_link_spec = (idx_pan_spec < num_joints && idx_lift_spec < num_joints);
+  const std::vector<std::pair<double, double>> arm_centre_offsets_spec = {{0.0, 0.0}, {0.0, -0.4}, {0.0, -0.8}};
 
   struct ScoredSolution { std::vector<double> joints; double score; };
   std::vector<ScoredSolution> scored;
 
   for (double seed_pos : actuator_seeds_spec) {
-    for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
-      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-      seed_state->setJointPositions(actuator_joint, &seed_pos);
-      if (perturb > 0 && num_joints > 1) {
-        for (size_t i = 1; i < num_joints; ++i) {
-          double v = seed_state->getVariablePosition(joint_names[i]);
-          v += m_arm_noise_dist(m_rng) * 0.15;
-          seed_state->setVariablePosition(joint_names[i], v);
-        }
-        seed_state->update();
-      } else {
-        seed_state->update();
-      }
-      if (!seed_state->setFromIK(jmg, target_pose, ee_link, ik_timeout)) continue;
-      seed_state->update();
+    bool is_midpoint_spec = has_limits_spec && (std::abs(seed_pos - 0.5 * (actuator_min + actuator_max)) < 1e-6);
+    const size_t arm_iters_spec = (is_midpoint_spec && has_two_link_spec) ? arm_centre_offsets_spec.size() : 1u;
 
-      if (getConfigurationCost(current_state, seed_state) == std::numeric_limits<double>::infinity())
-        continue;
+    for (size_t arm_idx = 0; arm_idx < arm_iters_spec; ++arm_idx) {
+      for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
+        auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+        seed_state->setJointPositions(actuator_joint, &seed_pos);
+        if (arm_iters_spec > 1 && arm_idx < arm_centre_offsets_spec.size()) {
+          double pan = current_state->getVariablePosition(joint_names[idx_pan_spec]) + arm_centre_offsets_spec[arm_idx].first;
+          double lift = current_state->getVariablePosition(joint_names[idx_lift_spec]) + arm_centre_offsets_spec[arm_idx].second;
+          seed_state->setVariablePosition(joint_names[idx_pan_spec], pan);
+          seed_state->setVariablePosition(joint_names[idx_lift_spec], lift);
+        }
+        if (perturb > 0 && num_joints > 1) {
+          for (size_t i = 1; i < num_joints; ++i) {
+            double v = seed_state->getVariablePosition(joint_names[i]);
+            v += m_arm_noise_dist(m_rng) * 0.15;
+            seed_state->setVariablePosition(joint_names[i], v);
+          }
+          seed_state->update();
+        } else {
+          seed_state->update();
+        }
+        if (!seed_state->setFromIK(jmg, target_pose, ee_link, ik_timeout)) continue;
+        seed_state->update();
+
+        if (getConfigurationCost(current_state, seed_state) == std::numeric_limits<double>::infinity())
+          continue;
 
       double clearance = getMinClearance(seed_state);
       double manipulability = getManipulability(seed_state);
       double joint_dist = getWeightedJointDistance(current_state, seed_state);
       double limit_margin = getJointLimitMargin(seed_state);
+      double centre_bonus = getActuatorCentreBonus(seed_state);
+      const double w_centre = this->get_parameter("ik_seed_table_centre_bonus").as_double();
+      double actuator_moved = std::abs(seed_pos - original_actuator_pos) >= 0.02 ? 1.0 : 0.0;
 
       const double w_clearance = 1.0;
       const double w_manip = 0.1;
       const double w_joint = 0.5;
       const double w_limit = 0.2;
+      const double w_actuator_move = 0.15;
       double score = w_clearance * clearance + w_manip * manipulability
-          - w_joint * joint_dist + w_limit * limit_margin;
+          - w_joint * joint_dist + w_limit * limit_margin + w_centre * centre_bonus + w_actuator_move * actuator_moved;
 
-      std::vector<double> joint_positions;
-      seed_state->copyJointGroupPositions(jmg, joint_positions);
-      scored.push_back({joint_positions, score});
+        std::vector<double> joint_positions;
+        seed_state->copyJointGroupPositions(jmg, joint_positions);
+        scored.push_back({joint_positions, score});
+      }
     }
   }
 
@@ -986,12 +1028,13 @@ void MotionControlNode::planToPoseCallback(
         double seg_len = (end_pos - start_pos).norm();
         if (seg_len >= 1e-6) {
           const double padding = this->get_parameter("corridor_padding").as_double();
-          const double cross = this->get_parameter("corridor_cross_section").as_double();
+          const double cross_side = this->get_parameter("corridor_cross_section").as_double();
+          const double cross_z = this->get_parameter("corridor_cross_section_z").as_double();
           setCorridorPathConstraints(
-              start_pos, end_pos, padding, cross,
+              start_pos, end_pos, padding, cross_side, cross_z,
               target_pose_in_planning_frame.pose.orientation,
               planning_frame, ee_link);
-          RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
+          RCLCPP_INFO(get_logger(), "RRT corridor: segment %.3f m, side %.3f m, z %.3f m", seg_len, 2.0 * cross_side, 2.0 * cross_z);
         }
       }
     }
@@ -1032,65 +1075,11 @@ void MotionControlNode::planToPoseCallback(
                   i + 1, solutions.size(), plan_result.val);
     }
 
-    // Fallback: rectangular corridor failed (e.g. near centre of battery table). Retry with square flat corridor (large XY, small Z) so EE can pan in XY with orientation locked.
-    clearCorridorMarker();
-    m_move_group->clearPathConstraints();
-    double xy_half = 0.5;
-    double z_half = 0.25;
-    try {
-      xy_half = this->get_parameter("corridor_fallback_xy_half_extent").as_double();
-      z_half = this->get_parameter("corridor_fallback_z_half_extent").as_double();
-    } catch (const rclcpp::exceptions::ParameterUninitializedException&) {
-      RCLCPP_INFO(get_logger(), "Using default fallback corridor (xy_half=%.2f m, z_half=%.2f m)", xy_half, z_half);
-    }
-    auto robot_state_fb = m_move_group->getCurrentState();
-    if (robot_state_fb) {
-      const std::string ee_link = m_move_group->getEndEffectorLink();
-      Eigen::Vector3d start_pos = robot_state_fb->getGlobalLinkTransform(ee_link).translation();
-      Eigen::Vector3d end_pos(
-          target_pose_in_planning_frame.pose.position.x,
-          target_pose_in_planning_frame.pose.position.y,
-          target_pose_in_planning_frame.pose.position.z);
-      Eigen::Vector3d mid = 0.5 * (start_pos + end_pos);
-      setSquareFlatCorridorPathConstraints(
-          mid, xy_half, z_half,
-          target_pose_in_planning_frame.pose.orientation,
-          planning_frame, ee_link);
-      RCLCPP_INFO(get_logger(), "RRT fallback: square flat corridor (xy_half=%.2f m, z_half=%.2f m) at centre (%.3f, %.3f, %.3f)",
-                  xy_half, z_half, mid.x(), mid.y(), mid.z());
-
-      for (size_t i = 0; i < solutions.size(); ++i) {
-        m_move_group->setStartStateToCurrentState();
-        m_move_group->setJointValueTarget(solutions[i]);
-
-        auto plan_result = m_move_group->plan(m_current_plan);
-        if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
-          RCLCPP_INFO(get_logger(), "Planning succeeded (RRT square-flat fallback) on IK solution %zu/%zu (%zu trajectory points)",
-                      i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
-          m_goal_joint_values = solutions[i];
-
-          auto goal_state = m_move_group->getCurrentState();
-          goal_state->setJointGroupPositions(
-              goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
-          goal_state->update();
-          updateGoalMarker(goal_state);
-
-          clearCorridorMarker();
-          m_move_group->clearPathConstraints();
-          response->success = true;
-          response->message = "Planning successful (RRT square-flat fallback, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
-          RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
-          return;
-        }
-        RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT square-flat fallback) (MoveItErrorCode: %d)",
-                    i + 1, solutions.size(), plan_result.val);
-      }
-    }
     clearCorridorMarker();
     m_move_group->clearPathConstraints();
     response->success = false;
-    response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT corridor and square-flat fallback)";
-    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (RRT corridor + square-flat fallback)", solutions.size());
+    response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT corridor)";
+    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (RRT corridor)", solutions.size());
     RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
     return;
   } else {

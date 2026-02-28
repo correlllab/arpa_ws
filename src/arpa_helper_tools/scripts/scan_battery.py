@@ -301,8 +301,10 @@ def main(args=None):
             total = len(pose_arr)
             plan_times_csv = ",".join(f"{t:.4f}" for t in plan_times_list)
             successes_csv = ",".join(str(s) for s in successes_list)
+            # Pose positions in TSP order (pose_index 1..64 -> x,y) for free mapping in analysis
+            positions_csv = ";".join(f"{p.pose.position.x:.4f},{p.pose.position.y:.4f}" for p in pose_arr)
             # Single line for run_benchmark.py to parse (must match parse_benchmark_line)
-            print(f"BENCHMARK|{wall_s:.4f}|{completed}|{skipped}|{total}|{plan_times_csv}|{successes_csv}", flush=True)
+            print(f"BENCHMARK|{wall_s:.4f}|{completed}|{skipped}|{total}|{plan_times_csv}|{successes_csv}|{positions_csv}", flush=True)
 
     except KeyboardInterrupt:
         node.get_logger().info("Scan interrupted by user.")
