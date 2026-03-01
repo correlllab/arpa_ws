@@ -104,6 +104,9 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   try {
     this->declare_parameter("corridor_cross_section_z", 0.10);  // flat corridor height (Z half-extent); side extent from corridor_cross_section
   } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("corridor_z_floor_tolerance", 0.05);  // EE may go at most this far below the lower endpoint Z (m); negative disables
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
 
   m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
@@ -401,6 +404,32 @@ void MotionControlNode::setCorridorPathConstraints(
   moveit_msgs::msg::Constraints path_constraints;
   path_constraints.position_constraints.push_back(pos_constraint);
   path_constraints.orientation_constraints.push_back(ocm);
+
+  // Z-floor constraint: prevent EE from dipping below the scan plane.
+  // Modelled as a very large world-aligned box whose bottom is at z_floor.
+  // Stops RRT spending budget on paths that route beneath the gantry structure.
+  const double z_floor_tol = this->get_parameter("corridor_z_floor_tolerance").as_double();
+  if (z_floor_tol >= 0.0) {
+    const double z_floor = std::min(start_pos.z(), end_pos.z()) - z_floor_tol;
+    const double box_half_horiz = 50.0;  // effectively unconstrained in X/Y
+    const double box_half_vert  = 50.0;  // large upward extent
+    moveit_msgs::msg::PositionConstraint z_floor_con;
+    z_floor_con.header.frame_id = planning_frame;
+    z_floor_con.link_name = ee_link;
+    z_floor_con.weight = 1.0;
+    shape_msgs::msg::SolidPrimitive z_box;
+    z_box.type = shape_msgs::msg::SolidPrimitive::BOX;
+    z_box.dimensions = {2.0 * box_half_horiz, 2.0 * box_half_horiz, 2.0 * box_half_vert};
+    geometry_msgs::msg::Pose z_pose;
+    z_pose.position.x = 0.0;
+    z_pose.position.y = 0.0;
+    z_pose.position.z = z_floor + box_half_vert;  // centre is 50 m above floor
+    z_pose.orientation.w = 1.0;                   // identity — world-aligned
+    z_floor_con.constraint_region.primitives.push_back(z_box);
+    z_floor_con.constraint_region.primitive_poses.push_back(z_pose);
+    path_constraints.position_constraints.push_back(z_floor_con);
+  }
+
   m_move_group->setPathConstraints(path_constraints);
 
   publishCorridorMarker(planning_frame, mid, quat, length_along, width_side, width_z, true);
@@ -491,14 +520,34 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Build actuator seeds: table centre (midpoint) first, then current, ±step, ... ±offset_max, then min/max
+  // Build actuator seeds: target-informed first, then midpoint, current, ±offsets, hard limits.
   std::vector<double> actuator_seeds;
   const bool has_limits = std::isfinite(actuator_min) && std::isfinite(actuator_max);
+
+  // Target-informed seeds: estimate required gantry position from target x-coordinate.
+  // Actuator axis is (-1,0,0), origin at x≈1.0244, so actuator_pos ≈ 1.0244 - target.x.
+  // Seeds near this estimate give the IK solver the best starting region; the corridor
+  // re-ranking in planToPoseCallback then promotes the closest-to-estimate solutions first.
+  if (has_limits) {
+    const double target_actuator_est = std::clamp(
+        1.0244 - target_pose.position.x, actuator_min, actuator_max);
+    for (double off : {0.0, -0.15, 0.15, -0.30, 0.30}) {
+      double p = std::clamp(target_actuator_est + off, actuator_min, actuator_max);
+      if (std::find_if(actuator_seeds.begin(), actuator_seeds.end(),
+          [p](double v) { return std::abs(v - p) < 1e-6; }) == actuator_seeds.end())
+        actuator_seeds.push_back(p);
+    }
+  }
+
   if (has_limits) {
     double actuator_mid = 0.5 * (actuator_min + actuator_max);
-    actuator_seeds.push_back(actuator_mid);  // try middle of table first
+    if (std::find_if(actuator_seeds.begin(), actuator_seeds.end(),
+        [actuator_mid](double v) { return std::abs(v - actuator_mid) < 1e-6; }) == actuator_seeds.end())
+      actuator_seeds.push_back(actuator_mid);
   }
-  actuator_seeds.push_back(original_actuator_pos);
+  if (std::find_if(actuator_seeds.begin(), actuator_seeds.end(),
+      [original_actuator_pos](double v) { return std::abs(v - original_actuator_pos) < 1e-6; }) == actuator_seeds.end())
+    actuator_seeds.push_back(original_actuator_pos);
   for (double o = offset_step; o <= offset_max + 1e-9; o += offset_step) {
     double p_plus = std::clamp(original_actuator_pos + o, actuator_min, actuator_max);
     double p_minus = std::clamp(original_actuator_pos - o, actuator_min, actuator_max);
@@ -524,7 +573,8 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   const std::vector<std::pair<double, double>> arm_centre_offsets = {{0.0, 0.0}, {0.0, -0.4}, {0.0, -0.8}};
 
   for (double seed_pos : actuator_seeds) {
-    const size_t arm_iters = has_two_link_seeds ? arm_centre_offsets.size() : 1u;
+    bool is_midpoint_seed = has_limits && (std::abs(seed_pos - 0.5 * (actuator_min + actuator_max)) < 1e-6);
+    const size_t arm_iters = (is_midpoint_seed && has_two_link_seeds) ? arm_centre_offsets.size() : 1u;
 
     for (size_t arm_idx = 0; arm_idx < arm_iters; ++arm_idx) {
       for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
@@ -1041,6 +1091,21 @@ void MotionControlNode::planToPoseCallback(
       response->success = false;
       response->message = "No valid IK solutions found";
       return;
+    }
+
+    // Re-rank IK solutions for corridor planning: prefer solutions where the gantry (joint index 0)
+    // is closest to the estimated target actuator position (actuator_pos ≈ 1.0244 - target.x).
+    // Cost-based ranking (joint distance from current) is wrong for corridor — "close to current"
+    // doesn't mean "arm stays inside the box mid-motion". Gantry-near-target postures do.
+    {
+      const double corr_actuator_target =
+          1.0244 - target_pose_in_planning_frame.pose.position.x;
+      std::stable_sort(solutions.begin(), solutions.end(),
+          [corr_actuator_target](const std::vector<double>& a, const std::vector<double>& b) {
+            return std::abs(a[0] - corr_actuator_target) < std::abs(b[0] - corr_actuator_target);
+          });
+      RCLCPP_INFO(get_logger(), "Corridor re-ranked %zu IK solutions (actuator target est=%.3f)",
+          solutions.size(), corr_actuator_target);
     }
 
     // Try every IK solution with whatever path constraints are currently set.

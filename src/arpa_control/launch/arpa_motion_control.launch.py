@@ -265,8 +265,9 @@ def launch_setup(context, *args, **kwargs):
                 "use_sim_time": use_sim_time,
                 "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
-                "corridor_cross_section": 0.35,       # was 0.18 — wider corridor (±0.473 m) handles arm swing at extremes
+                "corridor_cross_section": 0.80,       # was 0.35 — wider sides (±1.08 m) gives RRT lateral room to arc around without leaving corridor
                 "corridor_cross_section_z": 0.20,  # was 0.10 — wider Z gives arm reconfiguration room without relaxing orientation constraint
+                "corridor_z_floor_tolerance": 0.05,  # EE may go at most 5 cm below lower endpoint Z; stops RRT routing below gantry structure
                 "corridor_padding": 0.15,
                 # IK seed solver tuning (more/diverse seeds → better chance of valid plan)
                 "ik_seed_timeout": 0.2,
