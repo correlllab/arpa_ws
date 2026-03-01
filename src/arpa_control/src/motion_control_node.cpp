@@ -284,12 +284,6 @@ double MotionControlNode::getConfigurationCost(
   const double table_centre_weight = this->get_parameter("ik_seed_table_centre_bonus").as_double();
   total_cost -= table_centre_weight * centre_bonus;
 
-  // Prefer solutions that move the linear actuator so it does not get stuck (e.g. near pose 7 only arm moves).
-  const double current_actuator = current_values.empty() ? 0.0 : current_values[0];
-  const double target_actuator = target_values.empty() ? 0.0 : target_values[0];
-  const double actuator_stuck_penalty = (std::abs(target_actuator - current_actuator) < 0.02) ? 0.15 : 0.0;
-  total_cost += actuator_stuck_penalty;
-
   if (total_cost < 0.0) total_cost = 0.0;
 
   return total_cost;
@@ -530,8 +524,7 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   const std::vector<std::pair<double, double>> arm_centre_offsets = {{0.0, 0.0}, {0.0, -0.4}, {0.0, -0.8}};
 
   for (double seed_pos : actuator_seeds) {
-    bool is_midpoint_seed = has_limits && (std::abs(seed_pos - 0.5 * (actuator_min + actuator_max)) < 1e-6);
-    const size_t arm_iters = (is_midpoint_seed && has_two_link_seeds) ? arm_centre_offsets.size() : 1u;
+    const size_t arm_iters = has_two_link_seeds ? arm_centre_offsets.size() : 1u;
 
     for (size_t arm_idx = 0; arm_idx < arm_iters; ++arm_idx) {
       for (int perturb = 0; perturb <= perturbation_attempts; ++perturb) {
@@ -1015,71 +1008,109 @@ void MotionControlNode::planToPoseCallback(
     m_move_group->setStartStateToCurrentState();
     clearCorridorMarker();
 
-    // Optional: constrain RRT to corridor (cuboid between current EE and target); off by default
-    if (use_corridor) {
-      auto robot_state = m_move_group->getCurrentState();
-      if (robot_state) {
-        const std::string ee_link = m_move_group->getEndEffectorLink();
-        Eigen::Vector3d start_pos = robot_state->getGlobalLinkTransform(ee_link).translation();
-        Eigen::Vector3d end_pos(
-          target_pose_in_planning_frame.pose.position.x,
-          target_pose_in_planning_frame.pose.position.y,
-          target_pose_in_planning_frame.pose.position.z);
-        double seg_len = (end_pos - start_pos).norm();
-        if (seg_len >= 1e-6) {
-          const double padding = this->get_parameter("corridor_padding").as_double();
-          const double cross_side = this->get_parameter("corridor_cross_section").as_double();
-          const double cross_z = this->get_parameter("corridor_cross_section_z").as_double();
-          setCorridorPathConstraints(
-              start_pos, end_pos, padding, cross_side, cross_z,
-              target_pose_in_planning_frame.pose.orientation,
-              planning_frame, ee_link);
-          RCLCPP_INFO(get_logger(), "RRT corridor: segment %.3f m, side %.3f m, z %.3f m", seg_len, 2.0 * cross_side, 2.0 * cross_z);
-        }
+    // Hoist corridor geometry to block scope so fallbacks can reuse it
+    const std::string ee_link = m_move_group->getEndEffectorLink();
+    const double padding   = this->get_parameter("corridor_padding").as_double();
+    const double cross_side = this->get_parameter("corridor_cross_section").as_double();
+    const double cross_z    = this->get_parameter("corridor_cross_section_z").as_double();
+    Eigen::Vector3d start_pos = Eigen::Vector3d::Zero();
+    Eigen::Vector3d end_pos(
+      target_pose_in_planning_frame.pose.position.x,
+      target_pose_in_planning_frame.pose.position.y,
+      target_pose_in_planning_frame.pose.position.z);
+    double seg_len = 0.0;
+
+    auto robot_state = m_move_group->getCurrentState();
+    if (robot_state) {
+      start_pos = robot_state->getGlobalLinkTransform(ee_link).translation();
+      seg_len = (end_pos - start_pos).norm();
+      if (seg_len >= 1e-6) {
+        setCorridorPathConstraints(
+            start_pos, end_pos, padding, cross_side, cross_z,
+            target_pose_in_planning_frame.pose.orientation,
+            planning_frame, ee_link);
+        RCLCPP_INFO(get_logger(), "RRT corridor: segment %.3f m, side %.3f m, z %.3f m",
+            seg_len, 2.0 * cross_side, 2.0 * cross_z);
       }
     }
 
     auto solutions = configureForPlanning(target_pose_in_planning_frame.pose);
     if (solutions.empty()) {
+      clearCorridorMarker();
+      m_move_group->clearPathConstraints();
       response->success = false;
       response->message = "No valid IK solutions found";
       return;
     }
 
-    // Try each IK solution with corridor constraint; set joint target so we plan to the requested pose
-    for (size_t i = 0; i < solutions.size(); ++i) {
-      m_move_group->setStartStateToCurrentState();
-      m_move_group->setJointValueTarget(solutions[i]);
-
-      auto plan_result = m_move_group->plan(m_current_plan);
-      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
-        RCLCPP_INFO(get_logger(), "Planning succeeded (RRT corridor) on IK solution %zu/%zu (%zu trajectory points)",
-                    i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
-        m_goal_joint_values = solutions[i];
-
-        auto goal_state = m_move_group->getCurrentState();
-        goal_state->setJointGroupPositions(
-            goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
-        goal_state->update();
-        updateGoalMarker(goal_state);
-
-        clearCorridorMarker();
-        m_move_group->clearPathConstraints();
-        response->success = true;
-        response->message = "Planning successful (RRT corridor, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
-        RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
-        return;
+    // Try every IK solution with whatever path constraints are currently set.
+    // Returns the winning solution index, or -1 if all failed.
+    auto tryAllSolutions = [&](const std::string& label) -> int {
+      for (size_t i = 0; i < solutions.size(); ++i) {
+        m_move_group->setStartStateToCurrentState();
+        m_move_group->setJointValueTarget(solutions[i]);
+        if (m_move_group->plan(m_current_plan) == moveit::core::MoveItErrorCode::SUCCESS) {
+          RCLCPP_INFO(get_logger(), "Planning succeeded (%s) on IK solution %zu/%zu (%zu points)",
+              label.c_str(), i + 1, solutions.size(),
+              m_current_plan.trajectory_.joint_trajectory.points.size());
+          return static_cast<int>(i);
+        }
+        RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (%s)",
+            i + 1, solutions.size(), label.c_str());
       }
+      return -1;
+    };
 
-      RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT corridor) (MoveItErrorCode: %d)",
-                  i + 1, solutions.size(), plan_result.val);
+    // --- PASS 1: Normal (tight) corridor ---
+    int winning_idx = tryAllSolutions("RRT corridor");
+
+    // --- FALLBACK: Orientation-only (no position corridor) ---
+    // Drops the box constraint entirely; only the tool-pointing-down orientation
+    // constraint remains, giving RRT full joint-space freedom while still keeping
+    // the end-effector orientation locked.
+    if (winning_idx < 0) {
+      RCLCPP_WARN(get_logger(), "Wide corridor failed — retrying with orientation-only fallback");
+      m_move_group->clearPathConstraints();
+      moveit_msgs::msg::OrientationConstraint ocm;
+      ocm.link_name = ee_link;
+      ocm.header.frame_id = planning_frame;
+      ocm.orientation = target_pose_in_planning_frame.pose.orientation;
+      // Looser than the corridor constraint (0.5 rad): trajectories near the workspace
+      // boundary have waypoints that land on the tight-tolerance boundary and get rejected
+      // by the trajectory validator even when the RRT finds a valid path. 0.8 rad gives
+      // intermediate states room to pass validation; the goal orientation is still enforced
+      // via the IK seed joint values.
+      ocm.absolute_x_axis_tolerance = 0.8;
+      ocm.absolute_y_axis_tolerance = 0.8;
+      ocm.absolute_z_axis_tolerance = 2.0 * M_PI;
+      ocm.weight = 1.0;
+      moveit_msgs::msg::Constraints orientation_only;
+      orientation_only.orientation_constraints.push_back(ocm);
+      m_move_group->setPathConstraints(orientation_only);
+      winning_idx = tryAllSolutions("RRT orientation-only fallback");
     }
 
     clearCorridorMarker();
     m_move_group->clearPathConstraints();
+
+    if (winning_idx >= 0) {
+      m_goal_joint_values = solutions[winning_idx];
+      auto goal_state = m_move_group->getCurrentState();
+      goal_state->setJointGroupPositions(
+          goal_state->getJointModelGroup(m_move_group->getName()), solutions[winning_idx]);
+      goal_state->update();
+      updateGoalMarker(goal_state);
+      response->success = true;
+      response->message = "Planning successful (corridor branch, solution " +
+          std::to_string(winning_idx + 1) + "/" + std::to_string(solutions.size()) + ")";
+      RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+      return;
+    }
+
     response->success = false;
-    response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT corridor)";
-    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (RRT corridor)", solutions.size());
+    response->message = "Planning failed for all " + std::to_string(solutions.size()) +
+        " IK solutions (all corridor fallbacks exhausted)";
+    RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions (all fallbacks)", solutions.size());
     RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
     return;
   } else {

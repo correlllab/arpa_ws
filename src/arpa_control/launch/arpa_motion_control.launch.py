@@ -265,16 +265,16 @@ def launch_setup(context, *args, **kwargs):
                 "use_sim_time": use_sim_time,
                 "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
-                "corridor_cross_section": 0.18,
-                "corridor_cross_section_z": 0.10,
+                "corridor_cross_section": 0.35,       # was 0.18 — wider corridor (±0.473 m) handles arm swing at extremes
+                "corridor_cross_section_z": 0.20,  # was 0.10 — wider Z gives arm reconfiguration room without relaxing orientation constraint
                 "corridor_padding": 0.15,
                 # IK seed solver tuning (more/diverse seeds → better chance of valid plan)
                 "ik_seed_timeout": 0.2,
                 "ik_seed_actuator_offset_step": 0.1,
                 "ik_seed_actuator_offset_max": 1.0,
                 "ik_seed_perturbation_attempts": 1,
-                "ik_seed_min_clearance": 0.45,
-                "ik_seed_table_centre_bonus": 0.25,
+                "ik_seed_min_clearance": 0.30,  # was 0.45 — too aggressive, rejects valid gantry-at-max seeds for extreme corner poses
+                "ik_seed_table_centre_bonus": 0.0,    # was 0.25 — centre bias wrongly prioritises centre-gantry seeds at extreme poses
             },
         ],
     )

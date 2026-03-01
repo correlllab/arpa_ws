@@ -142,8 +142,9 @@ private:
   std::vector<double> m_goal_joint_values;
 
   // Joint weights for cost metrics: [linear actuator, shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3].
-  // Linear actuator weight 0 so the planner can move it freely (avoids "actuator stuck" near pose 7/8 when only arm moves).
-  const std::vector<double> m_joint_weights = {0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  // Small actuator weight (0.2) biases IK seed selection toward seeds where the gantry stays near
+  // its current position — corridor planning succeeds more reliably when gantry travel is minimised.
+  const std::vector<double> m_joint_weights = {0.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 
   // Dedicated node and thread for MoveGroupInterface
   rclcpp::Node::SharedPtr m_move_group_node;

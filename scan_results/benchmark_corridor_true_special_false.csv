@@ -1,9 +1,6 @@
 run_id,corridor,special_logic,completed,skipped,total,wall_s
-1,true,false,51,13,64,968.1010
-1,true,false,48,16,64,2572.6317
-2,true,false,62,2,64,744.1660
-3,true,false,62,2,64,741.1056
-4,true,false,60,4,64,905.5032
-5,true,false,58,6,64,1123.4623
-1,true,false,52,12,64,2177.8858
-2,true,false,62,2,64,837.8929
+1,true,false,56,8,64,5795.2075
+2,true,false,54,10,64,6260.2737
+3,true,false,52,12,64,6971.8667
+4,true,false,61,3,64,860.6748
+5,true,false,58,6,64,2055.7005
