@@ -2,6 +2,9 @@
 <robot xmlns:xacro="http://wiki.ros.org/xacro">
   <xacro:macro name="arpa_system" params="name prefix">
     <!-- ur_manipulator first so Motion Planning plugin defaults to arm-only group -->
+    <!-- <group name="ur16e_on_gantry">
+      <chain base_link="linear_actuator_plate_link" tip_link="tool0"/>
+    </group> -->
     <group name="${prefix}${name}ur_manipulator">
       <chain base_link="${prefix}base_link" tip_link="${prefix}tool0"/>
     </group>
@@ -9,7 +12,7 @@
       <joint name="linear_actuator_to_linear_actuator_plate_joint"/>
     </group>
     <group name="${prefix}end_effector">
-      <chain base_link="${prefix}tool0" tip_link="${prefix}tool_head_link"/>
+      <chain base_link="${prefix}wrist_3_joint" tip_link="${prefix}tool_head_link"/>
     </group>
     <group_state group="ur_manipulator" name="home">
       <joint name="elbow_joint" value="0"/>
@@ -20,7 +23,6 @@
       <joint name="wrist_3_joint" value="0"/>
     </group_state>
     <group name="ur16e_on_gantry">
-      <!-- Explicit joint listing ensures all 7 DOF are explored during planning -->
       <joint name="linear_actuator_to_linear_actuator_plate_joint"/>
       <joint name="shoulder_pan_joint"/>
       <joint name="shoulder_lift_joint"/>

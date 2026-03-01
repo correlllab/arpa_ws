@@ -8,7 +8,8 @@
   -->
   <xacro:macro name="tool_holder" params="
       parent_link
-      mesh_filename:='$(find arpa_description)/meshes/tool_holder_v2.stl'
+      visual_mesh_filename:='$(find arpa_description)/meshes/tool_holder_v2_visual.stl'
+      collision_mesh_filename:='$(find arpa_description)/meshes/tool_holder_v2_collision.stl'
       mass:=0.5
       origin_xyz:='-0.0055 -0.0055 -.006'
       origin_rpy:='${pi/2.} ${3*pi/2.} 0'
@@ -18,7 +19,7 @@
     <link name="tool_holder_link">
       <visual>
         <geometry>
-          <mesh filename="file://${mesh_filename}" scale="${scale}"/>
+          <mesh filename="file://${visual_mesh_filename}" scale="${scale}"/>
         </geometry>
         <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
         <material name="grey">
@@ -28,9 +29,9 @@
 
       <collision>
         <geometry>
-          <box size="0.365 0.125 0.105"/>
+          <mesh filename="file://${collision_mesh_filename}" scale="${scale}"/>
         </geometry>
-        <origin xyz="0.055 -0.006 0.015" rpy="${origin_rpy}"/>
+        <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
       </collision>
 
       <inertial>
@@ -49,24 +50,7 @@
       <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
     </joint>
 
-    <link name="tool_center_link">
-      <visual>
-        <geometry>
-          <cylinder radius=".025" length="0.4"/>
-        </geometry>
-        <origin xyz="0 0 0"/>
-        <material name="gantry_gray"/>
-      </visual>
-      <collision>
-        <geometry>
-          <cylinder radius=".025" length="0.4"/>
-        </geometry>
-      </collision>
-      <inertial>
-        <mass value="5.0"/>
-        <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
-      </inertial>
-    </link>
+    <link name="tool_center_link"/>
 
     <joint name="mount_to_center_joint" type="fixed">
       <parent link="tool_holder_link"/>

@@ -18,6 +18,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
+from arpa_control.srv import FixFailedPlan
 import time
 import random
 
@@ -187,6 +188,7 @@ def main(args=None):
     node = CoreNode()
 
     capture_client = node.create_client(Trigger, 'record_images/capture')
+    fix_plan_client = node.create_client(FixFailedPlan, '/fix_failed_plan')
 
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
     pose_stamped_list = scan_points_to_pose_stamped(scan_points, FRAME_ID)
@@ -244,21 +246,59 @@ def main(args=None):
                 if benchmark_mode:
                     plan_times_list.append(plan_time_s)
 
+                fix_result = None
                 if not success:
-                    if benchmark_mode:
-                        successes_list.append(0)
-                    node.get_logger().warn(f"  Orientation {j+1} planning failed, skipping")
-                    continue
+                    # Attempt corrective replan via fix_failed_plan service
+                    node.get_logger().error(f"FAILED TO PLAN TO POSE X = {p.x:.3f}, Y = {p.y:.3f}, Z = {p.z:.3f}")
+                    if fix_plan_client.service_is_ready():
+                        node.get_logger().warn("Attempting to fix failed plan...")
+                        fix_req = FixFailedPlan.Request()
+                        fix_req.failed_pose = PoseStamped()
+                        fix_req.failed_pose.header.frame_id = pose.header.frame_id
+                        fix_req.failed_pose.pose.position.x = p.x
+                        fix_req.failed_pose.pose.position.y = p.y
+                        fix_req.failed_pose.pose.position.z = p.z
+                        fix_req.failed_pose.pose.orientation.x = qx
+                        fix_req.failed_pose.pose.orientation.y = qy
+                        fix_req.failed_pose.pose.orientation.z = qz
+                        fix_req.failed_pose.pose.orientation.w = qw
 
-                if not node.execute_plan():
-                    if benchmark_mode:
-                        successes_list.append(0)
-                    node.get_logger().error(f"  Orientation {j+1} execution failed, skipping")
-                    continue
+                        fix_future = fix_plan_client.call_async(fix_req)
+                        node.get_logger().info("Waiting for fix plan service response...")
+                        while not fix_future.done():
+                            time.sleep(0.05)
+                        fix_result = fix_future.result()
+
+                        if fix_result.success and len(fix_result.seed_joint_values) > 0:
+                            node.get_logger().info(f"  Got seed joint values, replanning...")
+                            t0 = time.time()
+                            success = node.plan_to_pose(
+                                p.x, p.y, p.z, qx, qy, qz, qw,
+                                frame_id=pose.header.frame_id,
+                                seed_joint_values=list(fix_result.seed_joint_values))
+                            plan_time_s = time.time() - t0
+                            if benchmark_mode:
+                                plan_times_list.append(plan_time_s)
+                        else:
+                            node.get_logger().warn(f"  fix_failed_plan returned no seeds")
+                            orientation_successes = 0
+
+                # if not success:
+                #     if benchmark_mode:
+                #         successes_list.append(0)
+                #     node.get_logger().warn(f"  Orientation {j+1} planning failed, skipping")
+                #     continue
+
+                if fix_result is None or fix_result.success:
+                    if not node.execute_plan():
+                        if benchmark_mode:
+                            successes_list.append(0)
+                        node.get_logger().error(f"  Orientation {j+1} execution failed, skipping")
+                        continue
 
                 if benchmark_mode:
                     successes_list.append(1)
-                orientation_successes += 1
+                    # orientation_successes += 1
 
                 time.sleep(0.666)  # Brief pause to stabilize before capture
 
@@ -272,7 +312,7 @@ def main(args=None):
                 else:
                     node.get_logger().warn(f"  Capture service not available at orientation {j+1}, skipping")
 
-            if orientation_successes == 0:
+            if fix_result is not None and not fix_result.success:
                 skipped_indices.append(i)
                 update_marker_color(marker_array, i, r=1.0, g=0.0, b=0.0, a=0.8)
                 node.get_logger().warn(f"All orientations failed at Position {i+1}")

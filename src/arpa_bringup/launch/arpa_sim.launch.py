@@ -357,7 +357,7 @@ def launch_setup(context, *args, **kwargs):
     # Start move_group and motion_control after controllers are loaded (spawners run after entity spawn).
     # Avoids "controller_manager_ does not exist" / "Unable to identify controllers" at execute.
     delayed_moveit_and_motion = TimerAction(
-        period=28.0,
+        period=1.0,
         actions=[arpa_moveit_launch, arpa_motion_control],
     )
 
@@ -365,7 +365,7 @@ def launch_setup(context, *args, **kwargs):
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
         arpa_gui,
-        static_tf_world_to_floor,
+        static_tf_world_to_floor
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":
         to_return.append(rviz_node)
@@ -685,14 +685,14 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "constrain_corridor_orientation",
-            default_value="true",
+            default_value="false",
             description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_special_logic",
-            default_value="true",
+            default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
         )
     )

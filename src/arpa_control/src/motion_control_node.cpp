@@ -18,6 +18,7 @@
 #include <numeric>
 #include <random>
 #include <moveit/robot_state/conversions.h>
+#include <moveit/collision_detection/collision_tools.h>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -60,6 +61,14 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
 
   m_goal_state_pub = this->create_publisher<moveit_msgs::msg::DisplayRobotState>(
       "/goal_robot_state",
+      rclcpp::QoS(1));
+
+  m_seed_state_pub = this->create_publisher<moveit_msgs::msg::DisplayRobotState>(
+      "/seed_joint_state",
+      rclcpp::QoS(1));
+
+  m_ik_solution_state_pub = this->create_publisher<moveit_msgs::msg::DisplayRobotState>(
+      "/ik_solution_joint_state",
       rclcpp::QoS(1));
 
   m_corridor_marker_pub = this->create_publisher<visualization_msgs::msg::Marker>(
@@ -118,6 +127,30 @@ void MotionControlNode::init()
   m_move_group = std::make_shared<moveit::planning_interface::MoveGroupInterface>(
     m_move_group_node, "ur16e_on_gantry");
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control Init() END");
+
+  // Load robot model (from robot_description param)
+  m_robot_model_loader =
+    std::make_shared<robot_model_loader::RobotModelLoader>(
+      shared_from_this(),
+      "robot_description");
+
+  // Create PlanningSceneMonitor
+  m_planning_scene_monitor =
+    std::make_shared<planning_scene_monitor::PlanningSceneMonitor>(
+      shared_from_this(),
+      m_robot_model_loader,
+      "planning_scene_monitor");
+
+  if (!m_planning_scene_monitor->getPlanningScene())
+  {
+    RCLCPP_ERROR(get_logger(), "Planning scene not configured");
+    return;
+  }
+
+  // Start monitors
+  m_planning_scene_monitor->startSceneMonitor();
+  m_planning_scene_monitor->startWorldGeometryMonitor();
+  m_planning_scene_monitor->startStateMonitor();
 }
 
 void MotionControlNode::initMoveGroup()
@@ -231,11 +264,11 @@ double MotionControlNode::getConfigurationCost(
   double ee_distance = (actuator_tf.translation() - elbow_tf.translation()).norm();
   //TODO
   //min elbow distance should be a param
-  if (ee_distance < 0.650) {
-    RCLCPP_WARN(get_logger(),
-        "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
-    return std::numeric_limits<double>::infinity();
-  }
+  // if (ee_distance < 0.650) {
+  //   RCLCPP_WARN(get_logger(),
+  //       "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
+  //   return std::numeric_limits<double>::infinity();
+  // }
 
   // Weighted joint distance from current to target
   std::vector<double> current_values, target_values;
@@ -295,7 +328,67 @@ void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::Rob
   m_goal_state_pub->publish(display_state);
 }
 
-std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose, bool multi_seed)
+void MotionControlNode::publishSeedState(const std::shared_ptr<moveit::core::RobotState>& state)
+{
+  moveit_msgs::msg::DisplayRobotState display_state;
+  display_state.state.is_diff = false;
+
+  const auto* jmg = state->getJointModelGroup(m_move_group->getName());
+  std::vector<double> joint_positions;
+  state->copyJointGroupPositions(jmg, joint_positions);
+  const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
+
+  display_state.state.joint_state.header.stamp = now();
+  display_state.state.joint_state.header.frame_id = m_move_group->getPlanningFrame();
+  display_state.state.joint_state.name = joint_names;
+  display_state.state.joint_state.position = joint_positions;
+
+  // Color the seed state blue
+  const std::vector<std::string>& link_names = state->getRobotModel()->getLinkModelNames();
+  for (const auto& link_name : link_names) {
+    moveit_msgs::msg::ObjectColor obj_color;
+    obj_color.id = link_name;
+    obj_color.color.r = 0.0;
+    obj_color.color.g = 0.0;
+    obj_color.color.b = 1.0;
+    obj_color.color.a = 0.6;
+    display_state.highlight_links.push_back(obj_color);
+  }
+
+  m_seed_state_pub->publish(display_state);
+}
+
+void MotionControlNode::publishIKSolutionState(const std::shared_ptr<moveit::core::RobotState>& state)
+{
+  moveit_msgs::msg::DisplayRobotState display_state;
+  display_state.state.is_diff = false;
+
+  const auto* jmg = state->getJointModelGroup(m_move_group->getName());
+  std::vector<double> joint_positions;
+  state->copyJointGroupPositions(jmg, joint_positions);
+  const std::vector<std::string>& joint_names = jmg->getActiveJointModelNames();
+
+  display_state.state.joint_state.header.stamp = now();
+  display_state.state.joint_state.header.frame_id = m_move_group->getPlanningFrame();
+  display_state.state.joint_state.name = joint_names;
+  display_state.state.joint_state.position = joint_positions;
+
+  // Color the IK solution state orange/yellow
+  const std::vector<std::string>& link_names = state->getRobotModel()->getLinkModelNames();
+  for (const auto& link_name : link_names) {
+    moveit_msgs::msg::ObjectColor obj_color;
+    obj_color.id = link_name;
+    obj_color.color.r = 1.0;
+    obj_color.color.g = 0.6;
+    obj_color.color.b = 0.0;
+    obj_color.color.a = 0.7;
+    display_state.highlight_links.push_back(obj_color);
+  }
+
+  m_ik_solution_state_pub->publish(display_state);
+}
+
+std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometry_msgs::msg::Pose target_pose, bool multi_seed, const std::vector<double>& seed_joint_values)
 {
   auto current_state = m_move_group->getCurrentState();
   if (!current_state) {
@@ -308,13 +401,68 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
 
   double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
-  RCLCPP_INFO(get_logger(), "Current linear actuator position: %.3f m", original_actuator_pos);
 
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Try IK with linear actuator offsets: 0, +0.1, -0.1, +0.2, -0.2, ... +/-1.0
-  if(multi_seed){
+  planning_scene_monitor::LockedPlanningSceneRO locked_scene(m_planning_scene_monitor);
+
+  if (!seed_joint_values.empty()) {
+    bool generate_ik = true;
+    int failure_count = 0;
+    while(generate_ik) {
+      if(failure_count > 1000) {
+        return {};
+      }
+      RCLCPP_WARN(get_logger(), "USING CUSTOM JOINT SEED START LOCATION");
+      // Use the provided seed joint values to solve IK
+      if (seed_joint_values.size() != 7) {
+        RCLCPP_ERROR(get_logger(), "seed_joint_values must have 7 elements, got %zu", seed_joint_values.size());
+        return {};
+      }
+      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+      RCLCPP_INFO(get_logger(), "SEED STATE J0 = %.3f, J1 = %.3f, J2 = %.3f, J3 = %.3f, J4 = %.3f, J5 = %.3f, J6 = %.3f",
+                  seed_joint_values[0], seed_joint_values[1], seed_joint_values[2],
+                  seed_joint_values[3], seed_joint_values[4], seed_joint_values[5],
+                  seed_joint_values[6]);
+      seed_state->setJointGroupPositions(jmg, seed_joint_values);
+      seed_state->update();
+      
+      // Publish the seed state for visualization (blue)
+      publishSeedState(seed_state);
+      
+      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.5)) {
+        RCLCPP_ERROR(get_logger(), "IK failed using provided seed_joint_values");
+        failure_count++;
+        continue;
+      }
+      seed_state->update();
+      
+      // Publish the IK solution state for visualization (orange)
+      publishIKSolutionState(seed_state);
+      
+
+      collision_detection::CollisionRequest collision_request;
+      collision_request.group_name = m_move_group->getName();
+      collision_detection::CollisionResult collision_result;
+      locked_scene->checkSelfCollision(collision_request, collision_result, *seed_state);
+      if (collision_result.collision) {
+        RCLCPP_ERROR(get_logger(), "IK solution is in self-collision, rejecting");
+        failure_count++;
+        continue;
+      }
+
+      RCLCPP_INFO(get_logger(), "COLLISION CHECKING COMPLETE");
+      
+      std::vector<double> joint_positions;
+      seed_state->copyJointGroupPositions(jmg, joint_positions);
+      all_solutions.push_back(joint_positions);
+      all_costs.push_back(1);
+      generate_ik = false;
+    }
+  } else if (multi_seed) {
+    // Try IK with linear actuator offsets: 0, +0.1, -0.1, +0.2, -0.2, ... +/-1.0
+    RCLCPP_WARN(get_logger(), "UNIFORM SAMPLING OF JOINT SEED POSITION");
     for (int step = 0; step <= 10; ++step) {
       std::vector<double> offsets;
       if (step == 0) {
@@ -346,8 +494,15 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
       }
     }
   } else {
+    RCLCPP_WARN(get_logger(), "USING CURRENT POSITION AS SEED POSITION");
     // Original logic: just try the current actuator position as the seed
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+    std::vector<double> seed_joint_values;
+    seed_state->copyJointGroupPositions(jmg, seed_joint_values);
+    RCLCPP_INFO(get_logger(), "SEED STATE J0 = %.3f, J1 = %.3f, J2 = %.3f, J3 = %.3f, J4 = %.3f, J5 = %.3f, J6 = %.3f",
+                 seed_joint_values[0], seed_joint_values[1], seed_joint_values[2],
+                 seed_joint_values[3], seed_joint_values[4], seed_joint_values[5],
+                 seed_joint_values[6]);
     if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
       RCLCPP_ERROR(get_logger(), "IK failed for current actuator position %.3f m", original_actuator_pos);
       return {};
@@ -633,6 +788,7 @@ void MotionControlNode::planToPoseCallback(
         updateGoalMarker(goal_state);
 
         response->success = true;
+        response->path_length = m_current_plan.trajectory_.joint_trajectory.points.size();
         response->message = "Planning successful (special logic, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
         return;
       }
@@ -704,6 +860,7 @@ void MotionControlNode::planToPoseCallback(
     if (fraction >= 0.95) {
       m_current_plan.trajectory_ = trajectory;
       response->success = true;
+      response->path_length = m_current_plan.trajectory_.joint_trajectory.points.size();
       response->message = "Cartesian planning successful (fraction: " + std::to_string(fraction) + ")";
       RCLCPP_INFO(get_logger(), "Cartesian path computed: %.1f%% achieved", fraction * 100.0);
     } else {
@@ -743,11 +900,20 @@ void MotionControlNode::planToPoseCallback(
         if (seg_len >= 1e-6) {
           const double padding = this->get_parameter("corridor_padding").as_double();
           const double cross = this->get_parameter("corridor_cross_section").as_double();
+          const double vertical_tolerance = cross * 0.3;  // Smaller vertical tolerance (30% of horizontal)
+          const double orientation_constraint = this->get_parameter("orientation_constraint").as_double();
           Eigen::Vector3d dir = diff / seg_len;
           double length_along = seg_len + 2.0 * padding;
           Eigen::Vector3d mid = start_pos + 0.5 * diff;
-          Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
-
+          Eigen::Quaterniond quat;
+          const double dot = Eigen::Vector3d::UnitX().dot(dir);
+          if (dot < -1.0 + 1e-6) {
+            // dir is antiparallel to UnitX — rotate 180° around UnitZ
+            quat = Eigen::Quaterniond(0.0, 0.0, 0.0, 1.0); // w=0, z=1 → 180° around Z
+          } else {
+            quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
+          }
+          quat.normalize();
           moveit_msgs::msg::PositionConstraint pos_constraint;
           pos_constraint.header.frame_id = planning_frame;
           pos_constraint.link_name = ee_link;
@@ -759,9 +925,9 @@ void MotionControlNode::planToPoseCallback(
           shape_msgs::msg::SolidPrimitive box;
           box.type = shape_msgs::msg::SolidPrimitive::BOX;
           box.dimensions.resize(3);
-          box.dimensions[0] = length_along;
-          box.dimensions[1] = 2.0 * cross;
-          box.dimensions[2] = 2.0 * cross;
+          box.dimensions[0] = length_along;           // Length along path (horizontal)
+          box.dimensions[1] = 2.0 * cross;            // Horizontal cross-section perpendicular to path
+          box.dimensions[2] = 2.0 * vertical_tolerance;  // Vertical tolerance (smallest dimension)
 
           geometry_msgs::msg::Pose box_pose;
           box_pose.position.x = mid.x();
@@ -796,25 +962,26 @@ void MotionControlNode::planToPoseCallback(
           moveit_msgs::msg::Constraints path_constraints;
           path_constraints.position_constraints.push_back(pos_constraint);
 
-          if (constrain_orientation) {
-            moveit_msgs::msg::OrientationConstraint oc;
-            oc.header.frame_id = planning_frame;
-            oc.link_name = ee_link;
-            oc.orientation = target_pose_in_planning_frame.pose.orientation;
-            oc.absolute_x_axis_tolerance = 0.4;
-            oc.absolute_y_axis_tolerance = 0.4;
-            oc.absolute_z_axis_tolerance = 0.4;
-            oc.weight = 1.0;
-            path_constraints.orientation_constraints.push_back(oc);
-          }
+          // if (constrain_orientation) {
+          //   moveit_msgs::msg::OrientationConstraint oc;
+          //   oc.header.frame_id = planning_frame;
+          //   oc.link_name = ee_link;
+          //   oc.orientation = target_pose_in_planning_frame.pose.orientation;
+          //   oc.absolute_x_axis_tolerance = orientation_constraint;
+          //   oc.absolute_y_axis_tolerance = orientation_constraint;
+          //   oc.absolute_z_axis_tolerance = orientation_constraint;
+          //   oc.weight = 1.0;
+          //   path_constraints.orientation_constraints.push_back(oc);
+          // }
 
           m_move_group->setPathConstraints(path_constraints);
-          RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
+          RCLCPP_INFO(get_logger(), "RRT corridor constraint: length %.3f m, horizontal cross-section %.3f m, vertical tolerance %.3f m", 
+                      length_along, 2.0 * cross, 2.0 * vertical_tolerance);
         }
       }
     }
 
-    auto solutions = configureForPlanning(target_pose_in_planning_frame.pose);
+    auto solutions = configureForPlanning(target_pose_in_planning_frame.pose, false, request->seed_joint_values);
     if (solutions.empty()) {
       response->success = false;
       response->message = "No valid IK solutions found";
@@ -828,6 +995,16 @@ void MotionControlNode::planToPoseCallback(
 
       auto plan_result = m_move_group->plan(m_current_plan);
       if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
+        if(m_current_plan.trajectory_.joint_trajectory.points.size() > 500) {
+          RCLCPP_ERROR(get_logger(), "Planned trajectory has %zu points, which may be too long",
+                      m_current_plan.trajectory_.joint_trajectory.points.size());
+          response->success = false;
+          response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT with corridor and fallback)";
+          return;
+        }
+      }
+
+      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
         RCLCPP_INFO(get_logger(), "Planning succeeded (RRT corridor) on IK solution %zu/%zu (%zu trajectory points)",
                     i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
         m_goal_joint_values = solutions[i];
@@ -840,50 +1017,18 @@ void MotionControlNode::planToPoseCallback(
 
         m_move_group->clearPathConstraints();
         response->success = true;
+        response->path_length = m_current_plan.trajectory_.joint_trajectory.points.size();
         response->message = "Planning successful (RRT corridor, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
         RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
         return;
       }
 
       RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT corridor) (MoveItErrorCode: %d)",
-                  i + 1, solutions.size(), plan_result.val);
+                  i + 1, solutions.size(), plan_result.val);        
     }
 
     // Fallback: retry without corridor constraint (path may have been invalid due to tight corridor)
     m_move_group->clearPathConstraints();
-    RCLCPP_INFO(get_logger(), "RRT with corridor failed for all solutions, retrying without path constraints");
-    solutions = configureForPlanning(target_pose_in_planning_frame.pose);
-    if (solutions.empty()) {
-      response->success = false;
-      response->message = "No valid IK solutions found (after corridor fallback)";
-      return;
-    }
-
-    for (size_t i = 0; i < solutions.size(); ++i) {
-      m_move_group->setStartStateToCurrentState();
-      m_move_group->setJointValueTarget(solutions[i]);
-
-      auto plan_result = m_move_group->plan(m_current_plan);
-      if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
-        RCLCPP_INFO(get_logger(), "Planning succeeded (RRT no corridor fallback) on IK solution %zu/%zu (%zu trajectory points)",
-                    i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
-        m_goal_joint_values = solutions[i];
-
-        auto goal_state = m_move_group->getCurrentState();
-        goal_state->setJointGroupPositions(
-            goal_state->getJointModelGroup(m_move_group->getName()), solutions[i]);
-        goal_state->update();
-        updateGoalMarker(goal_state);
-
-        response->success = true;
-        response->message = "Planning successful (RRT fallback without corridor, solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
-        RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
-        return;
-      }
-
-      RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (RRT no corridor) (MoveItErrorCode: %d)",
-                  i + 1, solutions.size(), plan_result.val);
-    }
 
     response->success = false;
     response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions (RRT with corridor and fallback)";
@@ -895,7 +1040,7 @@ void MotionControlNode::planToPoseCallback(
     m_move_group->clearPoseTargets();
 
     // Get IK solutions sorted by ascending cost
-    auto solutions = configureForPlanning(m_current_target_pose);
+    auto solutions = configureForPlanning(m_current_target_pose, true, request->seed_joint_values);
     if (solutions.empty()) {
       response->success = false;
       response->message = "No valid IK solutions found";
@@ -921,6 +1066,7 @@ void MotionControlNode::planToPoseCallback(
         updateGoalMarker(goal_state);
 
         response->success = true;
+        response->path_length = m_current_plan.trajectory_.joint_trajectory.points.size();
         response->message = "Planning successful (solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
         RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
         return;

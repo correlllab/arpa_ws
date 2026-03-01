@@ -1,7 +1,7 @@
-linear_actuator_to_linear_actuator_plate_joint: 0.5
-shoulder_pan_joint: 1.575
-shoulder_lift_joint: -3.44
-elbow_joint: 1.575
-wrist_1_joint: 0.3
-wrist_2_joint: 1.575
-wrist_3_joint: 3.14
+linear_actuator_to_linear_actuator_plate_joint: 1.3277
+shoulder_pan_joint: -5.7763
+shoulder_lift_joint: -1.4730
+elbow_joint: 2.2977
+wrist_1_joint: 3.8828
+wrist_2_joint: 1.5735
+wrist_3_joint: 2.6342

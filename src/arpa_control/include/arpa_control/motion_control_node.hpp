@@ -24,6 +24,8 @@
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <visualization_msgs/msg/interactive_marker_feedback.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <moveit/planning_scene_monitor/planning_scene_monitor.h>
+#include <moveit/robot_model_loader/robot_model_loader.h>
 
 
 // lidar
@@ -70,6 +72,7 @@ private:
 
   std::shared_ptr<moveit::planning_interface::MoveGroupInterface> m_move_group;
   std::shared_ptr<planning_scene_monitor::PlanningSceneMonitor> m_planning_scene_monitor;
+  robot_model_loader::RobotModelLoaderPtr m_robot_model_loader;
   std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> m_planning_scene_interface;
   rclcpp::Client<arpa_control::srv::GetPointCloud>::SharedPtr m_depth_client;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_depth_reset_client;
@@ -92,7 +95,7 @@ private:
   double getConfigurationCost(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
-  std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose, bool multi_seed = true);
+  std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose, bool multi_seed = true, const std::vector<double>& seed_joint_values = {});
   /** Multi-objective IK seed selection (clearance, manipulability, joint distance, limit margin). */
   std::vector<std::vector<double>> configureForPlanningSpecial(geometry_msgs::msg::Pose target_pose);
   double getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state);
@@ -109,7 +112,11 @@ private:
       const std::string& ee_link,
       bool euclidean = false);
   void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
+  void publishSeedState(const std::shared_ptr<moveit::core::RobotState>& state);
+  void publishIKSolutionState(const std::shared_ptr<moveit::core::RobotState>& state);
   rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_goal_state_pub;
+  rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_seed_state_pub;
+  rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_ik_solution_state_pub;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr m_corridor_marker_pub;
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;
   float m_arm_padding;

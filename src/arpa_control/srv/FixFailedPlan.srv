@@ -1,0 +1,4 @@
+geometry_msgs/PoseStamped failed_pose
+---
+bool success
+float64[] seed_joint_values

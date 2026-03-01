@@ -75,7 +75,7 @@ class CoreNode(Node):
         self._spin_thread = threading.Thread(target=rclpy.spin, args=(self,), daemon=True)
         self._spin_thread.start()
 
-    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
+    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world", seed_joint_values=None):
         req = PlanToPose.Request()
         req.target_pose.header.frame_id = frame_id
         req.target_pose.pose.position.x = x
@@ -85,10 +85,13 @@ class CoreNode(Node):
         req.target_pose.pose.orientation.y = qy
         req.target_pose.pose.orientation.z = qz
         req.target_pose.pose.orientation.w = qw
+        if seed_joint_values is not None:
+            req.seed_joint_values = list(seed_joint_values)
 
+        seed_info = f", seed_joint_values={seed_joint_values}" if seed_joint_values else ""
         self.get_logger().info(f"Planning to pose: x={x:.3f}, y={y:.3f}, z={z:.3f}, "
                                f"qx={qx:.3f}, qy={qy:.3f}, qz={qz:.3f}, qw={qw:.3f} "
-                               f"in frame '{frame_id}'")
+                               f"in frame '{frame_id}'{seed_info}")
 
         future = self.plan_client.call_async(req)
         while not future.done():

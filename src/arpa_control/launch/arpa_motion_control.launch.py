@@ -57,6 +57,7 @@ def launch_setup(context, *args, **kwargs):
     description_package = LaunchConfiguration("description_package")
     description_file = LaunchConfiguration("description_file")
     moveit_config_package = LaunchConfiguration("moveit_config_package")
+    orientation_constraint = LaunchConfiguration("orientation_constraint")
     moveit_joint_limits_file = LaunchConfiguration("moveit_joint_limits_file")
     moveit_config_file = LaunchConfiguration("moveit_config_file")
     prefix = LaunchConfiguration("prefix")
@@ -266,9 +267,10 @@ def launch_setup(context, *args, **kwargs):
                 "use_sim_time": use_sim_time,
                 "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
                 "constrain_corridor_orientation": constrain_corridor_orientation.perform(context).lower() == "true",
+                "orientation_constraint": orientation_constraint,
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
-                "corridor_cross_section": 0.5,
-                "corridor_padding": 0.25,
+                "corridor_cross_section": 0.25,
+                "corridor_padding": 0.5,
             },
         ],
     )
@@ -573,6 +575,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "initial_positions_file",
             default_value="",
+            description="Initial positions file for simulation.",
+        )
+    )
+
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "orientation_constraint",
+            default_value="0.25",
             description="Initial positions file for simulation.",
         )
     )

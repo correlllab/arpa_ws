@@ -1,6 +1,9 @@
 geometry_msgs/PoseStamped target_pose
-bool use_cartesian
 moveit_msgs/Constraints path_constraints
+
+bool use_cartesian
+float64[] seed_joint_values
 ---
 bool success
 string message
+uint32 path_length

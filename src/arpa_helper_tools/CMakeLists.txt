@@ -18,6 +18,8 @@ install(PROGRAMS
   scripts/scan_battery.py
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
+  scripts/plot_benchmark.py
+  scripts/failed_planning_investigator.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
