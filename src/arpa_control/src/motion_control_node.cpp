@@ -303,7 +303,8 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
     return {};
   }
 
-  const auto* jmg = current_state->getJointModelGroup(m_move_group->getName());
+  const auto* jmg     = current_state->getJointModelGroup(m_move_group->getName());
+  const auto* arm_jmg = current_state->getJointModelGroup("ur_manipulator");
   const std::string& ee_link = m_move_group->getEndEffectorLink();
   const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
 
@@ -313,19 +314,26 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Try IK with linear actuator offsets
+  // Try IK with linear actuator locked at each offset.
+  // IK is solved on arm_jmg (ur_manipulator, 6-DOF arm only) so the actuator
+  // position set in the seed state is held fixed — the solver never touches it.
   if(multi_seed){
     for (double offset : {0.0, -0.25, 0.25, 0.5, -0.5, -0.75, 0.75, -1.0, 1.0}) {
       auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
       double shifted_pos = original_actuator_pos + offset;
       seed_state->setJointPositions(actuator_joint, &shifted_pos);
       seed_state->update();
+      // updateGoalMarker(seed_state);
+      // std::this_thread::sleep_for(std::chrono::seconds(1));
 
-      if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
+      if (!seed_state->setFromIK(arm_jmg, target_pose, ee_link, 0.1)) {
         RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
         continue;
       }
       seed_state->update();
+      // updateGoalMarker(seed_state);
+      // std::this_thread::sleep_for(std::chrono::seconds(1));
+
 
       double cost = getConfigurationCost(current_state, seed_state);
       if (std::isinf(cost)) continue;
@@ -336,9 +344,9 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
       all_costs.push_back(cost);
     }
   } else {
-    // Original logic: just try the current actuator position as the seed
+    // Single seed: lock actuator at current position, solve arm only
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-    if (!seed_state->setFromIK(jmg, target_pose, ee_link, 0.1)) {
+    if (!seed_state->setFromIK(arm_jmg, target_pose, ee_link, 0.1)) {
       RCLCPP_ERROR(get_logger(), "IK failed for current actuator position %.3f m", original_actuator_pos);
       return {};
     }
