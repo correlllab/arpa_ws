@@ -26,11 +26,17 @@
         </material>
       </visual>
 
-      <collision>
+      <!-- <collision>
         <geometry>
           <box size="0.365 0.125 0.105"/>
         </geometry>
         <origin xyz="0.055 -0.006 0.015" rpy="${origin_rpy}"/>
+      </collision> -->
+      <collision>
+        <geometry>
+          <mesh filename="file://${mesh_filename}" scale="${scale}"/>
+        </geometry>
+        <origin xyz="${origin_xyz}" rpy="${origin_rpy}"/>
       </collision>
 
       <inertial>
@@ -106,7 +112,7 @@
     <joint name="extension_to_tool_head_joint" type="fixed">
       <parent link="ratchet_extension_link"/>
       <child link="tool_head_link"/>
-      <origin xyz="0.0 0 0.09" rpy="0 0 0"/>
+      <origin xyz="0.0 0 0.09" rpy="0 0 -${pi/2.}"/>
     </joint>
 
   </xacro:macro>

@@ -13,7 +13,8 @@ find_package(rclpy REQUIRED)
 # Install Python scripts
 install(PROGRAMS
   scripts/record_poses.py
-  scripts/goto_recorded_poses.py
+  scripts/remove_screws_from_recorded_poses.py
+  scripts/remove_screws_from_vision.py
   scripts/core_functionality_node.py
   scripts/scan_battery.py
   scripts/run_benchmark.py

@@ -225,10 +225,12 @@ double MotionControlNode::getConfigurationCost(
   // Check collision: Euclidean distance between linear actuator plate and elbow
   const Eigen::Isometry3d& actuator_tf =
       target_state->getGlobalLinkTransform("linear_actuator_plate_link");
-  const Eigen::Isometry3d& elbow_tf =
+  const Eigen::Isometry3d& wrist_tf =
       target_state->getGlobalLinkTransform("wrist_3_link");
+  const Eigen::Isometry3d& forearm_tf =
+      target_state->getGlobalLinkTransform("forearm_link");
 
-  double ee_distance = (actuator_tf.translation() - elbow_tf.translation()).norm();
+  double ee_distance = (actuator_tf.translation() - wrist_tf.translation()).norm();
   //TODO
   //min elbow distance should be a param
   if (ee_distance < 0.650) {
@@ -236,6 +238,13 @@ double MotionControlNode::getConfigurationCost(
         "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
     return std::numeric_limits<double>::infinity();
   }
+
+  // Triangle area between linear_actuator_plate_link, wrist_3_link, forearm_link
+  // area = 0.5 * ||(wrist - actuator) × (forearm - actuator)||
+  Eigen::Vector3d a = actuator_tf.translation();
+  Eigen::Vector3d b = wrist_tf.translation();
+  Eigen::Vector3d c = forearm_tf.translation();
+  double triangle_area = 0.5 * (b - a).cross(c - a).norm();
 
   // Weighted joint distance from current to target
   std::vector<double> current_values, target_values;
@@ -248,16 +257,17 @@ double MotionControlNode::getConfigurationCost(
     double diff = target_values[i] - current_values[i];
     joint_cost += m_joint_weights[i] * diff * diff;
   }
-  joint_cost = std::sqrt(joint_cost);
+  joint_cost = 2*std::sqrt(joint_cost);
 
   // Add proximity penalty: penalize configurations where wrist is close to actuator
   double actuator_wrist_distance = ee_distance;  // Using wrist_3_link distance (same as elbow check)
   double proximity_penalty = 0.1 / actuator_wrist_distance;
+  double area_penalty = 0.5 / triangle_area; // Penalize small triangle area (near-collinear)
 
-  double total_cost = joint_cost + proximity_penalty;
+  double total_cost = joint_cost + proximity_penalty + area_penalty;
 
-  // RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f (dist=%.3fm), Total: %.4f",
-  //             joint_cost, proximity_penalty, actuator_wrist_distance, total_cost);
+  // RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f (dist=%.3fm), Area: %.4f, Total: %.4f",
+  //             joint_cost, proximity_penalty, actuator_wrist_distance, area_penalty, total_cost);
 
   return total_cost;
 }

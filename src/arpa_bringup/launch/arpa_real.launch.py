@@ -303,6 +303,12 @@ def launch_setup(context, *args, **kwargs):
         name="record_images_node"
     )
 
+    recorded_poses_publisher = Node(
+        package="arpa_helper_tools",
+        executable="record_poses.py",
+        name="recorded_poses_publisher"
+    )
+
     vision_node_delayed = TimerAction(
         period=10.0,
         actions=[vision_node]
@@ -319,7 +325,8 @@ def launch_setup(context, *args, **kwargs):
         ethernet_motor_interface_node,
         static_tf_world_to_floor,
         vision_node_delayed,
-        record_images_node
+        record_images_node,
+        # recorded_poses_publisher
     ]
 
 

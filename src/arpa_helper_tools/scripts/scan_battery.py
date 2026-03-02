@@ -118,17 +118,21 @@ for row_idx, x_pos in enumerate(_X_POSITIONS):
                 continue
         scan_points.append((x_pos, y_pos))
 
+
+VARIABLE_ORIENTATION = False
 def scan_points_to_pose_stamped(points, frame_id):
     pose_stamped_list = []
     for x, y in points:
         # Build orientation: tool Z down, tool Y toward origin in XY plane
-        z_hat = np.array([0.0, 0.0, -1.0])
-        toward_origin = np.array([-x, -y, 0.0])
-        norm = np.linalg.norm(toward_origin)
-        y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
-        x_hat = np.cross(y_hat, z_hat)
-        rot = np.column_stack([x_hat, y_hat, z_hat])
-        qx, qy, qz, qw = R.from_matrix(rot).as_quat()
+        qx,qy,qz,qw = _QX, _QY, _QZ, _QW
+        if VARIABLE_ORIENTATION:
+            z_hat = np.array([0.0, 0.0, -1.0])
+            toward_origin = np.array([-x, -y, 0.0])
+            norm = np.linalg.norm(toward_origin)
+            y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
+            x_hat = np.cross(y_hat, z_hat)
+            rot = np.column_stack([x_hat, y_hat, z_hat])
+            qx, qy, qz, qw = R.from_matrix(rot).as_quat()
 
         ps = PoseStamped()
         ps.header.frame_id = frame_id
@@ -200,14 +204,23 @@ def main(args=None):
     capture_client = node.create_client(Trigger, 'record_images/capture')
 
     # Clear any existing detections before the scan begins
-    clear_client = node.create_client(Trigger, '/arpa_vision_node/clear_detections')
-    if clear_client.wait_for_service(timeout_sec=5.0):
-        future = clear_client.call_async(Trigger.Request())
+    clear_det_client = node.create_client(Trigger, '/arpa_vision_node/clear_detections')
+    if clear_det_client.wait_for_service(timeout_sec=5.0):
+        future = clear_det_client.call_async(Trigger.Request())
         while not future.done():
             time.sleep(0.05)
         node.get_logger().info("Detections cleared before scan.")
     else:
         node.get_logger().warn("clear_detections service not available, skipping clear.")
+
+    clear_acc_client = node.create_client(Trigger, 'pointcloud_accumulator/clear_arm_pointcloud')
+    if clear_acc_client.wait_for_service(timeout_sec=5.0):
+        future = clear_acc_client.call_async(Trigger.Request())
+        while not future.done():
+            time.sleep(0.05)
+        node.get_logger().info("Arm pointcloud cleared before scan.")
+    else:
+        node.get_logger().warn("clear_arm_pointcloud service not available, skipping clear.")
 
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
     pose_stamped_list = scan_points_to_pose_stamped(scan_points, FRAME_ID)

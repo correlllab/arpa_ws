@@ -33,22 +33,24 @@ markers_topic     = "/realsense/ee_cam/object_markers"
 cloud_topic       = "/realsense/ee_cam/object_pointcloud"
 
 BASE_FRAME         = "world"
-OVERLAP_THRESHOLD  = 0.25
-DO_VOXEL           = False
+OVERLAP_THRESHOLD  = 0.1
+DO_VOXEL           = True
 VOXEL_SIZE_M       = 0.001
 CAMERA_MIN_RANGE_M = 0.1
 CAMERA_MAX_RANGE_M = 0.5
 
 # --- Outlier removal ---
-RADIUS_OUTLIER_REMOVAL        = False
-RADIUS_OUTLIER_NB_POINTS      = 10     # min neighbours within radius
-RADIUS_OUTLIER_RADIUS         = 0.03   # search radius in metres
+RADIUS_OUTLIER_REMOVAL        = True
+RADIUS_OUTLIER_NB_POINTS      = 80     # min neighbours within radius
+RADIUS_OUTLIER_RADIUS         = 0.01  # search radius in metres
 
-STATISTICAL_OUTLIER_REMOVAL   = True
-STATISTICAL_OUTLIER_NB_NEIGHBORS = 30  # neighbours to analyse
-STATISTICAL_OUTLIER_STD_RATIO    = 1.0 # std-dev multiplier threshold
+STATISTICAL_OUTLIER_REMOVAL      = True
+STATISTICAL_OUTLIER_NB_NEIGHBORS = 80  # neighbours to analyse
+STATISTICAL_OUTLIER_STD_RATIO    = 0.05 # std-dev multiplier threshold
 
-PCD_MIN_POINTS = 5  # discard clouds with fewer points than this
+PCD_MIN_POINTS = 10  # discard clouds with fewer points than this
+
+BLUR_THRESHOLD = 80.0  # Laplacian variance below this → image is too blurry
 
 SUBSCRIBER_RATE_HZ = 6.0
 
@@ -118,11 +120,12 @@ class VisionNode(Node):
         self.create_service(Trigger, '~/save_object_detection', self._save_detections_cb)
         self.create_service(Trigger, '~/load_object_detection', self._load_detections_cb)
         self.create_service(Trigger, '~/get_detections_json',   self._get_detections_json_cb)
+        self.create_service(Trigger, '~/clear_detections',      self._clear_detections_cb)
 
         _save_path = self.get_parameter('detections_save_path').get_parameter_value().string_value
         if os.path.exists(_save_path):
-            # self._load_detections(_save_path)
-            pass
+            self._load_detections(_save_path)
+            # pass
         else:
             self.get_logger().info(f'No saved detections found at {_save_path}, starting fresh.')
 
@@ -145,6 +148,12 @@ class VisionNode(Node):
             # Drain to the newest frame — older ones will just be stale
             while not self.sync_queue.empty():
                 rgb_msg, depth_msg, info_msg = self.sync_queue.get()
+
+        img = self.bridge.compressed_imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
+        blur_score = cv2.Laplacian(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
+        if blur_score < BLUR_THRESHOLD:
+            self.get_logger().debug(f'Dropping blurry frame (Laplacian var={blur_score:.1f})')
+            return
 
         # Drop stale frames so we never request a TF timestamp older than the buffer
         msg_age = (self.get_clock().now() - rclpy.time.Time.from_msg(rgb_msg.header.stamp)).nanoseconds * 1e-9
@@ -265,7 +274,7 @@ class VisionNode(Node):
                 std_ratio=STATISTICAL_OUTLIER_STD_RATIO,
             )
 
-        if pcd.point["positions"].shape[0] < PCD_MIN_POINTS:
+        if "positions" not in pcd.point or pcd.point["positions"].shape[0] < PCD_MIN_POINTS:
             return None
 
         pcd = pcd.transform(obs_pose)
@@ -281,8 +290,9 @@ class VisionNode(Node):
             matched = False
             for det in self.detections.get(label, []):
                 if self._bbox_overlap_ratio(bbox, det['bbox']) >= OVERLAP_THRESHOLD:
-                    det['pcd']  = self._merge_pcds(det['pcd'], pcd)
-                    det['bbox'] = det['pcd'].get_axis_aligned_bounding_box()
+                    merged = self._merge_pcds(det['pcd'], pcd)
+                    det['pcd']  = merged
+                    det['bbox'] = merged.get_axis_aligned_bounding_box()
                     det['prob'] = max(det['prob'], prob)
                     matched = True
                     break
@@ -310,13 +320,15 @@ class VisionNode(Node):
         return inter_vol / min_vol
 
     def _merge_pcds(self, pcd1, pcd2):
-        """Stack two tensor PointClouds and voxel-downsample the result."""
+        """Stack two tensor PointClouds, voxel-downsample, and re-run outlier removal."""
         pts = np.vstack([pcd1.point["positions"].numpy(), pcd2.point["positions"].numpy()])
         cls = np.vstack([pcd1.point["colors"].numpy(),    pcd2.point["colors"].numpy()])
         merged = o3tg.PointCloud()
         merged.point["positions"] = o3c.Tensor(pts, o3c.float32)
         merged.point["colors"]    = o3c.Tensor(cls, o3c.float32)
-        return merged.voxel_down_sample(voxel_size=VOXEL_SIZE_M) if DO_VOXEL else merged
+        if DO_VOXEL:
+            merged = merged.voxel_down_sample(voxel_size=VOXEL_SIZE_M)
+        return merged
 
     def publish_detections(self):
         """Publish MarkerArray and merged PointCloud2 from all accumulated detections."""
@@ -408,6 +420,14 @@ class VisionNode(Node):
         cloud_msg.is_dense        = True
         self.cloud_pub.publish(cloud_msg)
         # self.get_logger().info(f'Published PointCloud2 with {len(all_pts)} points')
+
+    def _clear_detections_cb(self, request, response):
+        with self.lock:
+            self.detections.clear()
+        self.get_logger().info('Detections cleared.')
+        response.success = True
+        response.message = 'Detections cleared.'
+        return response
 
     def _get_detections_json_cb(self, request, response):
         try:

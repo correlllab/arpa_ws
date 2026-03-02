@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 
 import rclpy
+from geometry_msgs.msg import PoseStamped
 from core_functionality_node import CoreNode
+import time
+
+def trigger_with_retry(node, behavior, retries=3):
+    for attempt in range(1, retries + 1):
+        if node.trigger_behavior(behavior):
+            return True
+        node.get_logger().warn(f"Behavior '{behavior}' failed (attempt {attempt}/{retries}), retrying...")
+        time.sleep(1)
+    node.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
+    return False
 
 
 def main(args=None):
@@ -46,9 +57,32 @@ def main(args=None):
 
     node.get_logger().info(f"Connected to record_poses. {len(recorded_poses)} poses available.")
 
+    # Convert to PoseStamped and get TSP order
+    pose_stamped_list = []
+    for x, y, z, qx, qy, qz, qw in recorded_poses:
+        ps = PoseStamped()
+        ps.header.frame_id = 'floor_link'
+        ps.pose.position.x = x
+        ps.pose.position.y = y
+        ps.pose.position.z = z
+        ps.pose.orientation.x = qx
+        ps.pose.orientation.y = qy
+        ps.pose.orientation.z = qz
+        ps.pose.orientation.w = qw
+        pose_stamped_list.append(ps)
+
+    ordered_poses = node.get_tsp_order(pose_stamped_list)
+    node.get_logger().info(f"{len(ordered_poses)} poses TSP ordered.")
+
     try:
-        for pose in recorded_poses:
-            x, y, z, qx, qy, qz, qw = pose
+        for pose in ordered_poses:
+            x = pose.pose.position.x
+            y = pose.pose.position.y
+            z = pose.pose.position.z
+            qx = pose.pose.orientation.x
+            qy = pose.pose.orientation.y
+            qz = pose.pose.orientation.z
+            qw = pose.pose.orientation.w
             plan_successful = False
             while not plan_successful:
                 success = node.plan_to_pose(x, y, z, qx, qy, qz, qw)
@@ -59,21 +93,17 @@ def main(args=None):
                     node.get_logger().warn("Planning failed, retrying...")
             node.execute_plan()
 
-            node.get_logger().info("Triggering zforce behavior...")
-            node.trigger_behavior("zforce")
-            node.get_logger().info("Zforce behavior completed.")
+            trigger_with_retry(node, "zforce")
             node.motor_control(100)
-            node.trigger_behavior("play")
+            trigger_with_retry(node, "play")
             time.sleep(2)
 
-            node.get_logger().info("Triggering retract behavior...")
-            node.trigger_behavior("retract")
-            node.get_logger().info("Retract behavior completed.")
-            node.trigger_behavior("play")
+            trigger_with_retry(node, "retract")
+            trigger_with_retry(node, "play")
             time.sleep(1)
-            
+
             node.motor_control(0)
-            node.trigger_behavior("ros2control")
+            trigger_with_retry(node, "ros2control")
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
     finally:
