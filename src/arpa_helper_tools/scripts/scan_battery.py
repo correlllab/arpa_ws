@@ -23,6 +23,7 @@ import random
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
+import numpy as np
 from scipy.spatial.transform import Rotation as R
 
 
@@ -64,6 +65,7 @@ At time 1770252100.237171449
  -0.000  0.000 -1.000  1.253
   0.000  0.000  0.000  1.000
 """
+SAVE_IMAGES = False
 
 # Scan area bounds (X, Y)
 LOWER_LEFT = [1.109, -0.743]   # Starting corner
@@ -75,7 +77,7 @@ N_X_STEPS = 8 # Number of positions along X
 N_Y_STEPS = 8  # Number of positions along Y
 
 # When True, only visit the three outermost rows and columns (border band of depth 3)
-only_outside_points = True
+only_outside_points = False
 
 # Orientation quaternion (pointing down for scanning)
 # Axis-aligned: RPY (180°, 0°, 90°) - tool pointing down (-Z), Y-axis forward
@@ -119,15 +121,24 @@ for row_idx, x_pos in enumerate(_X_POSITIONS):
 def scan_points_to_pose_stamped(points, frame_id):
     pose_stamped_list = []
     for x, y in points:
+        # Build orientation: tool Z down, tool Y toward origin in XY plane
+        z_hat = np.array([0.0, 0.0, -1.0])
+        toward_origin = np.array([-x, -y, 0.0])
+        norm = np.linalg.norm(toward_origin)
+        y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
+        x_hat = np.cross(y_hat, z_hat)
+        rot = np.column_stack([x_hat, y_hat, z_hat])
+        qx, qy, qz, qw = R.from_matrix(rot).as_quat()
+
         ps = PoseStamped()
         ps.header.frame_id = frame_id
         ps.pose.position.x = x
         ps.pose.position.y = y
         ps.pose.position.z = _Z_HEIGHT
-        ps.pose.orientation.x = _QX
-        ps.pose.orientation.y = _QY
-        ps.pose.orientation.z = _QZ
-        ps.pose.orientation.w = _QW
+        ps.pose.orientation.x = qx
+        ps.pose.orientation.y = qy
+        ps.pose.orientation.z = qz
+        ps.pose.orientation.w = qw
         pose_stamped_list.append(ps)
     return pose_stamped_list
     
@@ -188,6 +199,16 @@ def main(args=None):
 
     capture_client = node.create_client(Trigger, 'record_images/capture')
 
+    # Clear any existing detections before the scan begins
+    clear_client = node.create_client(Trigger, '/arpa_vision_node/clear_detections')
+    if clear_client.wait_for_service(timeout_sec=5.0):
+        future = clear_client.call_async(Trigger.Request())
+        while not future.done():
+            time.sleep(0.05)
+        node.get_logger().info("Detections cleared before scan.")
+    else:
+        node.get_logger().warn("clear_detections service not available, skipping clear.")
+
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
     pose_stamped_list = scan_points_to_pose_stamped(scan_points, FRAME_ID)
     pose_arr = node.get_tsp_order(pose_stamped_list)
@@ -217,7 +238,7 @@ def main(args=None):
         scan_start_time = time.time() if benchmark_mode else None
 
         # Use 9 tilted orientations for the outer-edge scan, straight-down only otherwise
-        active_orientations = _SCAN_ORIENTATIONS if only_outside_points else [(_QX, _QY, _QZ, _QW)]
+        active_orientations = _SCAN_ORIENTATIONS# if only_outside_points else [(_QX, _QY, _QZ, _QW)]
 
         # First pass: visit all spatial positions, skip failures
         for i, pose in enumerate(pose_arr):
@@ -231,7 +252,7 @@ def main(args=None):
                 f"\n    x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f}")
 
             orientation_successes = 0
-            for j, (qx, qy, qz, qw) in enumerate(active_orientations):
+            for j, (qx, qy, qz, qw) in enumerate([(pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w)]): #enumerate(active_orientations):
                 if len(active_orientations) > 1:
                     node.get_logger().info(f"  Orientation [{j+1}/{len(active_orientations)}]")
 
@@ -265,7 +286,7 @@ def main(args=None):
 
                 time.sleep(0.67)  # Brief pause to stabilize before capture
 
-                if capture_client.service_is_ready():
+                if capture_client.service_is_ready() and SAVE_IMAGES:
                     future = capture_client.call_async(Trigger.Request())
                     rclpy.spin_until_future_complete(node, future, timeout_sec=2.0)
                     if future.done():
