@@ -18,6 +18,7 @@
 #include <numeric>
 #include <random>
 #include <moveit/robot_state/conversions.h>
+#include <moveit/collision_detection/collision_common.h>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -107,6 +108,15 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   try {
     this->declare_parameter("corridor_z_floor_tolerance", 0.05);  // EE may go at most this far below the lower endpoint Z (m); negative disables
   } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("corridor_cross_section_fallback", 0.80);  // wider fallback (PASS 2) when narrow corridor fails
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("corridor_max_ik_seeds", 12);  // PASS 1 cap on IK solutions (fast escalation)
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
+  try {
+    this->declare_parameter("corridor_max_ik_seeds_fallback", 20);  // PASS 2 cap (catch rank 13-20)
+  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
 
   m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
@@ -171,6 +181,12 @@ void MotionControlNode::initMoveGroup()
   m_move_group->allowReplanning(true);
   m_move_group->setReplanAttempts(5);
   m_move_group->setReplanDelay(0.15);  // seconds between replans
+
+  // Build a minimal PlanningScene for self-collision checking of IK seeds.
+  // No monitor or environment obstacles needed — only SRDF self-collision pairs matter.
+  m_self_collision_scene = std::make_shared<planning_scene::PlanningScene>(
+      m_move_group->getRobotModel());
+  RCLCPP_INFO(get_logger(), "Self-collision scene initialized for IK seed filtering");
 
   // Allow sensor updates during planning
   // m_move_group->allowLooking(true);
@@ -247,6 +263,19 @@ double MotionControlNode::getConfigurationCost(
   if (!target_state->satisfiesBounds(jmg)) {
     RCLCPP_WARN(get_logger(), "Target state has joints out of valid range");
     return std::numeric_limits<double>::infinity();
+  }
+
+  // Self-collision filter: reject configurations where robot links collide with each other.
+  // The wrist-to-plate distance check below doesn't catch arm fold-back collisions
+  // (e.g. tool_holder_link vs forearm_link) which OMPL immediately rejects as goal states.
+  if (m_self_collision_scene) {
+    collision_detection::CollisionRequest coll_req;
+    collision_detection::CollisionResult coll_res;
+    m_self_collision_scene->checkSelfCollision(coll_req, coll_res, *target_state);
+    if (coll_res.collision) {
+      RCLCPP_DEBUG(get_logger(), "Seed rejected: self-collision");
+      return std::numeric_limits<double>::infinity();
+    }
   }
 
   // Check collision: Euclidean distance between linear actuator plate and elbow
@@ -517,8 +546,8 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
     }
   }
 
-  std::vector<std::vector<double>> all_solutions;
-  std::vector<double> all_costs;
+  struct ScoredSolution { std::vector<double> joints; double score; };
+  std::vector<ScoredSolution> scored;
 
   // Build actuator seeds: target-informed first, then midpoint, current, ±offsets, hard limits.
   std::vector<double> actuator_seeds;
@@ -603,38 +632,43 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
         }
         seed_state->update();
 
-        double cost = getConfigurationCost(current_state, seed_state);
-        if (std::isinf(cost)) continue;
+        if (getConfigurationCost(current_state, seed_state) == std::numeric_limits<double>::infinity())
+          continue;  // still use getConfigurationCost for bounds/clearance hard filter
+
+        double clearance      = getMinClearance(seed_state);
+        double manipulability = getManipulability(seed_state);
+        double joint_dist     = getWeightedJointDistance(current_state, seed_state);
+        double limit_margin   = getJointLimitMargin(seed_state);
+        const double w_centre = this->get_parameter("ik_seed_table_centre_bonus").as_double();
+        double centre_bonus   = getActuatorCentreBonus(seed_state);
+        double actuator_moved = std::abs(seed_pos - original_actuator_pos) >= 0.02 ? 1.0 : 0.0;
+
+        const double w_clearance = 1.0, w_manip = 0.1, w_joint = 0.5, w_limit = 0.2, w_actuator_move = 0.15;
+        double score = w_clearance * clearance + w_manip * manipulability
+            - w_joint * joint_dist + w_limit * limit_margin
+            + w_centre * centre_bonus + w_actuator_move * actuator_moved;
 
         std::vector<double> joint_positions;
         seed_state->copyJointGroupPositions(jmg, joint_positions);
-        all_solutions.push_back(joint_positions);
-        all_costs.push_back(cost);
+        scored.push_back({joint_positions, score});
       }
     }
   }
 
-  if (all_solutions.empty()) {
+  if (scored.empty()) {
     RCLCPP_ERROR(get_logger(), "No valid IK solution found (%zu actuator seeds, perturbs=%d)",
         actuator_seeds.size(), perturbation_attempts);
     return {};
   }
-
-  // Sort by cost ascending
-  std::vector<size_t> indices(all_solutions.size());
-  std::iota(indices.begin(), indices.end(), 0);
-  std::sort(indices.begin(), indices.end(),
-      [&](size_t a, size_t b) { return all_costs[a] < all_costs[b]; });
+  std::sort(scored.begin(), scored.end(),
+      [](const ScoredSolution& a, const ScoredSolution& b) { return a.score > b.score; });
 
   std::vector<std::vector<double>> sorted_solutions;
-  sorted_solutions.reserve(indices.size());
-  for (size_t idx : indices) {
-    sorted_solutions.push_back(all_solutions[idx]);
-  }
+  sorted_solutions.reserve(scored.size());
+  for (const auto& s : scored) sorted_solutions.push_back(s.joints);
 
-  RCLCPP_INFO(get_logger(), "Found %zu IK solutions (best cost=%.4f, worst cost=%.4f)",
-      sorted_solutions.size(), all_costs[indices.front()], all_costs[indices.back()]);
-
+  RCLCPP_INFO(get_logger(), "Found %zu IK solutions (best score=%.4f, worst=%.4f)",
+      sorted_solutions.size(), scored.front().score, scored.back().score);
   return sorted_solutions;
 }
 
@@ -752,9 +786,25 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
 
   std::vector<double> actuator_seeds_spec;
   const bool has_limits_spec = std::isfinite(actuator_min) && std::isfinite(actuator_max);
+
+  // Target-informed seeds: estimate gantry position from target x-coordinate (mirrors configureForPlanning).
+  // Placed first so corridor re-ranking has good candidates to promote.
+  if (has_limits_spec) {
+    const double target_actuator_est = std::clamp(
+        1.0244 - target_pose.position.x, actuator_min, actuator_max);
+    for (double off : {0.0, -0.15, 0.15, -0.30, 0.30}) {
+      double p = std::clamp(target_actuator_est + off, actuator_min, actuator_max);
+      if (std::find_if(actuator_seeds_spec.begin(), actuator_seeds_spec.end(),
+          [p](double v) { return std::abs(v - p) < 1e-6; }) == actuator_seeds_spec.end())
+        actuator_seeds_spec.push_back(p);
+    }
+  }
+
   if (has_limits_spec) {
     double actuator_mid_spec = 0.5 * (actuator_min + actuator_max);
-    actuator_seeds_spec.push_back(actuator_mid_spec);
+    if (std::find_if(actuator_seeds_spec.begin(), actuator_seeds_spec.end(),
+        [actuator_mid_spec](double v) { return std::abs(v - actuator_mid_spec) < 1e-6; }) == actuator_seeds_spec.end())
+      actuator_seeds_spec.push_back(actuator_mid_spec);
   }
   actuator_seeds_spec.push_back(original_actuator_pos);
   for (double o = offset_step; o <= offset_max + 1e-9; o += offset_step) {
@@ -1095,8 +1145,7 @@ void MotionControlNode::planToPoseCallback(
 
     // Re-rank IK solutions for corridor planning: prefer solutions where the gantry (joint index 0)
     // is closest to the estimated target actuator position (actuator_pos ≈ 1.0244 - target.x).
-    // Cost-based ranking (joint distance from current) is wrong for corridor — "close to current"
-    // doesn't mean "arm stays inside the box mid-motion". Gantry-near-target postures do.
+    // stable_sort preserves the quality ordering from configureForPlanning among ties.
     {
       const double corr_actuator_target =
           1.0244 - target_pose_in_planning_frame.pose.position.x;
@@ -1107,6 +1156,18 @@ void MotionControlNode::planToPoseCallback(
       RCLCPP_INFO(get_logger(), "Corridor re-ranked %zu IK solutions (actuator target est=%.3f)",
           solutions.size(), corr_actuator_target);
     }
+
+    // Tiered per-pass seed caps: PASS 1 fast (top-12), PASS 2 medium (top-20), PASS 3 full
+    // This avoids cutting off critical seeds while keeping early passes fast.
+    const auto all_solutions = solutions;  // save full list
+    const int max_p1 = static_cast<int>(this->get_parameter("corridor_max_ik_seeds").as_int());
+    const int max_p2 = static_cast<int>(this->get_parameter("corridor_max_ik_seeds_fallback").as_int());
+
+    auto capped = [&](const std::vector<std::vector<double>>& src, int cap) {
+      if (cap > 0 && static_cast<int>(src.size()) > cap)
+        return std::vector<std::vector<double>>(src.begin(), src.begin() + cap);
+      return src;
+    };
 
     // Try every IK solution with whatever path constraints are currently set.
     // Returns the winning solution index, or -1 if all failed.
@@ -1126,14 +1187,38 @@ void MotionControlNode::planToPoseCallback(
       return -1;
     };
 
-    // --- PASS 1: Normal (tight) corridor ---
-    int winning_idx = tryAllSolutions("RRT corridor");
+    // --- PASS 1: Narrow corridor, top-N seeds (fast escalation) ---
+    solutions = capped(all_solutions, max_p1);
+    RCLCPP_INFO(get_logger(), "PASS 1: %zu/%zu IK seeds (cap=%d)",
+        solutions.size(), all_solutions.size(), max_p1);
+    int winning_idx = tryAllSolutions("RRT narrow corridor");
 
-    // --- FALLBACK: Orientation-only (no position corridor) ---
+    // --- PASS 2: Wide corridor, top-M seeds (catch rank 13+) ---
+    if (winning_idx < 0) {
+      solutions = capped(all_solutions, max_p2);
+      RCLCPP_INFO(get_logger(), "PASS 2: %zu/%zu IK seeds (cap=%d)",
+          solutions.size(), all_solutions.size(), max_p2);
+      const double fallback_cross_side =
+          this->get_parameter("corridor_cross_section_fallback").as_double();
+      RCLCPP_WARN(get_logger(),
+          "Narrow corridor failed — retrying with wide corridor (cross_side=%.2f)", fallback_cross_side);
+      m_move_group->clearPathConstraints();
+      if (seg_len >= 1e-6) {
+        setCorridorPathConstraints(
+            start_pos, end_pos, padding, fallback_cross_side, cross_z,
+            target_pose_in_planning_frame.pose.orientation,
+            planning_frame, ee_link);
+      }
+      winning_idx = tryAllSolutions("RRT wide corridor fallback");
+    }
+
+    // --- PASS 3: Orientation-only (full seed list, orientation-only is cheapest) ---
     // Drops the box constraint entirely; only the tool-pointing-down orientation
     // constraint remains, giving RRT full joint-space freedom while still keeping
     // the end-effector orientation locked.
     if (winning_idx < 0) {
+      solutions = all_solutions;  // restore full list — orientation-only is cheapest per seed
+      RCLCPP_INFO(get_logger(), "PASS 3: %zu IK seeds (all)", solutions.size());
       RCLCPP_WARN(get_logger(), "Wide corridor failed — retrying with orientation-only fallback");
       m_move_group->clearPathConstraints();
       moveit_msgs::msg::OrientationConstraint ocm;

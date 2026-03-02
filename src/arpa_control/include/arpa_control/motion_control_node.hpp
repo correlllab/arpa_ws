@@ -5,6 +5,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <moveit/planning_scene_monitor/planning_scene_monitor.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
+#include <moveit/planning_scene/planning_scene.h>
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <octomap_msgs/conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -71,6 +72,7 @@ private:
   std::shared_ptr<moveit::planning_interface::MoveGroupInterface> m_move_group;
   std::shared_ptr<planning_scene_monitor::PlanningSceneMonitor> m_planning_scene_monitor;
   std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> m_planning_scene_interface;
+  std::shared_ptr<planning_scene::PlanningScene> m_self_collision_scene;  // for IK seed self-collision filtering
   rclcpp::Client<arpa_control::srv::GetPointCloud>::SharedPtr m_depth_client;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_depth_reset_client;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr m_update_depth_service;
