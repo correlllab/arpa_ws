@@ -89,12 +89,12 @@ private:
   bool resetDepthMap(unsigned int timeout_ms = 2000);
   void initUpdateDepth();
   void checkRobotStateReady();
+  bool setPathConstraints(geometry_msgs::msg::PoseStamped& target_pose);
   double getConfigurationCost(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
-  std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose, bool multi_seed = true);
+  std::vector<std::vector<double>> getJointConfigurations(geometry_msgs::msg::Pose target_pose);
   /** Multi-objective IK seed selection (clearance, manipulability, joint distance, limit margin). */
-  std::vector<std::vector<double>> configureForPlanningSpecial(geometry_msgs::msg::Pose target_pose);
   double getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state);
   double getManipulability(const std::shared_ptr<moveit::core::RobotState>& state);
   double getJointLimitMargin(const std::shared_ptr<moveit::core::RobotState>& state);
@@ -109,6 +109,7 @@ private:
       const std::string& ee_link,
       bool euclidean = false);
   void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
+  void publishTargetTransform(geometry_msgs::msg::PoseStamped&);
   rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_goal_state_pub;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr m_corridor_marker_pub;
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;

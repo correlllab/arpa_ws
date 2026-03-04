@@ -126,7 +126,7 @@ def scan_points_to_pose_stamped(points, frame_id):
         # Build orientation: tool Z down, tool Y toward origin in XY plane
         qx,qy,qz,qw = _QX, _QY, _QZ, _QW
         is_edge =(x in _X_POSITIONS[:_OUTSIDE_DEPTH]) or (x in _X_POSITIONS[-_OUTSIDE_DEPTH:]) or (y in _Y_POSITIONS[:_OUTSIDE_DEPTH]) or (y in _Y_POSITIONS[-_OUTSIDE_DEPTH:])
-        if VARIABLE_ORIENTATION# or is_edge:
+        if VARIABLE_ORIENTATION:# or is_edge:
             z_hat = np.array([0.0, 0.0, -1.0])
             toward_origin = np.array([-x, -y, 0.0])
             norm = np.linalg.norm(toward_origin)

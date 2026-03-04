@@ -635,8 +635,8 @@ void PoseWindow::planPose()
         delta_x, 0, 'f', 3).arg(delta_y, 0, 'f', 3).arg(delta_z, 0, 'f', 3));
 
     // Use Cartesian (straight-line) planning if checkbox is checked
-    req->use_cartesian = m_cartesian_checkbox->isChecked();
-    logStatus(QString("Planning mode: %1").arg(req->use_cartesian ? "Cartesian (straight-line)" : "Sampling-based (RRTConnect)"));
+    // req->use_cartesian = m_cartesian_checkbox->isChecked();
+    // logStatus(QString("Planning mode: %1").arg(req->use_cartesian ? "Cartesian (straight-line)" : "Sampling-based (RRTConnect)"));
 
     auto future = m_plan_client->async_send_request(req,
         [this](rclcpp::Client<arpa_control::srv::PlanToPose>::SharedFuture future) {
@@ -787,7 +787,7 @@ void PoseWindow::testMoveUp()
     req->target_pose.pose.position.y = current_pose.position.y;
     req->target_pose.pose.position.z = current_pose.position.z + 0.01;  // 1cm up
     req->target_pose.pose.orientation = current_pose.orientation;  // Keep current orientation
-    req->use_cartesian = true;  // Always use Cartesian for small test movements
+    // req->use_cartesian = true;  // Always use Cartesian for small test movements
 
     logStatus(QString("Current Z: %1 m, Target Z: %2 m (delta: +0.01 m)").arg(
         current_pose.position.z, 0, 'f', 3).arg(req->target_pose.pose.position.z, 0, 'f', 3));
@@ -861,7 +861,7 @@ void PoseWindow::goHome()
     auto request = std::make_shared<arpa_control::srv::PlanToPose::Request>();
     request->target_pose.header.frame_id = "base_link";
     request->target_pose.pose = m_home_pose;
-    request->use_cartesian = false;  // Use sampling-based for large home movements
+    // request->use_cartesian = false;  // Use sampling-based for large home movements
 
     // Use non-blocking async request
     m_plan_client->async_send_request(request,

@@ -4,10 +4,9 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /MotionPlanning1
         - /MotionPlanning1/Scene Geometry1
+        - /MotionPlanning1/Scene Robot1
         - /MotionPlanning1/Planning Request1
-        - /MotionPlanning1/Planned Path1
         - /TF1/Frames1
         - /TF1/Tree1
         - /EE_PC1/Topic1
@@ -42,8 +41,8 @@ Panels:
         - /OriginalImage1/Topic1
         - /DetectionMarkerArray1/Topic1
         - /DetectedPointCloud21/Topic1
-      Splitter Ratio: 0.38088443875312805
-    Tree Height: 991
+      Splitter Ratio: 0.6483516693115234
+    Tree Height: 1016
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -271,7 +270,7 @@ Visualization Manager:
         Scene Alpha: 0.8999999761581421
         Scene Color: 50; 230; 50
         Scene Display Time: 0.009999999776482582
-        Show Scene Geometry: false
+        Show Scene Geometry: true
         Voxel Coloring: Z-Axis
         Voxel Rendering: Occupied Voxels
       Scene Robot:
@@ -415,132 +414,19 @@ Visualization Manager:
       Value: true
       Velocity_Scaling_Factor: 0.1
     - Class: rviz_default_plugins/TF
-      Enabled: true
+      Enabled: false
       Frame Timeout: 15
       Frames:
         All Enabled: false
-        actuator_motor_link:
-          Value: false
-        arm_mount_plate:
-          Value: false
-        base:
-          Value: false
-        base_link:
-          Value: false
-        base_link_inertia:
-          Value: false
-        ee_cam_color_frame:
-          Value: false
-        ee_cam_color_optical_frame:
-          Value: false
-        ee_cam_depth_frame:
-          Value: false
-        ee_cam_depth_optical_frame:
-          Value: false
-        ee_cam_link:
-          Value: false
-        flange:
-          Value: false
-        floor_link:
-          Value: false
-        forearm_link:
-          Value: false
-        ft_frame:
-          Value: false
-        gantry_link:
-          Value: false
-        left_leg_link:
-          Value: false
-        linear_actuator_link:
-          Value: false
-        linear_actuator_plate_link:
-          Value: false
-        pillar_left_link:
-          Value: false
-        pillar_right_link:
-          Value: false
-        ratchet_extension_link:
-          Value: false
-        right_leg_link:
-          Value: false
-        shoulder_link:
-          Value: false
-        target_pose:
-          Value: true
-        tool0:
-          Value: false
-        tool0_controller:
-          Value: false
-        tool_center_link:
-          Value: false
-        tool_head_link:
-          Value: true
-        tool_holder_link:
-          Value: false
-        upper_arm_link:
-          Value: false
-        ur_base_link:
-          Value: false
-        world:
-          Value: false
-        wrist_1_link:
-          Value: false
-        wrist_2_link:
-          Value: false
-        wrist_3_link:
-          Value: false
       Marker Scale: 1
       Name: TF
       Show Arrows: true
       Show Axes: true
-      Show Names: false
+      Show Names: true
       Tree:
-        world:
-          floor_link:
-            gantry_link:
-              linear_actuator_link:
-                actuator_motor_link:
-                  {}
-                linear_actuator_plate_link:
-                  arm_mount_plate:
-                    ur_base_link:
-                      base_link:
-                        base:
-                          tool0_controller:
-                            {}
-                        base_link_inertia:
-                          shoulder_link:
-                            upper_arm_link:
-                              forearm_link:
-                                wrist_1_link:
-                                  wrist_2_link:
-                                    wrist_3_link:
-                                      flange:
-                                        tool0:
-                                          ee_cam_link:
-                                            ee_cam_color_frame:
-                                              ee_cam_color_optical_frame:
-                                                {}
-                                            ee_cam_depth_frame:
-                                              ee_cam_depth_optical_frame:
-                                                {}
-                                          tool_holder_link:
-                                            tool_center_link:
-                                              ratchet_extension_link:
-                                                tool_head_link:
-                                                  {}
-                                      ft_frame:
-                                        {}
-              pillar_left_link:
-                left_leg_link:
-                  {}
-              pillar_right_link:
-                right_leg_link:
-                  {}
-            target_pose:
-              {}
+        {}
       Update Interval: 0
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -553,7 +439,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: RGB8
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 4096
@@ -574,7 +460,7 @@ Visualization Manager:
         Value: /realsense/ee_cam/depth/color/points
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -622,7 +508,7 @@ Visualization Manager:
         Value: /recorded_poses_markers
       Value: false
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: false
+      Enabled: true
       Name: ScanPoses
       Namespaces:
         {}
@@ -632,7 +518,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /scan_poses_markers
-      Value: false
+      Value: true
     - Attached Body Color: 0; 170; 0
       Class: moveit_rviz_plugin/RobotState
       Collision Enabled: false
@@ -830,9 +716,7 @@ Visualization Manager:
       Name: DetectionMarkerArray
       Namespaces:
         Bolt: true
-        InteriorScrew: true
         Nut: true
-        OrangeCover: true
         Screw: true
         Screw Hole: true
       Topic:
@@ -880,7 +764,7 @@ Visualization Manager:
       Enabled: true
       Name: CorridorMarker
       Namespaces:
-        corridor: true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -935,25 +819,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 5.187255382537842
+      Distance: 10
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -0.2040247917175293
-        Y: -0.21397310495376587
-        Z: 0.09882080554962158
+        X: 0
+        Y: 0
+        Z: 0
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.5553972125053406
+      Pitch: 0.6503982543945312
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 5.943572998046875
+      Yaw: 1.0403980016708374
     Saved: ~
 Window Geometry:
   AnnotatedImage:
@@ -969,7 +853,7 @@ Window Geometry:
     collapsed: false
   OriginalImage:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000400000000000001c9000007d5fc020000000efb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb0000001a004f0072006900670069006e0061006c0049006d006100670065010000003b000000980000002800fffffffb0000001c0041006e006e006f007400610074006500640049006d00610067006501000000d9000001460000002800fffffffb000000100044006900730070006c006100790073010000022500000471000000c700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb000000280020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000000000000000fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000003f00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e0067010000069c000001740000016900fffffffb0000001c0041006e006e006f007400610074006500640049006d0061006700650000000665000001ab00000000000000000000000100000110000006eefc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003b000006ee000000a000fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004420000003efc0100000002fb0000000800540069006d00650100000000000004420000000000000000fb0000000800540069006d0065010000000000000450000000000000000000000590000007d500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000400000000000001c9000007d5fc020000000efb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb0000001a004f0072006900670069006e0061006c0049006d006100670065010000003b000000860000002800fffffffb0000001c0041006e006e006f007400610074006500640049006d00610067006501000000c70000013f0000002800fffffffb000000100044006900730070006c006100790073010000020c0000048a000000c700fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb000000280020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000000000000000fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000003f00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e0067010000069c000001740000016900fffffffb0000001c0041006e006e006f007400610074006500640049006d0061006700650000000665000001ab00000000000000000000000100000110000006eefc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073000000003b000006ee000000a000fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000004420000003efc0100000002fb0000000800540069006d00650100000000000004420000000000000000fb0000000800540069006d0065010000000000000450000000000000000000000590000007d500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:

@@ -78,6 +78,7 @@
       <parent link="tool_holder_link"/>
       <child link="tool_center_link"/>
       <origin xyz="0.0575 0 -0.03" rpy="0 0 0"/>
+      <!-- <origin xyz="0.0575 -0.005 0.0"  rpy="0 0 0"/> -->
     </joint>
 
     <link name="ratchet_extension_link">
