@@ -109,13 +109,7 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     this->declare_parameter("corridor_z_floor_tolerance", 0.05);  // EE may go at most this far below the lower endpoint Z (m); negative disables
   } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
   try {
-    this->declare_parameter("corridor_cross_section_fallback", 0.80);  // wider fallback (PASS 2) when narrow corridor fails
-  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
-  try {
-    this->declare_parameter("corridor_max_ik_seeds", 12);  // PASS 1 cap on IK solutions (fast escalation)
-  } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
-  try {
-    this->declare_parameter("corridor_max_ik_seeds_fallback", 20);  // PASS 2 cap (catch rank 13-20)
+    this->declare_parameter("corridor_max_ik_seeds", 12);  // PASS 1 cap on IK solutions
   } catch (const rclcpp::exceptions::ParameterAlreadyDeclaredException&) { /* from launch */ }
 
   m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -553,14 +547,16 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
   std::vector<double> actuator_seeds;
   const bool has_limits = std::isfinite(actuator_min) && std::isfinite(actuator_max);
 
+  // Estimated gantry position for this target — used in seed scoring for gantry proximity
+  const double target_actuator_est = has_limits
+      ? std::clamp(1.0244 - target_pose.position.x, actuator_min, actuator_max)
+      : (1.0244 - target_pose.position.x);
+
   // Target-informed seeds: estimate required gantry position from target x-coordinate.
   // Actuator axis is (-1,0,0), origin at x≈1.0244, so actuator_pos ≈ 1.0244 - target.x.
-  // Seeds near this estimate give the IK solver the best starting region; the corridor
-  // re-ranking in planToPoseCallback then promotes the closest-to-estimate solutions first.
+  // Seeds near this estimate give the IK solver the best starting region.
   if (has_limits) {
-    const double target_actuator_est = std::clamp(
-        1.0244 - target_pose.position.x, actuator_min, actuator_max);
-    for (double off : {0.0, -0.15, 0.15, -0.30, 0.30}) {
+    for (double off : {0.0, -0.15, 0.15, -0.30, 0.30, -0.50, 0.50, -0.70, 0.70}) {
       double p = std::clamp(target_actuator_est + off, actuator_min, actuator_max);
       if (std::find_if(actuator_seeds.begin(), actuator_seeds.end(),
           [p](double v) { return std::abs(v - p) < 1e-6; }) == actuator_seeds.end())
@@ -618,7 +614,7 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
         if (perturb > 0 && num_joints > 1) {
           for (size_t i = 1; i < num_joints; ++i) {
             double v = seed_state->getVariablePosition(joint_names[i]);
-            v += m_arm_noise_dist(m_rng) * 0.15;  // small perturbation to get different IK branch
+            v += m_arm_noise_dist(m_rng) * 2.0;  // ±0.4 rad — enough to cross IK branches
             seed_state->setVariablePosition(joint_names[i], v);
           }
           seed_state->update();
@@ -643,10 +639,14 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanning(geometr
         double centre_bonus   = getActuatorCentreBonus(seed_state);
         double actuator_moved = std::abs(seed_pos - original_actuator_pos) >= 0.02 ? 1.0 : 0.0;
 
-        const double w_clearance = 1.0, w_manip = 0.1, w_joint = 0.5, w_limit = 0.2, w_actuator_move = 0.15;
+        double gantry_proximity = 1.0 - std::min(1.0, std::abs(seed_pos - target_actuator_est) / 1.0);
+
+        const double w_clearance = 1.0, w_manip = 0.3, w_joint = 0.5, w_limit = 0.2,
+                     w_actuator_move = 0.15, w_gantry_prox = 0.3;
         double score = w_clearance * clearance + w_manip * manipulability
             - w_joint * joint_dist + w_limit * limit_margin
-            + w_centre * centre_bonus + w_actuator_move * actuator_moved;
+            + w_centre * centre_bonus + w_actuator_move * actuator_moved
+            + w_gantry_prox * gantry_proximity;
 
         std::vector<double> joint_positions;
         seed_state->copyJointGroupPositions(jmg, joint_positions);
@@ -787,12 +787,14 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
   std::vector<double> actuator_seeds_spec;
   const bool has_limits_spec = std::isfinite(actuator_min) && std::isfinite(actuator_max);
 
-  // Target-informed seeds: estimate gantry position from target x-coordinate (mirrors configureForPlanning).
-  // Placed first so corridor re-ranking has good candidates to promote.
+  // Estimated gantry position for this target — used in seed scoring for gantry proximity
+  const double target_actuator_est = has_limits_spec
+      ? std::clamp(1.0244 - target_pose.position.x, actuator_min, actuator_max)
+      : (1.0244 - target_pose.position.x);
+
+  // Target-informed seeds: gantry positions near estimate (mirrors configureForPlanning).
   if (has_limits_spec) {
-    const double target_actuator_est = std::clamp(
-        1.0244 - target_pose.position.x, actuator_min, actuator_max);
-    for (double off : {0.0, -0.15, 0.15, -0.30, 0.30}) {
+    for (double off : {0.0, -0.15, 0.15, -0.30, 0.30, -0.50, 0.50, -0.70, 0.70}) {
       double p = std::clamp(target_actuator_est + off, actuator_min, actuator_max);
       if (std::find_if(actuator_seeds_spec.begin(), actuator_seeds_spec.end(),
           [p](double v) { return std::abs(v - p) < 1e-6; }) == actuator_seeds_spec.end())
@@ -850,7 +852,7 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
         if (perturb > 0 && num_joints > 1) {
           for (size_t i = 1; i < num_joints; ++i) {
             double v = seed_state->getVariablePosition(joint_names[i]);
-            v += m_arm_noise_dist(m_rng) * 0.15;
+            v += m_arm_noise_dist(m_rng) * 2.0;  // ±0.4 rad — enough to cross IK branches
             seed_state->setVariablePosition(joint_names[i], v);
           }
           seed_state->update();
@@ -871,13 +873,17 @@ std::vector<std::vector<double>> MotionControlNode::configureForPlanningSpecial(
       const double w_centre = this->get_parameter("ik_seed_table_centre_bonus").as_double();
       double actuator_moved = std::abs(seed_pos - original_actuator_pos) >= 0.02 ? 1.0 : 0.0;
 
+      double gantry_proximity = 1.0 - std::min(1.0, std::abs(seed_pos - target_actuator_est) / 1.0);
+
       const double w_clearance = 1.0;
-      const double w_manip = 0.1;
+      const double w_manip = 0.3;
       const double w_joint = 0.5;
       const double w_limit = 0.2;
       const double w_actuator_move = 0.15;
+      const double w_gantry_prox = 0.3;
       double score = w_clearance * clearance + w_manip * manipulability
-          - w_joint * joint_dist + w_limit * limit_margin + w_centre * centre_bonus + w_actuator_move * actuator_moved;
+          - w_joint * joint_dist + w_limit * limit_margin + w_centre * centre_bonus + w_actuator_move * actuator_moved
+          + w_gantry_prox * gantry_proximity;
 
         std::vector<double> joint_positions;
         seed_state->copyJointGroupPositions(jmg, joint_positions);
@@ -1111,8 +1117,18 @@ void MotionControlNode::planToPoseCallback(
     // Hoist corridor geometry to block scope so fallbacks can reuse it
     const std::string ee_link = m_move_group->getEndEffectorLink();
     const double padding   = this->get_parameter("corridor_padding").as_double();
-    const double cross_side = this->get_parameter("corridor_cross_section").as_double();
-    const double cross_z    = this->get_parameter("corridor_cross_section_z").as_double();
+    const double cross_side_base = this->get_parameter("corridor_cross_section").as_double();
+    const double cross_z_base    = this->get_parameter("corridor_cross_section_z").as_double();
+
+    // Widen corridor at extreme poses: scale up cross-section based on distance from workspace centre (~0.4, 0.2)
+    // At centre: scale=1.0 (narrow, fast). At extremes (x=1.1, y=0.63): scale up to 1.5 (50% wider).
+    const double workspace_cx = 0.4, workspace_cy = 0.2;
+    double dx = std::abs(target_pose_in_planning_frame.pose.position.x - workspace_cx);
+    double dy = std::abs(target_pose_in_planning_frame.pose.position.y - workspace_cy);
+    double extremity = std::min(1.0, std::sqrt(dx * dx + dy * dy) / 1.0);  // 0..1
+    double corridor_scale = 1.0 + 0.5 * extremity;  // 1.0 at centre, up to 1.5 at extremes
+    const double cross_side = cross_side_base * corridor_scale;
+    const double cross_z    = cross_z_base * corridor_scale;
     Eigen::Vector3d start_pos = Eigen::Vector3d::Zero();
     Eigen::Vector3d end_pos(
       target_pose_in_planning_frame.pose.position.x,
@@ -1129,8 +1145,8 @@ void MotionControlNode::planToPoseCallback(
             start_pos, end_pos, padding, cross_side, cross_z,
             target_pose_in_planning_frame.pose.orientation,
             planning_frame, ee_link);
-        RCLCPP_INFO(get_logger(), "RRT corridor: segment %.3f m, side %.3f m, z %.3f m",
-            seg_len, 2.0 * cross_side, 2.0 * cross_z);
+        RCLCPP_INFO(get_logger(), "RRT corridor: segment %.3f m, side %.3f m, z %.3f m (scale=%.2f)",
+            seg_len, 2.0 * cross_side, 2.0 * cross_z, corridor_scale);
       }
     }
 
@@ -1143,25 +1159,12 @@ void MotionControlNode::planToPoseCallback(
       return;
     }
 
-    // Re-rank IK solutions for corridor planning: prefer solutions where the gantry (joint index 0)
-    // is closest to the estimated target actuator position (actuator_pos ≈ 1.0244 - target.x).
-    // stable_sort preserves the quality ordering from configureForPlanning among ties.
-    {
-      const double corr_actuator_target =
-          1.0244 - target_pose_in_planning_frame.pose.position.x;
-      std::stable_sort(solutions.begin(), solutions.end(),
-          [corr_actuator_target](const std::vector<double>& a, const std::vector<double>& b) {
-            return std::abs(a[0] - corr_actuator_target) < std::abs(b[0] - corr_actuator_target);
-          });
-      RCLCPP_INFO(get_logger(), "Corridor re-ranked %zu IK solutions (actuator target est=%.3f)",
-          solutions.size(), corr_actuator_target);
-    }
+    // Gantry proximity is now baked into the scoring formula in configureForPlanning,
+    // so seeds are already ordered by overall quality (including gantry closeness).
 
-    // Tiered per-pass seed caps: PASS 1 fast (top-12), PASS 2 medium (top-20), PASS 3 full
-    // This avoids cutting off critical seeds while keeping early passes fast.
+    // Two-pass system: PASS 1 narrow corridor (top-N seeds), PASS 2 orientation-only (all seeds)
     const auto all_solutions = solutions;  // save full list
     const int max_p1 = static_cast<int>(this->get_parameter("corridor_max_ik_seeds").as_int());
-    const int max_p2 = static_cast<int>(this->get_parameter("corridor_max_ik_seeds_fallback").as_int());
 
     auto capped = [&](const std::vector<std::vector<double>>& src, int cap) {
       if (cap > 0 && static_cast<int>(src.size()) > cap)
@@ -1193,33 +1196,14 @@ void MotionControlNode::planToPoseCallback(
         solutions.size(), all_solutions.size(), max_p1);
     int winning_idx = tryAllSolutions("RRT narrow corridor");
 
-    // --- PASS 2: Wide corridor, top-M seeds (catch rank 13+) ---
-    if (winning_idx < 0) {
-      solutions = capped(all_solutions, max_p2);
-      RCLCPP_INFO(get_logger(), "PASS 2: %zu/%zu IK seeds (cap=%d)",
-          solutions.size(), all_solutions.size(), max_p2);
-      const double fallback_cross_side =
-          this->get_parameter("corridor_cross_section_fallback").as_double();
-      RCLCPP_WARN(get_logger(),
-          "Narrow corridor failed — retrying with wide corridor (cross_side=%.2f)", fallback_cross_side);
-      m_move_group->clearPathConstraints();
-      if (seg_len >= 1e-6) {
-        setCorridorPathConstraints(
-            start_pos, end_pos, padding, fallback_cross_side, cross_z,
-            target_pose_in_planning_frame.pose.orientation,
-            planning_frame, ee_link);
-      }
-      winning_idx = tryAllSolutions("RRT wide corridor fallback");
-    }
-
-    // --- PASS 3: Orientation-only (full seed list, orientation-only is cheapest) ---
+    // --- PASS 2: Orientation-only (full seed list) ---
     // Drops the box constraint entirely; only the tool-pointing-down orientation
     // constraint remains, giving RRT full joint-space freedom while still keeping
     // the end-effector orientation locked.
     if (winning_idx < 0) {
       solutions = all_solutions;  // restore full list — orientation-only is cheapest per seed
-      RCLCPP_INFO(get_logger(), "PASS 3: %zu IK seeds (all)", solutions.size());
-      RCLCPP_WARN(get_logger(), "Wide corridor failed — retrying with orientation-only fallback");
+      RCLCPP_INFO(get_logger(), "PASS 2: %zu IK seeds (all)", solutions.size());
+      RCLCPP_WARN(get_logger(), "Narrow corridor failed — retrying with orientation-only fallback");
       m_move_group->clearPathConstraints();
       moveit_msgs::msg::OrientationConstraint ocm;
       ocm.link_name = ee_link;

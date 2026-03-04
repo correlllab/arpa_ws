@@ -266,7 +266,6 @@ def launch_setup(context, *args, **kwargs):
                 "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
                 "corridor_cross_section": 0.35,       # narrow default — guides RRT for fast easy-pose planning
-                "corridor_cross_section_fallback": 0.80, # wide fallback (PASS 2) when narrow fails
                 "corridor_cross_section_z": 0.35,  # was 0.20 — wider Z envelope (±0.47m) gives arm vertical room for reconfiguration at centre-Y/high-X poses
                 "corridor_z_floor_tolerance": 0.05,  # EE may go at most 5 cm below lower endpoint Z; stops RRT routing below gantry structure
                 "corridor_padding": 0.15,
@@ -274,7 +273,7 @@ def launch_setup(context, *args, **kwargs):
                 "ik_seed_timeout": 0.3,  # was 0.2 — more IK solver time at near-singular centre-Y poses
                 "ik_seed_actuator_offset_step": 0.1,
                 "ik_seed_actuator_offset_max": 1.0,
-                "ik_seed_perturbation_attempts": 4,  # was 2 — more diverse arm configs for RRT-friendly seeds
+                "ik_seed_perturbation_attempts": 2,
                 "ik_seed_min_clearance": 0.15,  # was 0.20 — admit near-plate configs; SRDF self-collision is the real gate
                 "ik_seed_table_centre_bonus": 0.0,    # was 0.25 — centre bias wrongly prioritises centre-gantry seeds at extreme poses
                 "corridor_max_ik_seeds": 16,  # was 12 (default) — more pass-1 candidates before wide fallback
