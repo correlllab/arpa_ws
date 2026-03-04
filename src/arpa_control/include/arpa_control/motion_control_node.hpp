@@ -23,6 +23,7 @@
 #include <moveit_msgs/msg/orientation_constraint.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <visualization_msgs/msg/interactive_marker_feedback.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 
 
 // lidar
@@ -88,18 +89,29 @@ private:
   bool resetDepthMap(unsigned int timeout_ms = 2000);
   void initUpdateDepth();
   void checkRobotStateReady();
+  bool setPathConstraints(geometry_msgs::msg::PoseStamped& target_pose);
   double getConfigurationCost(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
-  std::vector<std::vector<double>> configureForPlanning(geometry_msgs::msg::Pose target_pose);
+  std::vector<std::vector<double>> getJointConfigurations(geometry_msgs::msg::Pose target_pose);
+  /** Multi-objective IK seed selection (clearance, manipulability, joint distance, limit margin). */
+  double getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state);
+  double getManipulability(const std::shared_ptr<moveit::core::RobotState>& state);
+  double getJointLimitMargin(const std::shared_ptr<moveit::core::RobotState>& state);
+  double getWeightedJointDistance(
+      const std::shared_ptr<moveit::core::RobotState>& current_state,
+      const std::shared_ptr<moveit::core::RobotState>& target_state);
   geometry_msgs::msg::PoseStamped poseToPlanningFrame(const geometry_msgs::msg::PoseStamped& pose_stamped);
   double computePairwiseCost(
       const geometry_msgs::msg::PoseStamped& src_pose,
       const geometry_msgs::msg::PoseStamped& tgt_pose,
       const moveit::core::JointModelGroup* jmg,
-      const std::string& ee_link);
+      const std::string& ee_link,
+      bool euclidean = false);
   void updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state);
+  void publishTargetTransform(geometry_msgs::msg::PoseStamped&);
   rclcpp::Publisher<moveit_msgs::msg::DisplayRobotState>::SharedPtr m_goal_state_pub;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr m_corridor_marker_pub;
   rclcpp::CallbackGroup::SharedPtr m_depth_client_group;
   float m_arm_padding;
   std::map<std::string, double> m_arm_padding_map;
@@ -119,6 +131,9 @@ private:
 
   std::mt19937 m_rng;
   std::uniform_real_distribution<double> m_arm_noise_dist;
+
+  /** When true, use multi-objective (MOGA-style) IK seed selection in planToPoseCallback. */
+  bool m_special_logic;
 };
 
 #endif // __MOTION_CONTROL_NODE__

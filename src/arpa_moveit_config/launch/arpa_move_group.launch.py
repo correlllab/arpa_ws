@@ -215,24 +215,37 @@ def launch_setup(context, *args, **kwargs):
         pass
 
     # MoveIt Configuration
-    robot_description_semantic_content = Command(
-        [
-            PathJoinSubstitution([FindExecutable(name="xacro")]),
-            " ",
-            PathJoinSubstitution(
-                [FindPackageShare(moveit_config_package), "srdf", moveit_config_file]
-            ),
-            " ",
-            "name:=",
-            # Also ur_type parameter could be used but then the planning group names in yaml
-            # configs has to be updated!
-            "ur",
-            " ",
-            "prefix:=",
-            prefix,
-            " ",
-        ]
-    )
+    # When prefix is empty or '""', omit prefix arg so xacro uses default "" (avoids ""ur_manipulator etc.)
+    _prefix_str = context.perform_substitution(prefix)
+    if _prefix_str and _prefix_str != '""':
+        robot_description_semantic_content = Command(
+            [
+                PathJoinSubstitution([FindExecutable(name="xacro")]),
+                " ",
+                PathJoinSubstitution(
+                    [FindPackageShare(moveit_config_package), "srdf", moveit_config_file]
+                ),
+                " ",
+                "name:=ur",
+                " ",
+                "prefix:=",
+                prefix,
+                " ",
+            ]
+        )
+    else:
+        robot_description_semantic_content = Command(
+            [
+                PathJoinSubstitution([FindExecutable(name="xacro")]),
+                " ",
+                PathJoinSubstitution(
+                    [FindPackageShare(moveit_config_package), "srdf", moveit_config_file]
+                ),
+                " ",
+                "name:=ur",
+                " ",
+            ]
+        )
     robot_description_semantic = {
         "robot_description_semantic": ParameterValue(robot_description_semantic_content, value_type=str)
     }

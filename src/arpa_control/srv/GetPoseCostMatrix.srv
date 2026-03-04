@@ -1,4 +1,5 @@
 geometry_msgs/PoseStamped[] poses
+bool euclidean
 ---
 bool success
 string message

@@ -26,6 +26,8 @@ def launch_setup(context, *args, **kwargs):
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
     safety_k_position = LaunchConfiguration("safety_k_position")
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
+    constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
+    use_special_logic = LaunchConfiguration("use_special_logic")
     # General arguments
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
@@ -254,7 +256,9 @@ def launch_setup(context, *args, **kwargs):
             "sim_gazebo": sim_gazebo,
             "sim_ignition": sim_ignition,
             "initial_positions_file": initial_positions_file,
-            "use_corridor_constraint": use_corridor_constraint
+            "use_corridor_constraint": use_corridor_constraint,
+            "constrain_corridor_orientation": constrain_corridor_orientation,
+            "use_special_logic": use_special_logic,
         }.items(),
     )
 
@@ -287,8 +291,41 @@ def launch_setup(context, *args, **kwargs):
         arguments=["0", "0", "0", "0", "0", "0", "world", "floor_link"]
     )
 
+    vision_node = Node(
+        package="arpa_vision",
+        executable="vision_node",
+        name="arpa_vision_node"
+    )
 
+    record_images_node = Node(
+        package="arpa_vision",
+        executable="record_images",
+        name="record_images_node"
+    )
 
+    recorded_poses_publisher = Node(
+        package="arpa_helper_tools",
+        executable="record_poses.py",
+        name="recorded_poses_publisher"
+    )
+
+    vision_node_delayed = TimerAction(
+        period=10.0,
+        actions=[vision_node]
+    )
+
+    test_static_tf_ratchet_attatchemnt = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_attachment",
+        arguments=["-0.0018", "-0.1488", "0.0922", "0", "0", "-3.14159", "wrist_3_link", "test_ratchet_attachment"]
+    )
+    test_static_tf_ratchet_ee = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_ee",
+        arguments=["0", "0", "-0.165", "0", "0", "-3.14159", "test_ratchet_attachment", "test_ratchet_extension_link"]
+    )
 
     return [
         ur_driver,
@@ -299,7 +336,13 @@ def launch_setup(context, *args, **kwargs):
         # arpa_gui,
         arpa_depth,
         ethernet_motor_interface_node,
-        static_tf_world_to_floor
+        static_tf_world_to_floor,
+        vision_node,
+        # vision_node_delayed,
+        record_images_node,
+        # recorded_poses_publisher
+        test_static_tf_ratchet_attatchemnt,
+        test_static_tf_ratchet_ee
     ]
 
 
@@ -633,8 +676,22 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_corridor_constraint",
-            default_value="false",
+            default_value="true",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "constrain_corridor_orientation",
+            default_value="true",
+            description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_special_logic",
+            default_value="false",
+            description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
         )
     )
 

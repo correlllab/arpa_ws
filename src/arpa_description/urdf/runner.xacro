@@ -6,7 +6,7 @@
     The runner consists of:
     - runner_link: The main runner link with mesh geometry
     - block_to_runner_joint: Joint connecting tool_holder_link to runner_link
-    - tool_head_link: Mounting point for camera/end effector
+    - ratchet_extension_link: Mounting point for camera/end effector
     - runner_to_tool_head_joint: Joint connecting runner to tool head
     
     Usage:
@@ -57,7 +57,7 @@
     </joint>
 
     <!-- Tool head link (attachment point for camera and end effector) -->
-    <link name="tool_head_link">
+    <link name="ratchet_extension_link">
       <visual>
         <geometry>
           <cylinder radius=".005" length="0.1"/>
@@ -77,9 +77,9 @@
     </link>
 
     <!-- Mount tool head to runner -->
-    <joint name="runner_to_tool_head_joint" type="fixed">
+    <joint name="runner_to_ratchet_extension_joint" type="fixed">
       <parent link="runner_link"/>
-      <child link="tool_head_link"/>
+      <child link="ratchet_extension_link"/>
       <origin xyz="0.06 0 0.175" rpy="0 ${pi/2.} 0"/>
     </joint>
 

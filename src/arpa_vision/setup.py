@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'vision_node = arpa_vision.scripts.VisionNode:main',
+            'vision_node    = arpa_vision.scripts.VisionNode:main',
+            'record_images  = arpa_vision.scripts.record_images:main',
         ],
     },
 )

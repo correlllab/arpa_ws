@@ -37,9 +37,9 @@ class YOLO_WORLD:
         """
         if weight_file_path is not None:
             assert os.path.exists(weight_file_path), f"Weight file {weight_file_path} does not exist"
-            ckpt = torch.load(weight_file_path, map_location='cpu')
+            ckpt = torch.load(weight_file_path, map_location='cpu', weights_only=False)
             if isinstance(ckpt, dict) and 'state_dict' in ckpt:
-                self.model = YOLOWorld('yolov8l-worldv2.pt')
+                self.model = YOLOWorld('yolov8x-worldv2.pt')
                 self.model.model.load_state_dict(ckpt['state_dict'], strict=False)
             else:
                 self.model = YOLOWorld(weight_file_path)
@@ -49,6 +49,9 @@ class YOLO_WORLD:
         
         device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
         self.model.to(device)
+        if device.type == "cuda":
+            self.model.model.fuse()  # fuse conv/bn in FP32 before converting dtype
+            self.model.half()
 
         self.count = 0
         
@@ -64,7 +67,7 @@ class YOLO_WORLD:
         """
         self.model.set_classes(queries)
         with torch.no_grad():
-            results = self.model.predict(img, show=False, verbose=debug, conf=0.01, nms=True, iou=0.01)[0]
+            results = self.model.predict(img, show=False, verbose=debug, conf=0.90, nms=True, iou=0.01)[0]
         if debug:
             print(f"[YOLO_WORLD predict]{dir(results.boxes)=}")
 

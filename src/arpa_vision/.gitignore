@@ -1,0 +1,7 @@
+# Ignore dataset images but keep the directory
+arpa_vision/scripts/dataset/*
+!arpa_vision/scripts/dataset/.gitkeep
+
+# Python cache
+__pycache__/
+*.pyc

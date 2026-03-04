@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
 from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger
 from std_srvs.srv import Trigger
@@ -10,12 +11,14 @@ from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from shape_msgs.msg import SolidPrimitive
 from geometry_msgs.msg import Pose, PoseStamped
+from scipy.spatial.transform import Rotation
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 import threading
 import time
 import tf2_ros
+from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
 
 BASE_FRAME = "floor_link"
 EE_FRAME = "wrist_3_link"
@@ -38,15 +41,33 @@ class CoreNode(Node):
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix')
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
 
+        # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
-        self.plan_client.wait_for_service()
+        if not self.plan_client.wait_for_service(timeout_sec=30.0):
+            raise RuntimeError("Timed out waiting for plan_to_pose service")
         self.get_logger().info("Waiting for execute_plan service...")
-        self.exec_client.wait_for_service()
-        self.get_logger().info("Waiting for motor_control service...")
-        self.motor_client.wait_for_service()
-        self.get_logger().info("Waiting for ur16e_rest/BehaviorTrigger service...")
-        self.behavior_client.wait_for_service()
-        self.get_logger().info("Services ready!")
+        if not self.exec_client.wait_for_service(timeout_sec=30.0):
+            raise RuntimeError("Timed out waiting for execute_plan service")
+
+        # Optional services (available on real robot / full stack; skip in sim if missing)
+        self.get_logger().info("Checking optional services...")
+        self._motor_available = self.motor_client.wait_for_service(timeout_sec=2.0)
+        if not self._motor_available:
+            self.get_logger().warn("motor_control service not available (continuing without motor control)")
+
+        self._behavior_available = self.behavior_client.wait_for_service(timeout_sec=2.0)
+        if not self._behavior_available:
+            self.get_logger().warn("ur16e_rest/BehaviorTrigger service not available (continuing without behavior triggers)")
+
+        self._update_depth_available = self.update_depth_client.wait_for_service(timeout_sec=2.0)
+        if not self._update_depth_available:
+            self.get_logger().warn("update_depth service not available (continuing without depth updates)")
+
+        self._pose_cost_matrix_available = self.pose_cost_matrix_client.wait_for_service(timeout_sec=5.0)
+        if not self._pose_cost_matrix_available:
+            self.get_logger().warn("get_pose_cost_matrix service not available (will use pose list order without TSP optimization)")
+
+        self.get_logger().info("Core services ready!")
 
 
         self.tf_buffer = tf2_ros.Buffer()
@@ -55,6 +76,30 @@ class CoreNode(Node):
         # Spin in a background thread to keep TF buffer up to date
         self._spin_thread = threading.Thread(target=rclpy.spin, args=(self,), daemon=True)
         self._spin_thread.start()
+
+        self.get_logger().info("Looking up wrist_3_link -> tool_head_link transform...")
+        self.T_wrist3_to_toolhead = None
+        while self.T_wrist3_to_toolhead is None:
+            try:
+                tf = self.tf_buffer.lookup_transform(
+                    #'tool_head_link', 'wrist_3_link',
+                    'test_ratchet_extension_link', 'wrist_3_link',
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=1.0)
+                )
+                t = tf.transform.translation
+                r = tf.transform.rotation
+                from scipy.spatial.transform import Rotation
+                rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
+                mat = np.eye(4)
+                mat[:3, :3] = rot
+                mat[:3,  3] = [t.x, t.y, t.z]
+                self.T_wrist3_to_toolhead = mat
+                self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
+            except (LookupException, ConnectivityException, ExtrapolationException) as e:
+                self.get_logger().warn(f"TF not ready yet: {e}. Retrying...")
+                time.sleep(0.5)
+        self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
 
     def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         req = PlanToPose.Request()
@@ -81,6 +126,21 @@ class CoreNode(Node):
         else:
             self.get_logger().error(f"Planning failed: {result.message}")
         return result.success
+
+    def plan_toolhead_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
+        # Convert toolhead pose to wrist_3_link pose using the known transform
+        target_toolhead = np.eye(4)
+        target_toolhead[:3, :3] = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
+        target_toolhead[:3, 3] = [x, y, z]
+        # target_wrist3 = target_toolhead @ self.T_toolhead_to_wrist3
+        target_wrist3 = target_toolhead @ self.T_wrist3_to_toolhead 
+
+
+        wx, wy, wz = target_wrist3[:3, 3]
+        rot = target_wrist3[:3, :3]
+        qx, qy, qz, qw = Rotation.from_matrix(rot).as_quat()
+
+        return self.plan_to_pose(wx, wy, wz, qx, qy, qz, qw, frame_id)
 
     def execute_plan(self):
         req = ExecutePlan.Request()
@@ -130,6 +190,9 @@ class CoreNode(Node):
             return False
 
     def motor_control(self, speed):
+        if not getattr(self, "_motor_available", False):
+            self.get_logger().warn("Motor control requested but motor_control service is unavailable (skipping)")
+            return False
         if not self.motor_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("Motor control service not available")
             return False
@@ -153,6 +216,9 @@ class CoreNode(Node):
         return result.success
 
     def update_depth(self):
+        if not getattr(self, "_update_depth_available", False):
+            self.get_logger().warn("Depth update requested but update_depth service is unavailable (skipping)")
+            return False
         if not self.update_depth_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("Update depth service not available")
             return False
@@ -212,15 +278,23 @@ class CoreNode(Node):
         self.planning_scene_pub.publish(planning_scene)
         self.get_logger().info(f"Removed collision plane '{plane_id}'")
 
-    def go_home(self, frame_id="floor_link"):
+    def go_home(self, frame_id="floor_link", toolhead=False):
         self.get_logger().info("Going home...")
-
-        if self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id):
-            return self.execute_plan()
-        self.get_logger().error("Failed to plan home position")
-        return False
+        plan_success = False
+        exec_success = False
+        if toolhead:
+            plan_success = self.plan_toolhead_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
+            exec_success = self.execute_plan()
+        else:
+            plan_success = self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
+            exec_success = self.execute_plan()
+        self.get_logger().error(f"go home {plan_success=}, {exec_success=}")
+        return plan_success and exec_success
 
     def trigger_behavior(self, behavior):
+        if not getattr(self, "_behavior_available", False):
+            self.get_logger().warn(f"Behavior '{behavior}' requested but BehaviorTrigger service is unavailable (skipping)")
+            return False
         if not self.behavior_client.wait_for_service(timeout_sec=2.0):
             self.get_logger().error("Behavior service not available")
             return False
@@ -242,20 +316,29 @@ class CoreNode(Node):
         return result.success
 
 
-    def get_tsp_order(self, poses):
+    def get_tsp_order(self, poses, euclidean=True):
         """
         poses: list of PoseStamped
 
         returns: list of PoseStamped in optimal visit order from current robot position
         """
+        if not getattr(self, "_pose_cost_matrix_available", False):
+            return poses
 
-        # Get current EE pose as start node
-        transform: TransformStamped = self.tf_buffer.lookup_transform(
-            BASE_FRAME,
-            EE_FRAME,
-            rclpy.time.Time(),
-            timeout=rclpy.duration.Duration(seconds=2.0)
-        )
+        # Get current EE pose as start node (required for TSP). If TF not ready, use pose order.
+        try:
+            transform: TransformStamped = self.tf_buffer.lookup_transform(
+                BASE_FRAME,
+                EE_FRAME,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=2.0)
+            )
+        except (LookupException, ConnectivityException, ExtrapolationException) as e:
+            self.get_logger().warn(
+                f"TF not available for TSP ({e}). Using pose list order."
+            )
+            return poses
+
         start_pose = PoseStamped()
         start_pose.header.frame_id = BASE_FRAME
         start_pose.pose.position.x = transform.transform.translation.x
@@ -274,6 +357,7 @@ class CoreNode(Node):
         self.get_logger().info(f"Requesting {n}x{n} cost matrix from service...")
         req = GetPoseCostMatrix.Request()
         req.poses = all_poses
+        req.euclidean = euclidean
         start_time = time.time()
         future = self.pose_cost_matrix_client.call_async(req)
         while not future.done():
@@ -347,6 +431,7 @@ def print_menu():
     print("3. Trigger behavior")
     print("4. Update depth")
     print("5. Motor control")
+    print("6. Send toolhead home")
     print("0. Quit")
     print("========================")
 
@@ -363,7 +448,7 @@ def main(args=None):
             choice = input("Select: ").strip()
 
             if choice == "1":
-                node.go_home()
+                node.go_home(toolhead=False)
 
             elif choice == "2":
                 plane_id = input("Plane ID [battery_do_not_cross]: ").strip() or "battery_do_not_cross"
@@ -382,8 +467,12 @@ def main(args=None):
                 speed = int(input("Speed (0=off): ").strip() or "0")
                 node.motor_control(speed)
 
+            elif choice == "6":
+                node.go_home(toolhead=True)
+
             elif choice == "0":
                 break
+
 
             else:
                 print("Invalid choice")

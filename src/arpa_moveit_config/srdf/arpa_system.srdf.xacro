@@ -4,7 +4,7 @@
   <xacro:arg name="name" default=""/>
   <xacro:arg name="prefix" default="" />
 
-  <xacro:include filename="$(find arpa_moveit_config)/srdf/arpa_system_macro.srdf.xacro"/>
+  <xacro:include filename="arpa_system_macro.srdf.xacro"/>
 
   <xacro:arpa_system name="" prefix="$(arg prefix)"/>
 
