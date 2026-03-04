@@ -42,11 +42,15 @@ def main(args=None):
         return
     detections = json.loads(response.message)
     # node.get_logger().info(f"Got detections: {detections}")
+    REMOVAL_BEHAVIOR = "ZForce"#SpiralForce" #"SpiralForce" or ZForce 
 
     # Convert centroids to PoseStamped for TSP ordering
     pose_stamped_list = []
+    label_list = []
     for label, centroid in detections.items():
-        if not any(label.lower().startswith(k) for k in ('nut', 'screw')):
+        # print(f"{label=}")
+        # print(f"{label.lower().split('_')[0]=}")
+        if not any(label.lower().split('_')[0] == k for k in ('nut', 'screw')):
             continue
         cx, cy, cz = centroid
 
@@ -69,13 +73,17 @@ def main(args=None):
         ps.pose.orientation.z = qz
         ps.pose.orientation.w = qw
         pose_stamped_list.append(ps)
-        node.get_logger().info(f"Added pose for {label}: position=({cx:.3f}, {cy:.3f}, {cz:.3f}), orientation=({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f})")
+        label_list.append(label)
+        node.get_logger().info(f"Added pose for {label}: position=({cx:.3f}, {cy:.3f}, {cz:.3f}), orientation=({qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f})\n\n")
 
     ordered_poses = node.get_tsp_order(pose_stamped_list)
+    _pose_id_to_label = {id(p): label_list[i] for i, p in enumerate(pose_stamped_list)}
+    ordered_labels = [_pose_id_to_label[id(p)] for p in ordered_poses]
     node.get_logger().info(f"Got {len(ordered_poses)} poses from vision (TSP ordered).")
 
     try:
-        for pose in ordered_poses:
+        for label, pose in zip(ordered_labels, ordered_poses):
+            node.get_logger().info(f"\n\nProcessing {label} at position=({pose.pose.position.x:.3f}, {pose.pose.position.y:.3f}, {pose.pose.position.z:.3f})")
             x = pose.pose.position.x
             y = pose.pose.position.y
             z = pose.pose.position.z
@@ -98,7 +106,7 @@ def main(args=None):
                 continue       
             node.execute_plan()
 
-            trigger_with_retry(node, "zforce")
+            trigger_with_retry(node, REMOVAL_BEHAVIOR)
             node.motor_control(100)
             trigger_with_retry(node, "play")
             time.sleep(2)

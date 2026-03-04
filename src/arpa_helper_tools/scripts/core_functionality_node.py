@@ -82,7 +82,8 @@ class CoreNode(Node):
         while self.T_wrist3_to_toolhead is None:
             try:
                 tf = self.tf_buffer.lookup_transform(
-                    'tool_head_link', 'wrist_3_link',
+                    #'tool_head_link', 'wrist_3_link',
+                    'test_ratchet_extension_link', 'wrist_3_link',
                     rclpy.time.Time(),
                     timeout=rclpy.duration.Duration(seconds=1.0)
                 )

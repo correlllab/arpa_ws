@@ -314,6 +314,19 @@ def launch_setup(context, *args, **kwargs):
         actions=[vision_node]
     )
 
+    test_static_tf_ratchet_attatchemnt = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_attachment",
+        arguments=["-0.0018", "-0.1488", "0.0922", "0", "0", "-3.14159", "wrist_3_link", "test_ratchet_attachment"]
+    )
+    test_static_tf_ratchet_ee = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_ee",
+        arguments=["0", "0", "-0.165", "0", "0", "-3.14159", "test_ratchet_attachment", "test_ratchet_extension_link"]
+    )
+
     return [
         ur_driver,
         ur_rest_api,
@@ -327,6 +340,8 @@ def launch_setup(context, *args, **kwargs):
         vision_node_delayed,
         record_images_node,
         # recorded_poses_publisher
+        test_static_tf_ratchet_attatchemnt,
+        test_static_tf_ratchet_ee
     ]
 
 

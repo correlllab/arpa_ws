@@ -33,7 +33,7 @@ markers_topic     = "/realsense/ee_cam/object_markers"
 cloud_topic       = "/realsense/ee_cam/object_pointcloud"
 
 BASE_FRAME         = "world"
-OVERLAP_THRESHOLD  = 0.1
+OVERLAP_THRESHOLD  = 0.01
 DO_VOXEL           = True
 VOXEL_SIZE_M       = 0.001
 CAMERA_MIN_RANGE_M = 0.1
@@ -41,18 +41,19 @@ CAMERA_MAX_RANGE_M = 0.5
 
 # --- Outlier removal ---
 RADIUS_OUTLIER_REMOVAL        = True
-RADIUS_OUTLIER_NB_POINTS      = 80     # min neighbours within radius
+RADIUS_OUTLIER_NB_POINTS      = 64     # min neighbours within radius
 RADIUS_OUTLIER_RADIUS         = 0.01  # search radius in metres
 
 STATISTICAL_OUTLIER_REMOVAL      = True
-STATISTICAL_OUTLIER_NB_NEIGHBORS = 80  # neighbours to analyse
+STATISTICAL_OUTLIER_NB_NEIGHBORS = 64  # neighbours to analyse
 STATISTICAL_OUTLIER_STD_RATIO    = 0.05 # std-dev multiplier threshold
 
-PCD_MIN_POINTS = 10  # discard clouds with fewer points than this
+PCD_MIN_POINTS = 100  # discard clouds with fewer points than this
 
-BLUR_THRESHOLD = 80.0  # Laplacian variance below this → image is too blurry
+BLUR_THRESHOLD = 0.0  # Laplacian variance below this → image is too blurry
 
 SUBSCRIBER_RATE_HZ = 6.0
+PUBLISHER_RATE_HZ = 6.0
 
 COLORS = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)]
 MARKER_COLORS = [ColorRGBA(r=float(r)/255.0, g=float(g)/255.0, b=float(b)/255.0, a=0.1) for r, g, b in COLORS]
@@ -97,6 +98,9 @@ class VisionNode(Node):
         self._last_sync_time = 0.0
         self._sync_interval = 1.0 / SUBSCRIBER_RATE_HZ
 
+        self._last_publish_time = 0.0
+        self._publish_interval = 1.0 / PUBLISHER_RATE_HZ
+
         self.tf_buffer   = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
@@ -132,18 +136,24 @@ class VisionNode(Node):
         self.get_logger().info(f'VisionNode started. Detecting: {QUERIES}')
 
     def sync_callback(self, rgb_msg, depth_msg, info_msg):
+        # self.get_logger().info(f'adding to sync queue...')
+        
         now = time.time()
         if now - self._last_sync_time < self._sync_interval:
+            # self.get_logger().info(f'canceling addition to sync queue (freq)...')
             return
         self._last_sync_time = now
 
         with self.lock:
             self.sync_queue.put((rgb_msg, depth_msg, info_msg))
+        # self.get_logger().info(f'successfully added to sync queue...')
 
     def process_queue(self):
+        # self.get_logger().info(f'Processing sync queue...')
         rgb_msg, depth_msg, info_msg = None, None, None
         with self.lock:
             if self.sync_queue.empty():
+                # self.get_logger().info(f'No synchronized messages to process')
                 return
             # Drain to the newest frame — older ones will just be stale
             while not self.sync_queue.empty():
@@ -152,7 +162,7 @@ class VisionNode(Node):
         img = self.bridge.compressed_imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
         blur_score = cv2.Laplacian(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var()
         if blur_score < BLUR_THRESHOLD:
-            self.get_logger().debug(f'Dropping blurry frame (Laplacian var={blur_score:.1f})')
+            self.get_logger().warn(f'Dropping blurry frame (Laplacian var={blur_score:.1f})')
             return
 
         # Drop stale frames so we never request a TF timestamp older than the buffer
@@ -195,6 +205,8 @@ class VisionNode(Node):
         out_msg = self.bridge.cv2_to_imgmsg(annotated, encoding='bgr8')
         out_msg.header = rgb_msg.header
         self.last_annotated = out_msg
+        # self.get_logger().info(f'last annotated set')
+
 
         # Back-project each bounding box region to a 3D point cloud
         t1 = time.time()
@@ -204,8 +216,8 @@ class VisionNode(Node):
             for box, prob in zip(pred['boxes'], pred['probs']):
                 x1, y1, x2, y2 = map(int, box)
                 box_area = (x2 - x1) * (y2 - y1)
-                if box_area / img_area >= 0.90:
-                    continue
+                # if box_area / img_area >= 0.90:
+                #     continue
                 pcd = self._bbox_to_pcd(img, depth_m, box, intrinsics, obs_pose)
                 if pcd is not None:
                     pcds.append(pcd)
@@ -332,6 +344,10 @@ class VisionNode(Node):
 
     def publish_detections(self):
         """Publish MarkerArray and merged PointCloud2 from all accumulated detections."""
+        now = time.time()
+        if now - self._last_publish_time < self._publish_interval:
+            return
+        self._last_publish_time = now
         # self.get_logger().info(f'Publishing {sum(len(v) for v in self.detections.values())} detections...')
 
         if self.last_annotated is not None:

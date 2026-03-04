@@ -125,7 +125,8 @@ def scan_points_to_pose_stamped(points, frame_id):
     for x, y in points:
         # Build orientation: tool Z down, tool Y toward origin in XY plane
         qx,qy,qz,qw = _QX, _QY, _QZ, _QW
-        if VARIABLE_ORIENTATION:
+        is_edge =(x in _X_POSITIONS[:_OUTSIDE_DEPTH]) or (x in _X_POSITIONS[-_OUTSIDE_DEPTH:]) or (y in _Y_POSITIONS[:_OUTSIDE_DEPTH]) or (y in _Y_POSITIONS[-_OUTSIDE_DEPTH:])
+        if VARIABLE_ORIENTATION# or is_edge:
             z_hat = np.array([0.0, 0.0, -1.0])
             toward_origin = np.array([-x, -y, 0.0])
             norm = np.linalg.norm(toward_origin)
@@ -225,6 +226,7 @@ def main(args=None):
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
     pose_stamped_list = scan_points_to_pose_stamped(scan_points, FRAME_ID)
     pose_arr = node.get_tsp_order(pose_stamped_list)
+
     marker_array = build_scan_marker_array(node, pose_arr)
     node.trigger_behavior("ros2control")
 
