@@ -7,6 +7,7 @@ import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
 from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger
 from std_srvs.srv import Trigger
+from custom_ros_messages.msg import DetectionBundle
 from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from shape_msgs.msg import SolidPrimitive
@@ -17,6 +18,8 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 import threading
 import time
+from cv_bridge import CvBridge
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import tf2_ros
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
 
@@ -40,6 +43,10 @@ class CoreNode(Node):
         self.update_depth_client = self.create_client(Trigger, 'update_depth')
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix')
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
+
+        self.latest_detection_bundle: DetectionBundle = None
+        _det_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
+        self.create_subscription(DetectionBundle, '/realsense/ee_cam/detections', self._detection_bundle_cb, _det_qos)
 
         # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
@@ -100,6 +107,9 @@ class CoreNode(Node):
                 self.get_logger().warn(f"TF not ready yet: {e}. Retrying...")
                 time.sleep(0.5)
         self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
+
+    def _detection_bundle_cb(self, msg: DetectionBundle):
+        self.latest_detection_bundle = msg
 
     def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         req = PlanToPose.Request()
@@ -437,9 +447,28 @@ def print_menu():
 
 
 def main(args=None):
+    import cv2
     rclpy.init(args=args)
     node = CoreNode()
-
+    def visualize_detections_thread_func():
+        bridge = CvBridge()
+        while rclpy.ok():
+            if node.latest_detection_bundle is not None:
+                rgb_msg = node.latest_detection_bundle.rgb_image
+                detections = node.latest_detection_bundle.detections
+                cv_img = bridge.compressed_imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
+                for det in detections:
+                    x1, y1 = int(det.bbox_min.x), int(det.bbox_min.y)
+                    x2, y2 = int(det.bbox_max.x), int(det.bbox_max.y)
+                    cv2.rectangle(cv_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(cv_img, f"{det.cls} {det.prob:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.5, (0, 255, 0), 2)
+                cv2.imshow("Detections", cv_img)
+                cv2.waitKey(1)
+            else:
+                time.sleep(0.1)
+    vis_thread = threading.Thread(target=visualize_detections_thread_func, daemon=True)
+    vis_thread.start()
     node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
 
     try:

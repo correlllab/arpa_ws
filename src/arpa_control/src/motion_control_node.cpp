@@ -205,11 +205,11 @@ double MotionControlNode::getConfigurationCost(
 
   double ee_distance = (actuator_tf.translation() - wrist_tf.translation()).norm();
   //TODO min elbow distance should be a param
-  if (ee_distance < 0.650) {
-    RCLCPP_WARN(get_logger(),
-        "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
-    return std::numeric_limits<double>::infinity();
-  }
+  // if (ee_distance < 0.650) {
+  //   RCLCPP_WARN(get_logger(),
+  //       "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
+  //   return std::numeric_limits<double>::infinity();
+  // }
 
   // Triangle area between linear_actuator_plate_link, wrist_3_link, forearm_link
   // area = 0.5 * ||(wrist - actuator) × (forearm - actuator)||

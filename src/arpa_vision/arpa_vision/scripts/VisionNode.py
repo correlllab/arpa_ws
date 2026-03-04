@@ -11,7 +11,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from sensor_msgs.msg import Image, CompressedImage, CameraInfo, PointCloud2, PointField  # Image kept for annotated publisher
 from visualization_msgs.msg import Marker, MarkerArray
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseStamped
 from std_msgs.msg import ColorRGBA
 from cv_bridge import CvBridge
 import message_filters
@@ -20,7 +20,10 @@ import json
 import tf2_ros
 import open3d.t.geometry as o3tg
 import open3d.core as o3c
+from scipy.spatial.transform import Rotation
+
 from std_srvs.srv import Trigger
+from custom_ros_messages.msg import Detection, DetectionBundle
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from BoundingBoxDetectors import YOLO_WORLD
@@ -31,6 +34,7 @@ camera_info_topic = "/realsense/ee_cam/color/camera_info"
 annotated_topic   = "/realsense/ee_cam/image_annotated"
 markers_topic     = "/realsense/ee_cam/object_markers"
 cloud_topic       = "/realsense/ee_cam/object_pointcloud"
+detection_topic      = "/realsense/ee_cam/detections"
 
 BASE_FRAME         = "world"
 OVERLAP_THRESHOLD  = 0.01
@@ -41,11 +45,11 @@ CAMERA_MAX_RANGE_M = 0.5
 
 # --- Outlier removal ---
 RADIUS_OUTLIER_REMOVAL        = True
-RADIUS_OUTLIER_NB_POINTS      = 64     # min neighbours within radius
+RADIUS_OUTLIER_NB_POINTS      = 100     # min neighbours within radius
 RADIUS_OUTLIER_RADIUS         = 0.01  # search radius in metres
 
 STATISTICAL_OUTLIER_REMOVAL      = True
-STATISTICAL_OUTLIER_NB_NEIGHBORS = 64  # neighbours to analyse
+STATISTICAL_OUTLIER_NB_NEIGHBORS = 100  # neighbours to analyse
 STATISTICAL_OUTLIER_STD_RATIO    = 0.05 # std-dev multiplier threshold
 
 PCD_MIN_POINTS = 100  # discard clouds with fewer points than this
@@ -92,8 +96,15 @@ class VisionNode(Node):
 
         # Persistent detections: dict of {label: 'pcd', 'bbox', 'prob'}
         self.detections = {}
-        self.last_header = None
+
+
+        # Latest data for bundle publishing
         self.last_annotated = None
+        self.last_rgb_msg = None
+        self.last_depth_msg = None
+        self.last_info_msg = None
+        self.last_camera_pose = None  # geometry_msgs/PoseStamped
+        self.latest_candidates = None     # yolo output at last processed frame
 
         self._last_sync_time = 0.0
         self._sync_interval = 1.0 / SUBSCRIBER_RATE_HZ
@@ -115,9 +126,10 @@ class VisionNode(Node):
         )
         self.sync.registerCallback(self.sync_callback)
 
-        self.annotated_pub         = self.create_publisher(Image,       annotated_topic, qos)
-        self.markers_pub = self.create_publisher(MarkerArray, markers_topic,   10)
-        self.cloud_pub   = self.create_publisher(PointCloud2, cloud_topic,     10)
+        self.annotated_pub         = self.create_publisher(Image,           annotated_topic, qos)
+        self.markers_pub           = self.create_publisher(MarkerArray,     markers_topic,   qos)
+        self.cloud_pub             = self.create_publisher(PointCloud2,     cloud_topic,     qos)
+        self.detection_pub         = self.create_publisher(DetectionBundle, detection_topic, qos)
 
         _default_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'object_detections.pkl')
         self.declare_parameter('detections_save_path', _default_save_path)
@@ -238,7 +250,21 @@ class VisionNode(Node):
         else:
             # self.get_logger().info(f'[process_queue][failed]YOLO {yolo_ms:.0f}ms | no detections')
             pass
-        self.last_header = rgb_msg.header
+        self.last_rgb_msg = rgb_msg
+        self.last_depth_msg = depth_msg
+        self.last_info_msg = info_msg
+        self.latest_candidates = candidates
+        # Store camera pose as PoseStamped
+        t = transform.transform.translation
+        r = transform.transform.rotation
+        ps = PoseStamped()
+        ps.header.frame_id = BASE_FRAME
+        ps.header.stamp = rgb_msg.header.stamp
+        ps.pose.position.x = t.x
+        ps.pose.position.y = t.y
+        ps.pose.position.z = t.z
+        ps.pose.orientation = r
+        self.last_camera_pose = ps
 
     def _bbox_to_pcd(self, img, depth_m, box, intrinsics, obs_pose):
         """Back-project the depth pixels inside a 2D bounding box to a 3D point cloud."""
@@ -353,21 +379,29 @@ class VisionNode(Node):
         if self.last_annotated is not None:
             self.annotated_pub.publish(self.last_annotated)
 
-        if not self.detections or self.last_header is None:
+        if not self.detections:
             return
 
-        lines = []
-        for label, dets in self.detections.items():
-            for i, det in enumerate(dets):
-                mn = det['bbox'].min_bound.numpy()
-                mx = det['bbox'].max_bound.numpy()
-                center = (mn + mx) / 2.0
-                n_pts  = det['pcd'].point["positions"].shape[0]
-                lines.append(
-                    f'  [{label}#{i}] center=({center[0]:.3f},{center[1]:.3f},{center[2]:.3f}) '
-                    f'pts={n_pts} prob={det["prob"]:.2f}'
-                )
-        # self.get_logger().info('publish_detections:\n' + '\n'.join(lines))
+        # DetectionBundle
+        if self.last_rgb_msg is not None and self.last_depth_msg is not None and self.last_info_msg is not None and self.last_camera_pose is not None and self.latest_candidates is not None:
+            bundle = DetectionBundle()
+            bundle.rgb_image = self.last_rgb_msg
+            bundle.depth_image = self.last_depth_msg
+            bundle.camera_info = self.last_info_msg
+            bundle.camera_pose = self.last_camera_pose
+
+            for label, pred in self.latest_candidates.items():
+                for box, prob in zip(pred['boxes'], pred['probs']):
+                    x1, y1, x2, y2 = map(int, box)
+                    d = Detection()
+                    d.cls = label
+                    d.bbox_min = Point(x=float(x1), y=float(y1), z=0.0)
+                    d.bbox_max = Point(x=float(x2), y=float(y2), z=0.0)
+                    d.prob = float(prob)
+                    bundle.detections.append(d)
+            self.detection_pub.publish(bundle)
+
+    
 
         # MarkerArray — one CUBE per detection, namespaced by label
         markers = MarkerArray()
@@ -383,7 +417,6 @@ class VisionNode(Node):
                 size   = mx - mn
 
                 m = Marker()
-                m.header          = self.last_header
                 m.header.frame_id = BASE_FRAME
                 m.ns              = label
                 m.id              = i
@@ -424,7 +457,6 @@ class VisionNode(Node):
             PointField(name='b', offset=20, datatype=PointField.FLOAT32, count=1),
         ]
         cloud_msg = PointCloud2()
-        cloud_msg.header          = self.last_header
         cloud_msg.header.frame_id = BASE_FRAME
         cloud_msg.height          = 1
         cloud_msg.width           = len(all_pts)
@@ -522,7 +554,6 @@ class VisionNode(Node):
         return response
 
     def _transform_to_matrix(self, transform):
-        from scipy.spatial.transform import Rotation
         t = transform.transform.translation
         r = transform.transform.rotation
         rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
