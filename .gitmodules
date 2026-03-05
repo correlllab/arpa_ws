@@ -19,3 +19,6 @@
 [submodule "src/ur16e_rest"]
 	path = src/ur16e_rest
 	url = https://github.com/correlllab/ur16e_rest.git
+[submodule "src/ros-mcp-server"]
+	path = src/ros-mcp-server
+	url = git@github.com:robotmcp/ros-mcp-server.git
