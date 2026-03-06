@@ -123,11 +123,11 @@ void MotionControlNode::initMoveGroup()
 
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
-  //RVIZ uses 5s, 10 attempts, 0.1 vel scaling, 0.1 accel scaling
+  // Velocity/accel scaling: 0.5 = 50% of max (faster execution; use 0.1 for cautious/slow)
   m_move_group->setPlanningTime(2.5);//(5.0);
-  m_move_group->setNumPlanningAttempts(5);//(10);
-  m_move_group->setMaxVelocityScalingFactor(0.1);
-  m_move_group->setMaxAccelerationScalingFactor(0.1);
+  m_move_group->setNumPlanningAttempts(10);  // Try up to 10 planning attempts per IK solution
+  m_move_group->setMaxVelocityScalingFactor(0.5);
+  m_move_group->setMaxAccelerationScalingFactor(0.5);
   m_move_group->setGoalPositionTolerance(0.001);  // 1mm tolerance
   m_move_group->setGoalOrientationTolerance(0.001);  // ~0.057 degrees
   m_move_group->setGoalJointTolerance(0.001);  // 0.001 rad (~0.057 degrees) per joint
@@ -452,7 +452,11 @@ bool MotionControlNode::setPathConstraints(geometry_msgs::msg::PoseStamped& targ
   m_corridor_marker_pub->publish(corridor_marker);
 
   moveit_msgs::msg::Constraints path_constraints;
-  path_constraints.position_constraints.push_back(pos_constraint);
+
+  const bool constrain_position = this->get_parameter("constrain_corridor_position").as_bool();
+  if (constrain_position) {
+    path_constraints.position_constraints.push_back(pos_constraint);
+  }
 
   const bool constrain_orientation = this->get_parameter("constrain_corridor_orientation").as_bool();
   if (constrain_orientation) {

@@ -24,6 +24,7 @@ def launch_setup(context, *args, **kwargs):
     # General arguments
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
     constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
+    constrain_corridor_position = LaunchConfiguration("constrain_corridor_position")
     use_special_logic = LaunchConfiguration("use_special_logic")
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
@@ -230,6 +231,7 @@ def launch_setup(context, *args, **kwargs):
             "initial_positions_file": initial_positions_file,
             "use_corridor_constraint": use_corridor_constraint,
             "constrain_corridor_orientation": constrain_corridor_orientation,
+            "constrain_corridor_position": constrain_corridor_position,
             "use_special_logic": use_special_logic,
         }.items(),
     )
@@ -687,6 +689,13 @@ def generate_launch_description():
             "constrain_corridor_orientation",
             default_value="true",
             description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "constrain_corridor_position",
+            default_value="true",
+            description="If true, constrain end-effector position to a corridor box between start and goal. Set to false to allow orientation-only constraint.",
         )
     )
     declared_arguments.append(
