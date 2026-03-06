@@ -63,6 +63,7 @@ def launch_setup(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration("use_sim_time")
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
     constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
+    corridor_position_constraint = LaunchConfiguration("corridor_position_constraint")
     use_special_logic = LaunchConfiguration("use_special_logic")
     # Additional xacro arguments
     transmission_hw_interface = LaunchConfiguration("transmission_hw_interface")
@@ -266,6 +267,7 @@ def launch_setup(context, *args, **kwargs):
                 "use_sim_time": use_sim_time,
                 "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
                 "constrain_corridor_orientation": constrain_corridor_orientation.perform(context).lower() == "true",
+                "corridor_position_constraint": corridor_position_constraint.perform(context).lower() == "true",
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
                 "corridor_cross_section": 0.5,
                 "corridor_padding": 0.25,
@@ -391,6 +393,13 @@ def generate_launch_description():
             "constrain_corridor_orientation",
             default_value="true",
             description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "corridor_position_constraint",
+            default_value="true",
+            description="If true, constrain end-effector position (EE box) along the corridor. Set to false for orientation-only constraint (when use_corridor_constraint=true).",
         )
     )
     declared_arguments.append(

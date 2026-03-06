@@ -70,7 +70,7 @@ SAVE_IMAGES = False
 # Scan area bounds (X, Y)
 LOWER_LEFT = [1.109, -0.743]   # Starting corner
 UPPER_RIGHT = [-0.873, 0.631]  # Opposite corner
-_Z_HEIGHT = 1.253
+_Z_HEIGHT = 1.3115  # wrist_3_link target: 0.83m battery + 0.25m clearance + 0.2315m wrist-to-tool offset
 
 # Grid configuration
 N_X_STEPS = 8 # Number of positions along X

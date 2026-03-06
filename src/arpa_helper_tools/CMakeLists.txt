@@ -19,6 +19,8 @@ install(PROGRAMS
   scripts/scan_battery.py
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
+  scripts/generate_random_1000_poses.py
+  scripts/run_random_p2p_benchmark.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

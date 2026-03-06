@@ -44,10 +44,17 @@ class CoreNode(Node):
         # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
         if not self.plan_client.wait_for_service(timeout_sec=30.0):
-            raise RuntimeError("Timed out waiting for plan_to_pose service")
+            raise RuntimeError(
+                "Timed out waiting for plan_to_pose service. "
+                "Start the ARPA stack first (e.g. ros2 launch arpa_bringup arpa_sim.launch.py or arpa_real.launch.py) "
+                "so that motion_control_node is running."
+            )
         self.get_logger().info("Waiting for execute_plan service...")
         if not self.exec_client.wait_for_service(timeout_sec=30.0):
-            raise RuntimeError("Timed out waiting for execute_plan service")
+            raise RuntimeError(
+                "Timed out waiting for execute_plan service. "
+                "Start the ARPA stack first (e.g. ros2 launch arpa_bringup arpa_sim.launch.py or arpa_real.launch.py)."
+            )
 
         # Optional services (available on real robot / full stack; skip in sim if missing)
         self.get_logger().info("Checking optional services...")
@@ -82,8 +89,7 @@ class CoreNode(Node):
         while self.T_wrist3_to_toolhead is None:
             try:
                 tf = self.tf_buffer.lookup_transform(
-                    #'tool_head_link', 'wrist_3_link',
-                    'test_ratchet_extension_link', 'wrist_3_link',
+                    'tool_head_link', 'wrist_3_link',
                     rclpy.time.Time(),
                     timeout=rclpy.duration.Duration(seconds=1.0)
                 )
@@ -101,6 +107,10 @@ class CoreNode(Node):
                 time.sleep(0.5)
         self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
 
+    # Timeouts for plan/execute to prevent infinite hangs (in seconds)
+    PLAN_TIMEOUT_S = 60.0       # Max 60s per plan attempt
+    EXECUTE_TIMEOUT_S = 30.0    # Max 30s per execution (should be ~2-4s normally)
+
     def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         req = PlanToPose.Request()
         req.target_pose.header.frame_id = frame_id
@@ -117,10 +127,19 @@ class CoreNode(Node):
                                f"in frame '{frame_id}'")
 
         future = self.plan_client.call_async(req)
+        start = time.time()
         while not future.done():
+            elapsed = time.time() - start
+            if elapsed > self.PLAN_TIMEOUT_S:
+                self.get_logger().error(f"Planning timed out after {elapsed:.1f}s (limit: {self.PLAN_TIMEOUT_S:.0f}s)")
+                return False
             time.sleep(0.05)
 
-        result = future.result()
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Planning service exception: {e}")
+            return False
         if result.success:
             self.get_logger().info("Planning successful!")
         else:
@@ -147,10 +166,19 @@ class CoreNode(Node):
 
         self.get_logger().info("Executing plan...")
         future = self.exec_client.call_async(req)
+        start = time.time()
         while not future.done():
+            elapsed = time.time() - start
+            if elapsed > self.EXECUTE_TIMEOUT_S:
+                self.get_logger().error(f"Execution timed out after {elapsed:.1f}s (limit: {self.EXECUTE_TIMEOUT_S:.0f}s)")
+                return False
             time.sleep(0.05)
 
-        result = future.result()
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().error(f"Execute plan service exception: {e}")
+            return False
         if result.success:
             self.get_logger().info("Execution successful!")
         else:

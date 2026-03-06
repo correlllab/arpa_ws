@@ -18,6 +18,7 @@
 #include <numeric>
 #include <random>
 #include <moveit/robot_state/conversions.h>
+#include <moveit/planning_scene/planning_scene.h>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -64,10 +65,20 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
       "/corridor_marker",
       rclcpp::QoS(1));
 
-  m_use_depth = false; 
-  //TODO verify octomap resolution is being used
-  this->declare_parameter("octomap_resolution", 0.03);
-  this->declare_parameter("arm_padding", 0.015);
+  m_use_depth = false;
+  // Declare parameters (use defaults only when not already set by launch)
+  auto declare_if_not_set = [this](const std::string& name, const rclcpp::ParameterValue& value) {
+    if (!this->has_parameter(name)) {
+      this->declare_parameter(name, value);
+    }
+  };
+  declare_if_not_set("octomap_resolution", rclcpp::ParameterValue(0.03));
+  declare_if_not_set("arm_padding", rclcpp::ParameterValue(0.015));
+  declare_if_not_set("corridor_position_constraint", rclcpp::ParameterValue(true));
+  declare_if_not_set("use_corridor_constraint", rclcpp::ParameterValue(false));
+  declare_if_not_set("constrain_corridor_orientation", rclcpp::ParameterValue(true));
+  declare_if_not_set("corridor_padding", rclcpp::ParameterValue(0.5));
+  declare_if_not_set("corridor_cross_section", rclcpp::ParameterValue(0.3));
   m_arm_padding = this->get_parameter("arm_padding").as_double();
   m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "ratchet_extension_link"};
   for(auto link : m_arm_padding_links) {
@@ -118,16 +129,28 @@ void MotionControlNode::initMoveGroup()
   */
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control initMoveGroup() START");
 
+  // Declare parameters with defaults
+  this->declare_parameter<double>("min_actuator_distance", 0.50);
+  this->declare_parameter<double>("per_ik_solution_timeout_s", 60.0);
+  this->declare_parameter<double>("max_velocity_scaling_factor", 0.5);
+  this->declare_parameter<double>("max_acceleration_scaling_factor", 0.5);
+
   m_move_group->startStateMonitor(2.5);
   m_move_group->setPlanningPipelineId("move_group");
 
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
-  //RVIZ uses 5s, 10 attempts, 0.1 vel scaling, 0.1 accel scaling
-  m_move_group->setPlanningTime(2.5);//(5.0);
-  m_move_group->setNumPlanningAttempts(5);//(10);
-  m_move_group->setMaxVelocityScalingFactor(0.1);
-  m_move_group->setMaxAccelerationScalingFactor(0.1);
+  // Planning time must be less than the Python client timeout (60s) so the service
+  // returns quickly on failure instead of blocking the queue for subsequent requests.
+  m_move_group->setPlanningTime(10.0);   // 10s per IK solution attempt
+  m_move_group->setNumPlanningAttempts(3); // 3 attempts × 10s = 30s max per IK solution
+  
+  double vel_scale = this->get_parameter("max_velocity_scaling_factor").as_double();
+  double accel_scale = this->get_parameter("max_acceleration_scaling_factor").as_double();
+  m_move_group->setMaxVelocityScalingFactor(vel_scale);
+  m_move_group->setMaxAccelerationScalingFactor(accel_scale);
+  RCLCPP_INFO(get_logger(), "[INIT] Velocity scaling: %.1f, Acceleration scaling: %.1f", 
+              vel_scale * 100, accel_scale * 100);
   m_move_group->setGoalPositionTolerance(0.001);  // 1mm tolerance
   m_move_group->setGoalOrientationTolerance(0.001);  // ~0.057 degrees
   m_move_group->setGoalJointTolerance(0.001);  // 0.001 rad (~0.057 degrees) per joint
@@ -204,10 +227,10 @@ double MotionControlNode::getConfigurationCost(
       target_state->getGlobalLinkTransform("forearm_link");
 
   double ee_distance = (actuator_tf.translation() - wrist_tf.translation()).norm();
-  //TODO min elbow distance should be a param
-  if (ee_distance < 0.650) {
+  const double min_actuator_distance = this->get_parameter("min_actuator_distance").as_double();
+  if (ee_distance < min_actuator_distance) {
     RCLCPP_WARN(get_logger(),
-        "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
+        "EE too close to linear actuator plate: %.3f m (min %.3f m)", ee_distance, min_actuator_distance);
     return std::numeric_limits<double>::infinity();
   }
 
@@ -290,13 +313,18 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
   // Try IK with linear actuator locked at each offset.
   // IK is solved on arm_jmg (ur_manipulator, 6-DOF arm only) so the actuator
   // position set in the seed state is held fixed — the solver never touches it.
-  // todo use linspace to generate offsets with resolution
-  // offsets can sometime just be 0.0 lock the arm where it is or if its NAN solve for the whole system from the current position
-  for (double offset : {0.0, -0.25, 0.25, 0.5, -0.5, -0.75, 0.75, -1.0, 1.0, std::numeric_limits<double>::quiet_NaN()}) {
+  // Constrained offsets: ±0.75m (1.5s to move at 0.5 m/s) to balance reachability vs speed
+  for (double offset : {0.0, -0.25, 0.25, 0.5, -0.5, 0.75, -0.75, std::numeric_limits<double>::quiet_NaN()}) {
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
     auto* use_jmg = std::isnan(offset) ? jmg : arm_jmg;
     if (!std::isnan(offset)) {
       double shifted_pos = original_actuator_pos + offset;
+      // Clamp to valid range [0.2, 1.9]
+      if (shifted_pos < 0.2 || shifted_pos > 1.9) {
+        RCLCPP_DEBUG(get_logger(), "Skipping actuator offset %.2f (would be %.3f m, out of range [0.2, 1.9])", 
+                     offset, shifted_pos);
+        continue;
+      }
       seed_state->setJointPositions(actuator_joint, &shifted_pos);
       seed_state->update();
     }
@@ -311,9 +339,21 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     }
     seed_state->update();
 
-    // updateGoalMarker(seed_state);
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
-    
+    // Check for self-collision: reject any IK solution that puts the robot in self-collision
+    {
+      collision_detection::CollisionRequest collision_req;
+      collision_detection::CollisionResult collision_res;
+      collision_req.contacts = false;
+      collision_req.verbose = false;
+      planning_scene::PlanningScene ps(m_move_group->getRobotModel());
+      ps.checkSelfCollision(collision_req, collision_res, *seed_state);
+      if (collision_res.collision) {
+        RCLCPP_WARN(get_logger(), "IK solution for actuator offset %.2f is in self-collision, skipping", 
+                    std::isnan(offset) ? 0.0 : offset);
+        continue;
+      }
+    }
+
     double cost = getConfigurationCost(current_state, seed_state);
     if (std::isinf(cost)) continue;
 
@@ -452,7 +492,11 @@ bool MotionControlNode::setPathConstraints(geometry_msgs::msg::PoseStamped& targ
   m_corridor_marker_pub->publish(corridor_marker);
 
   moveit_msgs::msg::Constraints path_constraints;
-  path_constraints.position_constraints.push_back(pos_constraint);
+  
+  const bool constrain_position = this->get_parameter("corridor_position_constraint").as_bool();
+  if (constrain_position) {
+    path_constraints.position_constraints.push_back(pos_constraint);
+  }
 
   const bool constrain_orientation = this->get_parameter("constrain_corridor_orientation").as_bool();
   if (constrain_orientation) {
@@ -468,7 +512,8 @@ bool MotionControlNode::setPathConstraints(geometry_msgs::msg::PoseStamped& targ
   }
 
   m_move_group->setPathConstraints(path_constraints);
-  RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
+  RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m (position=%s, orientation=%s)", 
+              seg_len, 2.0 * cross, constrain_position ? "true" : "false", constrain_orientation ? "true" : "false");
   return true;
 
 }
@@ -536,15 +581,39 @@ void MotionControlNode::planToPoseCallback(
     return;
   }
 
-  // Try planning with each solution until one succeeds
+  // Try planning with each solution until one succeeds (with per-solution timeout)
+  const double per_ik_timeout_s = this->get_parameter("per_ik_solution_timeout_s").as_double();
+  
   for (size_t i = 0; i < solutions.size(); ++i) {
+    RCLCPP_INFO(get_logger(), "[PLAN] Attempting IK solution %zu/%zu, joint target=[%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+                i + 1, solutions.size(),
+                solutions[i][0], solutions[i][1], solutions[i][2], solutions[i][3],
+                solutions[i][4], solutions[i][5], solutions[i][6]);
+    
     m_move_group->setStartStateToCurrentState();
     m_move_group->setJointValueTarget(solutions[i]);
 
+    auto plan_start = std::chrono::steady_clock::now();
     auto plan_result = m_move_group->plan(m_current_plan);
+    auto plan_end = std::chrono::steady_clock::now();
+    double plan_time_s = std::chrono::duration<double>(plan_end - plan_start).count();
+    
     if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
-      RCLCPP_INFO(get_logger(), "Planning succeeded on IK solution %zu/%zu (%zu trajectory points)",
-                  i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+      RCLCPP_INFO(get_logger(), "[PLAN] Planning succeeded on IK solution %zu/%zu in %.2fs (%zu trajectory points)",
+                  i + 1, solutions.size(), plan_time_s, m_current_plan.trajectory_.joint_trajectory.points.size());
+      
+      const auto& traj = m_current_plan.trajectory_.joint_trajectory;
+      if (!traj.points.empty()) {
+        const auto& start = traj.points.front();
+        const auto& end = traj.points.back();
+        RCLCPP_INFO(get_logger(), "[PLAN] Trajectory start: [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+                    start.positions[0], start.positions[1], start.positions[2], start.positions[3],
+                    start.positions[4], start.positions[5], start.positions[6]);
+        RCLCPP_INFO(get_logger(), "[PLAN] Trajectory end:   [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+                    end.positions[0], end.positions[1], end.positions[2], end.positions[3],
+                    end.positions[4], end.positions[5], end.positions[6]);
+      }
+      
       m_goal_joint_values = solutions[i];
 
       // Update goal marker
@@ -556,19 +625,26 @@ void MotionControlNode::planToPoseCallback(
       response->success = true;
       response->message = "Planning successful (solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
       RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
-      m_move_group->clearPathConstraints();                // remove constraints
+      m_move_group->clearPathConstraints();
       return;
     }
 
-    RCLCPP_WARN(get_logger(), "Planning failed for IK solution %zu/%zu (MoveItErrorCode: %d)",
-                i + 1, solutions.size(), plan_result.val);
+    RCLCPP_WARN(get_logger(), "[PLAN] Planning failed for IK solution %zu/%zu in %.2fs (MoveItErrorCode: %d). %s",
+                i + 1, solutions.size(), plan_time_s, plan_result.val,
+                plan_time_s >= per_ik_timeout_s ? "Timeout exceeded, trying next solution." : "");
+    
+    if (plan_time_s >= per_ik_timeout_s) {
+      RCLCPP_WARN(get_logger(), "[PLAN] Per-IK timeout (%.1fs) exceeded for solution %zu/%zu, skipping to next.",
+                  per_ik_timeout_s, i + 1, solutions.size());
+    }
   }
 
   response->success = false;
   response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions";
-  RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions", solutions.size());
+  RCLCPP_ERROR(get_logger(), "[PLAN] Planning failed for all %zu IK solutions within %.1fs per-solution timeout", 
+               solutions.size(), per_ik_timeout_s);
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
-  m_move_group->clearPathConstraints();                // remove constraints
+  m_move_group->clearPathConstraints();
 
 
 }
@@ -579,18 +655,36 @@ void MotionControlNode::executePlanCallback(
     std::shared_ptr<arpa_control::srv::ExecutePlan::Response> response)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() START");
+  
+  const auto& trajectory = m_current_plan.trajectory_.joint_trajectory;
+  RCLCPP_INFO(get_logger(), "[EXEC] Executing trajectory with %zu points, %zu joints", 
+              trajectory.points.size(), trajectory.joint_names.size());
+  
+  if (!trajectory.points.empty()) {
+    const auto& start_pt = trajectory.points.front();
+    const auto& end_pt = trajectory.points.back();
+    RCLCPP_INFO(get_logger(), "[EXEC] Start point: positions=[%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+                start_pt.positions[0], start_pt.positions[1], start_pt.positions[2],
+                start_pt.positions[3], start_pt.positions[4], start_pt.positions[5],
+                start_pt.positions[6]);
+    RCLCPP_INFO(get_logger(), "[EXEC] End point:   positions=[%.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+                end_pt.positions[0], end_pt.positions[1], end_pt.positions[2],
+                end_pt.positions[3], end_pt.positions[4], end_pt.positions[5],
+                end_pt.positions[6]);
+  }
 
   auto execute_result = m_move_group->execute(m_current_plan);
   if (execute_result == moveit::core::MoveItErrorCode::SUCCESS)
   {
     response->success = true;
     response->message = "Execution successful";
+    RCLCPP_INFO(get_logger(), "[EXEC] Execution completed successfully");
   }
   else
   {
     response->success = false;
     response->message = "Execution failed (MoveItErrorCode: " + std::to_string(execute_result.val) + ")";
-    RCLCPP_ERROR(get_logger(), "Execution failed with MoveItErrorCode: %d", execute_result.val);
+    RCLCPP_ERROR(get_logger(), "[EXEC] Execution failed with MoveItErrorCode: %d", execute_result.val);
   }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() END");
 }

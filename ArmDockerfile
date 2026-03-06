@@ -57,10 +57,26 @@ RUN apt update && apt install -y \
     ros-humble-joint-trajectory-controller \
     ros-humble-ur-msgs \
     ros-humble-ur-client-library \
+    ros-humble-pick-ik \
     gazebo \
     libgazebo-dev \
     python3-colcon-common-extensions \
     git build-essential cmake
+
+# Ensure ros2_control / controller_manager (required by gazebo_ros2_control)
+RUN apt update && apt install -y --no-install-recommends \
+    ros-humble-ros2-control \
+    ros-humble-controller-manager \
+    ros-humble-ros2-controllers \
+    ros-humble-hardware-interface \
+    ros-humble-control-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+# RMW CycloneDDS (so colcon build finds it when workspace defaults to cyclonedds)
+RUN apt update && apt install -y --no-install-recommends \
+    ros-humble-rmw-cyclonedds-cpp \
+    && rm -rf /var/lib/apt/lists/*
+
 # -------------------------------
 # 2. Install BehaviorTree.CPP v4
 # -------------------------------

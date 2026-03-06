@@ -11,7 +11,7 @@
         <param name="port">${port}</param>
         <param name="min_position">100.0</param>
         <param name="max_position">2000.0</param>
-        <param name="max_velocity">0.1</param>
+        <param name="max_velocity">0.5</param>
         <param name="max_effort">0.1</param>
       </hardware>
       
