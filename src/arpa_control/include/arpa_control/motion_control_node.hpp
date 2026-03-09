@@ -122,7 +122,7 @@ private:
   // Store the goal joint values from best_state for comparison after execution
   std::vector<double> m_goal_joint_values;
 
-  const std::vector<double> m_joint_weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  const std::vector<double> m_joint_weights = {0.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
 
   // Dedicated node and thread for MoveGroupInterface
   rclcpp::Node::SharedPtr m_move_group_node;

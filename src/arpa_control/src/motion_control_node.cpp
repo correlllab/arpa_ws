@@ -1,9 +1,11 @@
 #include "arpa_control/motion_control_node.hpp"
+#include "arpa_control/ur16e_analytical_ik.hpp"
 #include <rclcpp/exceptions.hpp>
 #include <chrono>
 #include <future>
 #include <cmath>
 #include <thread>
+#include <atomic>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
@@ -16,6 +18,7 @@
 #include <limits>
 #include <algorithm>
 #include <numeric>
+#include <set>
 #include <random>
 #include <moveit/robot_state/conversions.h>
 
@@ -68,6 +71,7 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   //TODO verify octomap resolution is being used
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
+  // planning_time is provided by launch (or can be set at runtime); do not declare here to avoid ParameterAlreadyDeclaredException when launch passes it
   m_arm_padding = this->get_parameter("arm_padding").as_double();
   m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "ratchet_extension_link"};
   for(auto link : m_arm_padding_links) {
@@ -77,8 +81,11 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   m_tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   m_tf_listener = std::make_shared<tf2_ros::TransformListener>(*m_tf_buffer);
 
-  // Create dedicated node for MoveGroupInterface
+  // Create dedicated node for MoveGroupInterface — explicitly propagate use_sim_time
+  // so the action client's clock matches the controller's clock (prevents execution hangs)
   m_move_group_node = rclcpp::Node::make_shared("move_group_interface_node", options);
+  m_move_group_node->set_parameter(rclcpp::Parameter("use_sim_time",
+      this->get_parameter("use_sim_time").as_bool()));
 
   // Create executor and add the dedicated node
   m_move_group_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
@@ -124,7 +131,8 @@ void MotionControlNode::initMoveGroup()
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
   // Velocity/accel scaling: 0.5 = 50% of max (faster execution; use 0.1 for cautious/slow)
-  m_move_group->setPlanningTime(2.5);//(5.0);
+  const double planning_time = this->get_parameter("planning_time").as_double();
+  m_move_group->setPlanningTime(planning_time);
   m_move_group->setNumPlanningAttempts(10);  // Try up to 10 planning attempts per IK solution
   m_move_group->setMaxVelocityScalingFactor(0.5);
   m_move_group->setMaxAccelerationScalingFactor(0.5);
@@ -277,54 +285,88 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
   }
 
   const auto* jmg     = current_state->getJointModelGroup(m_move_group->getName());
-  const auto* arm_jmg = current_state->getJointModelGroup("ur_manipulator");
   const std::string& ee_link = m_move_group->getEndEffectorLink();
   const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
+
+  // Arm joint names in DH order (must match ur_manipulator group)
+  const std::array<std::string, 6> arm_joint_names = {
+      "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+      "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"
+  };
 
   double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
   RCLCPP_INFO(get_logger(), "Current linear actuator position: %.3f m", original_actuator_pos);
 
+  // Target pose as Eigen transform in world/planning frame
+  Eigen::Isometry3d target_in_world = Eigen::Isometry3d::Identity();
+  target_in_world.translation() = Eigen::Vector3d(
+      target_pose.position.x, target_pose.position.y, target_pose.position.z);
+  target_in_world.linear() = Eigen::Quaterniond(
+      target_pose.orientation.w, target_pose.orientation.x,
+      target_pose.orientation.y, target_pose.orientation.z).toRotationMatrix();
+
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Try IK with linear actuator locked at each offset.
-  // IK is solved on arm_jmg (ur_manipulator, 6-DOF arm only) so the actuator
-  // position set in the seed state is held fixed — the solver never touches it.
-  // todo use linspace to generate offsets with resolution
-  // offsets can sometime just be 0.0 lock the arm where it is or if its NAN solve for the whole system from the current position
-  for (double offset : {0.0, -0.25, 0.25, 0.5, -0.5, -0.75, 0.75, -1.0, 1.0, std::numeric_limits<double>::quiet_NaN()}) {
+  // Sweep gantry positions at 0.1m steps and solve analytical IK at each
+  std::set<int> tried_positions_mm;
+  for (double offset : {0.0, -0.1, 0.1, -0.2, 0.2, -0.3, 0.3, -0.4, 0.4,
+                        -0.5, 0.5, -0.6, 0.6, -0.7, 0.7, -0.8, 0.8,
+                        -0.9, 0.9, -1.0, 1.0}) {
+    double gantry_pos = std::clamp(original_actuator_pos + offset, 0.2, 1.9);
+    int key_mm = static_cast<int>(gantry_pos * 1000);
+    if (tried_positions_mm.count(key_mm)) continue;
+    tried_positions_mm.insert(key_mm);
+
+    // Set gantry position and use MoveIt FK to get the DH frame 0 transform
+    // (base_link_inertia is where the UR DH chain starts, after the Rz(pi) from base_link)
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-    auto* use_jmg = std::isnan(offset) ? jmg : arm_jmg;
-    if (!std::isnan(offset)) {
-      double shifted_pos = original_actuator_pos + offset;
-      seed_state->setJointPositions(actuator_joint, &shifted_pos);
-      seed_state->update();
-    }
-    
-    
-    // updateGoalMarker(seed_state);
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
-    //TODO dont solve IK for impossible LA positions (wastes timeout?)
-    if (!seed_state->setFromIK(use_jmg, target_pose, ee_link, 0.1)) {
-      RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
-      continue;
-    }
+    seed_state->setJointPositions(actuator_joint, &gantry_pos);
     seed_state->update();
+    Eigen::Isometry3d dh_frame0_in_world = seed_state->getGlobalLinkTransform("base_link_inertia");
 
-    // updateGoalMarker(seed_state);
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
-    
-    double cost = getConfigurationCost(current_state, seed_state);
-    if (std::isinf(cost)) continue;
+    // Transform target pose from world frame to DH frame 0
+    Eigen::Isometry3d target_in_dh0 = dh_frame0_in_world.inverse() * target_in_world;
 
-    std::vector<double> joint_positions;
-    seed_state->copyJointGroupPositions(jmg, joint_positions);
-    all_solutions.push_back(joint_positions);
-    all_costs.push_back(cost);
+    // Get up to 8 analytical solutions
+    auto ik_solutions = ur16e_ik::solve(target_in_dh0);
+
+    for (const auto& sol : ik_solutions) {
+      // Set the 6 arm joints on the same seed_state (gantry already set)
+      for (int j = 0; j < 6; ++j) {
+        seed_state->setJointPositions(arm_joint_names[j], &sol.joints[j]);
+      }
+      seed_state->update();
+
+      if (!seed_state->satisfiesBounds(jmg)) continue;
+
+      double cost = getConfigurationCost(current_state, seed_state);
+      if (std::isinf(cost)) continue;
+
+      std::vector<double> joint_positions;
+      seed_state->copyJointGroupPositions(jmg, joint_positions);
+      all_solutions.push_back(joint_positions);
+      all_costs.push_back(cost);
+    }
+  }
+
+  // Fallback: 7-DOF KDL solve from current state (NaN offset case)
+  {
+    auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+    if (seed_state->setFromIK(jmg, target_pose, ee_link, 0.3)) {
+      seed_state->update();
+      double cost = getConfigurationCost(current_state, seed_state);
+      if (!std::isinf(cost)) {
+        std::vector<double> joint_positions;
+        seed_state->copyJointGroupPositions(jmg, joint_positions);
+        all_solutions.push_back(joint_positions);
+        all_costs.push_back(cost);
+      }
+    }
   }
 
   if (all_solutions.empty()) {
-    RCLCPP_ERROR(get_logger(), "No valid IK solution found across actuator offsets +/- 1.0 m");
+    RCLCPP_ERROR(get_logger(), "No valid IK solution found (analytical + KDL fallback)");
     return {};
   }
 
@@ -340,8 +382,8 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     sorted_solutions.push_back(all_solutions[idx]);
   }
 
-  RCLCPP_INFO(get_logger(), "Found %zu IK solutions (best cost=%.4f, worst cost=%.4f)",
-      sorted_solutions.size(), all_costs[indices.front()], all_costs[indices.back()]);
+  RCLCPP_INFO(get_logger(), "Found %zu IK solutions (%zu analytical + KDL fallback, best cost=%.4f, worst cost=%.4f)",
+      sorted_solutions.size(), sorted_solutions.size() - 1, all_costs[indices.front()], all_costs[indices.back()]);
 
   return sorted_solutions;
 }
@@ -463,12 +505,33 @@ bool MotionControlNode::setPathConstraints(geometry_msgs::msg::PoseStamped& targ
     moveit_msgs::msg::OrientationConstraint oc;
     oc.header.frame_id = planning_frame;
     oc.link_name = ee_link;
-    oc.orientation = target_pose.pose.orientation;
-    oc.absolute_x_axis_tolerance = 0.4;
-    oc.absolute_y_axis_tolerance = 0.4;
-    oc.absolute_z_axis_tolerance = 0.4;
+
+    // SLERP midpoint between start and goal orientations so both satisfy the constraint
+    Eigen::Quaterniond q_start(ee_tf.rotation());
+    Eigen::Quaterniond q_target(
+        target_pose.pose.orientation.w,
+        target_pose.pose.orientation.x,
+        target_pose.pose.orientation.y,
+        target_pose.pose.orientation.z);
+    Eigen::Quaterniond q_mid = q_start.slerp(0.5, q_target);
+
+    oc.orientation.x = q_mid.x();
+    oc.orientation.y = q_mid.y();
+    oc.orientation.z = q_mid.z();
+    oc.orientation.w = q_mid.w();
+
+    // Tolerance encompasses both start and goal with 0.2 rad margin
+    double angular_distance = q_start.angularDistance(q_target);
+    double tolerance = std::max(0.4, (angular_distance / 2.0) + 0.2);
+
+    oc.absolute_x_axis_tolerance = tolerance;
+    oc.absolute_y_axis_tolerance = tolerance;
+    oc.absolute_z_axis_tolerance = tolerance;
     oc.weight = 1.0;
     path_constraints.orientation_constraints.push_back(oc);
+
+    RCLCPP_INFO(get_logger(), "Orientation constraint: angular_distance=%.3f rad, tolerance=%.3f rad",
+                angular_distance, tolerance);
   }
 
   m_move_group->setPathConstraints(path_constraints);
@@ -482,6 +545,9 @@ void MotionControlNode::planToPoseCallback(
     std::shared_ptr<arpa_control::srv::PlanToPose::Response> response)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() START");
+  // Apply current planning_time (allows runtime change via ros2 param set, e.g. per benchmark test case)
+  const double planning_time = this->get_parameter("planning_time").as_double();
+  m_move_group->setPlanningTime(planning_time);
   //TODO remove all move cartesian stuff
   //TODO set parameters in constructor?
   const bool use_corridor = this->get_parameter("use_corridor_constraint").as_bool();
@@ -584,17 +650,43 @@ void MotionControlNode::executePlanCallback(
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() START");
 
-  auto execute_result = m_move_group->execute(m_current_plan);
-  if (execute_result == moveit::core::MoveItErrorCode::SUCCESS)
-  {
-    response->success = true;
-    response->message = "Execution successful";
+  // Compute timeout from trajectory duration + generous margin
+  double traj_duration = 0.0;
+  const auto& points = m_current_plan.trajectory_.joint_trajectory.points;
+  if (!points.empty()) {
+    traj_duration = rclcpp::Duration(points.back().time_from_start).seconds();
   }
-  else
-  {
+  double timeout_s = traj_duration + 30.0;  // trajectory time + 30s margin
+
+  // Run execute in a thread so we can enforce a timeout
+  moveit::core::MoveItErrorCode execute_result;
+  std::atomic<bool> finished{false};
+  std::thread exec_thread([&]() {
+    execute_result = m_move_group->execute(m_current_plan);
+    finished.store(true);
+  });
+
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
+  while (!finished.load() && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  if (!finished.load()) {
+    RCLCPP_ERROR(get_logger(), "Execution timed out after %.1fs (trajectory was %.1fs). Stopping robot.", timeout_s, traj_duration);
+    m_move_group->stop();
+    exec_thread.join();
     response->success = false;
-    response->message = "Execution failed (MoveItErrorCode: " + std::to_string(execute_result.val) + ")";
-    RCLCPP_ERROR(get_logger(), "Execution failed with MoveItErrorCode: %d", execute_result.val);
+    response->message = "Execution timed out after " + std::to_string(timeout_s) + "s";
+  } else {
+    exec_thread.join();
+    if (execute_result == moveit::core::MoveItErrorCode::SUCCESS) {
+      response->success = true;
+      response->message = "Execution successful";
+    } else {
+      response->success = false;
+      response->message = "Execution failed (MoveItErrorCode: " + std::to_string(execute_result.val) + ")";
+      RCLCPP_ERROR(get_logger(), "Execution failed with MoveItErrorCode: %d", execute_result.val);
+    }
   }
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() END");
 }

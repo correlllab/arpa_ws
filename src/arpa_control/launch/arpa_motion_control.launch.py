@@ -65,6 +65,7 @@ def launch_setup(context, *args, **kwargs):
     constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
     constrain_corridor_position = LaunchConfiguration("constrain_corridor_position")
     use_special_logic = LaunchConfiguration("use_special_logic")
+    planning_time = LaunchConfiguration("planning_time")
     # Additional xacro arguments
     transmission_hw_interface = LaunchConfiguration("transmission_hw_interface")
     headless_mode = LaunchConfiguration("headless_mode")
@@ -269,6 +270,7 @@ def launch_setup(context, *args, **kwargs):
                 "constrain_corridor_orientation": constrain_corridor_orientation.perform(context).lower() == "true",
                 "constrain_corridor_position": constrain_corridor_position.perform(context).lower() == "true",
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
+                "planning_time": float(planning_time.perform(context)),
                 "corridor_cross_section": 0.5,
                 "corridor_padding": 0.25,
             },
@@ -391,8 +393,8 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "constrain_corridor_orientation",
-            default_value="true",
-            description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
+            default_value="false",
+            description="If true, also constrain end-effector orientation along the corridor path (uses SLERP midpoint). Set to false to constrain position only.",
         )
     )
     declared_arguments.append(
@@ -407,6 +409,13 @@ def generate_launch_description():
             "use_special_logic",
             default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection in motion planning. Set to false to use original corridor/default logic.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "planning_time",
+            default_value="5.0",
+            description="MoveIt planning time limit in seconds (per plan). Increase (e.g. 20.0) for harder benchmarks.",
         )
     )
     # Additional xacro arguments

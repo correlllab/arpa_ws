@@ -23,6 +23,7 @@ import csv
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -52,6 +53,30 @@ class RandomP2PBenchmark(Node):
         time.sleep(2.0)
         self._base_frame = self._resolve_base_frame()
         self.get_logger().info(f"Using base frame for EE pose: {self._base_frame}")
+        # Path sampling for actual path length (EE positions during execution)
+        self._path_sample_points: List[Tuple[float, float, float]] = []
+        self._path_sample_stop = threading.Event()
+        self._path_sample_interval_s = 0.02  # 50 Hz
+    
+    def _path_sampler_thread_fn(self) -> None:
+        """Sample EE position at fixed interval until stop event is set."""
+        while not self._path_sample_stop.wait(timeout=self._path_sample_interval_s):
+            try:
+                pose = self.get_current_ee_pose()
+                p = pose.pose.position
+                self._path_sample_points.append((p.x, p.y, p.z))
+            except Exception:
+                pass  # skip failed lookups
+    
+    def _compute_path_length_m(self, points: List[Tuple[float, float, float]]) -> float:
+        """Total length along sampled EE path (sum of segment lengths)."""
+        if len(points) < 2:
+            return 0.0
+        total = 0.0
+        for i in range(1, len(points)):
+            a, b = points[i - 1], points[i]
+            total += np.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 + (b[2] - a[2]) ** 2)
+        return total
     
     def _resolve_base_frame(self) -> str:
         """Use floor_link if available in TF, otherwise world (e.g. Gazebo sim)."""
@@ -183,6 +208,7 @@ class RandomP2PBenchmark(Node):
             'success_rate': 0.0,
             'total_wall_s': 0.0,
             'distance_travelled_m': 0.0,
+            'path_length_travelled_m': 0.0,
             'sum_plan_time_s': 0.0,
             'sum_execution_time_s': 0.0,
         }
@@ -229,8 +255,14 @@ class RandomP2PBenchmark(Node):
 
             # Execute (if planning succeeded); timeout and exceptions => failure, continue
             execution_time = 0.0
+            path_length_m = 0.0
             if success:
                 exec_start = time.time()
+                # Sample EE path during execution for actual path length
+                self._path_sample_points.clear()
+                self._path_sample_stop.clear()
+                sampler = threading.Thread(target=self._path_sampler_thread_fn, daemon=True)
+                sampler.start()
                 try:
                     exec_ok = self.core_node.execute_plan()
                     if not exec_ok:
@@ -238,6 +270,10 @@ class RandomP2PBenchmark(Node):
                 except Exception as e:
                     self.get_logger().error(f"Move {move_index + 1}: execute_plan exception: {e}")
                     success = False
+                finally:
+                    self._path_sample_stop.set()
+                    sampler.join(timeout=1.0)
+                path_length_m = self._compute_path_length_m(self._path_sample_points)
                 execution_time = time.time() - exec_start
                 if success:
                     successful_moves += 1
@@ -254,6 +290,7 @@ class RandomP2PBenchmark(Node):
                 'goal_y': goal_dict['y'],
                 'goal_z': goal_dict['z'],
                 'cartesian_distance_m': distance,
+                'path_length_m': path_length_m,
                 'plan_time_s': plan_time,
                 'execution_time_s': execution_time,
                 'success': int(success),
@@ -265,7 +302,7 @@ class RandomP2PBenchmark(Node):
             self.get_logger().info(
                 f"Move {move_index + 1:3d}/{len(goal_poses)}: {status} | "
                 f"Plan: {plan_time:.3f}s | Exec: {execution_time:.3f}s | "
-                f"Distance: {distance:.3f}m"
+                f"Cartesian: {distance:.3f}m | Path: {path_length_m:.3f}m"
             )
         
         run_end_time = time.time()
@@ -276,6 +313,7 @@ class RandomP2PBenchmark(Node):
         run_summary['success_rate'] = successful_moves / len(goal_poses) if goal_poses else 0.0
         run_summary['total_wall_s'] = total_wall_time
         run_summary['distance_travelled_m'] = total_distance
+        run_summary['path_length_travelled_m'] = sum(r['path_length_m'] for r in detail_records)
         run_summary['sum_plan_time_s'] = sum(r['plan_time_s'] for r in detail_records)
         run_summary['sum_execution_time_s'] = sum(r['execution_time_s'] for r in detail_records)
         
@@ -283,7 +321,8 @@ class RandomP2PBenchmark(Node):
         self.get_logger().info(f"Benchmark complete: {test_case}")
         self.get_logger().info(f"Success rate: {run_summary['success_rate']:.1%} ({successful_moves}/{len(goal_poses)})")
         self.get_logger().info(f"Total time: {total_wall_time:.2f}s")
-        self.get_logger().info(f"Distance travelled: {total_distance:.2f}m")
+        self.get_logger().info(f"Cartesian distance (sum start->goal): {total_distance:.2f}m")
+        self.get_logger().info(f"Path length (actual EE travel): {run_summary['path_length_travelled_m']:.2f}m")
         self.get_logger().info(f"{'='*80}\n")
         
         return run_summary, detail_records
@@ -306,7 +345,8 @@ class RandomP2PBenchmark(Node):
         small_csv = os.path.join(output_dir, f"benchmark_random1000_{test_case}.csv")
         with open(small_csv, 'w', newline='') as f:
             fieldnames = ['run_id', 'test_case', 'completed', 'total', 'success_rate',
-                         'total_wall_s', 'distance_travelled_m', 'sum_plan_time_s', 'sum_execution_time_s']
+                         'total_wall_s', 'distance_travelled_m', 'path_length_travelled_m',
+                         'sum_plan_time_s', 'sum_execution_time_s']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerow(run_summary)
@@ -317,7 +357,7 @@ class RandomP2PBenchmark(Node):
         detail_csv = os.path.join(output_dir, f"benchmark_random1000_{test_case}_detail.csv")
         with open(detail_csv, 'w', newline='') as f:
             fieldnames = ['run_id', 'test_case', 'move_index', 'start_x', 'start_y', 'start_z',
-                         'goal_x', 'goal_y', 'goal_z', 'cartesian_distance_m',
+                         'goal_x', 'goal_y', 'goal_z', 'cartesian_distance_m', 'path_length_m',
                          'plan_time_s', 'execution_time_s', 'success']
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
@@ -328,27 +368,31 @@ class RandomP2PBenchmark(Node):
 
 MOTION_CONTROL_NODE = '/motion_control_node'
 
-# Parameter configurations for each test case
+# Parameter configurations for each test case (planning_time in seconds; can override per case)
 TEST_CASE_PARAMS = {
     'pure_rrt': {
         'use_corridor_constraint': 'false',
         'constrain_corridor_position': 'false',
         'constrain_corridor_orientation': 'false',
+        'planning_time': '20.0',
     },
     'corridor_full': {
         'use_corridor_constraint': 'true',
         'constrain_corridor_position': 'true',
         'constrain_corridor_orientation': 'true',
+        'planning_time': '20.0',
     },
     'corridor_position_only': {
         'use_corridor_constraint': 'true',
         'constrain_corridor_position': 'true',
         'constrain_corridor_orientation': 'false',
+        'planning_time': '20.0',
     },
     'corridor_orientation_only': {
         'use_corridor_constraint': 'true',
         'constrain_corridor_position': 'false',
         'constrain_corridor_orientation': 'true',
+        'planning_time': '20.0',
     },
 }
 

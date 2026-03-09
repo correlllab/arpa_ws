@@ -28,6 +28,7 @@ def launch_setup(context, *args, **kwargs):
     use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
     constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
     use_special_logic = LaunchConfiguration("use_special_logic")
+    planning_time = LaunchConfiguration("planning_time")
     # General arguments
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
@@ -259,6 +260,7 @@ def launch_setup(context, *args, **kwargs):
             "use_corridor_constraint": use_corridor_constraint,
             "constrain_corridor_orientation": constrain_corridor_orientation,
             "use_special_logic": use_special_logic,
+            "planning_time": planning_time,
         }.items(),
     )
 
@@ -692,6 +694,13 @@ def generate_launch_description():
             "use_special_logic",
             default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "planning_time",
+            default_value="5.0",
+            description="MoveIt planning time limit in seconds (e.g. 20.0 for benchmarks).",
         )
     )
 
