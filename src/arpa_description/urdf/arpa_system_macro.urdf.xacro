@@ -95,11 +95,11 @@
                   izz="0.1"/>
         </inertial>
       </link>
-      <!-- Battery ~50 cm above ground, rotated 90 deg around Z -->
+      <!-- Battery ~80 cm above ground, rotated 90 deg around Z -->
       <joint name="gantry_to_battery" type="fixed">
         <parent link="gantry_link"/>
         <child link="battery_link"/>
-        <origin xyz="0 0 -1.4419" rpy="0 0 1.5708"/>
+        <origin xyz="0 0 -1.1419" rpy="0 0 1.5708"/>
       </joint>
 
       <xacro:linear_actuator/>

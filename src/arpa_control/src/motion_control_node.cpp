@@ -71,6 +71,12 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   //TODO verify octomap resolution is being used
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
+  this->declare_parameter("cost_w_joint", 1.0);
+  this->declare_parameter("cost_w_proximity", 1.0);
+  this->declare_parameter("cost_w_area", 1.0);
+  m_cost_w_joint = this->get_parameter("cost_w_joint").as_double();
+  m_cost_w_proximity = this->get_parameter("cost_w_proximity").as_double();
+  m_cost_w_area = this->get_parameter("cost_w_area").as_double();
   // planning_time is provided by launch (or can be set at runtime); do not declare here to avoid ParameterAlreadyDeclaredException when launch passes it
   m_arm_padding = this->get_parameter("arm_padding").as_double();
   m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "ratchet_extension_link"};
@@ -189,21 +195,19 @@ void MotionControlNode::dumpParams()
   RCLCPP_INFO(get_logger(), "\n====================================================\n\n");
 }
 
-double MotionControlNode::getConfigurationCost(
+RawIKCost MotionControlNode::getRawConfigurationCost(
     const std::shared_ptr<moveit::core::RobotState>& current_state,
     const std::shared_ptr<moveit::core::RobotState>& target_state)
 {
-  //TODO get the cost coefficient values
+  RawIKCost result;
 
-  // Check if joints are within valid limits for both states
   const auto* jmg = target_state->getJointModelGroup(m_move_group->getName());
 
   if (!target_state->satisfiesBounds(jmg)) {
     RCLCPP_WARN(get_logger(), "Target state has joints out of valid range");
-    return std::numeric_limits<double>::infinity();
+    return result;  // valid=false
   }
 
-  // Check collision: Euclidean distance between linear actuator plate and elbow
   const Eigen::Isometry3d& actuator_tf =
       target_state->getGlobalLinkTransform("linear_actuator_plate_link");
   const Eigen::Isometry3d& wrist_tf =
@@ -212,35 +216,35 @@ double MotionControlNode::getConfigurationCost(
       target_state->getGlobalLinkTransform("forearm_link");
 
   double ee_distance = (actuator_tf.translation() - wrist_tf.translation()).norm();
-  //TODO min elbow distance should be a param
   if (ee_distance < 0.650) {
     RCLCPP_WARN(get_logger(),
-        "EE too close to linear actuator plate: %.3f m (min 0.60 m)", ee_distance);
-    return std::numeric_limits<double>::infinity();
+        "EE too close to linear actuator plate: %.3f m (min 0.65 m)", ee_distance);
+    return result;  // valid=false
   }
 
-  // Triangle area between linear_actuator_plate_link, wrist_3_link, forearm_link
-  // area = 0.5 * ||(wrist - actuator) × (forearm - actuator)||
   Eigen::Vector3d a = actuator_tf.translation();
   Eigen::Vector3d b = wrist_tf.translation();
   Eigen::Vector3d c = forearm_tf.translation();
   double triangle_area = 0.5 * (b - a).cross(c - a).norm();
 
-  // Weighted joint distance from current to target
-  std::vector<double> current_values, target_values;
-  double weighted_joint_distance = getWeightedJointDistance(current_state, target_state);
+  result.joint_distance = getWeightedJointDistance(current_state, target_state);
+  result.proximity_penalty = 1.0 / ee_distance;
+  result.area_penalty = 1.0 / triangle_area;
+  result.valid = true;
 
-  // Add proximity penalty: penalize configurations where wrist is close to actuator
-  double actuator_wrist_distance = ee_distance;  // Using wrist_3_link distance (same as elbow check)
-  double proximity_penalty = 1 / actuator_wrist_distance;
-  double area_penalty = 1 / triangle_area; // Penalize small triangle area (near-collinear)
-  //TODO use ros params to test different cost structures
-  double total_cost = (2 * weighted_joint_distance) + (0.1 * proximity_penalty) + (0.5 * area_penalty);
+  return result;
+}
 
-  // RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f (dist=%.3fm), Area: %.4f, Total: %.4f",
-  //             joint_cost, proximity_penalty, actuator_wrist_distance, area_penalty, total_cost);
-
-  return total_cost;
+double MotionControlNode::getConfigurationCost(
+    const std::shared_ptr<moveit::core::RobotState>& current_state,
+    const std::shared_ptr<moveit::core::RobotState>& target_state)
+{
+  RawIKCost raw = getRawConfigurationCost(current_state, target_state);
+  if (!raw.valid) {
+    return std::numeric_limits<double>::infinity();
+  }
+  // Legacy combined cost (used by computePairwiseCost path)
+  return (2.0 * raw.joint_distance) + (0.1 * raw.proximity_penalty) + (0.5 * raw.area_penalty);
 }
 
 void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state)
@@ -305,8 +309,16 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
       target_pose.orientation.w, target_pose.orientation.x,
       target_pose.orientation.y, target_pose.orientation.z).toRotationMatrix();
 
+  // Re-read cost weights from params (allows runtime tuning via ros2 param set)
+  m_cost_w_joint = this->get_parameter("cost_w_joint").as_double();
+  m_cost_w_proximity = this->get_parameter("cost_w_proximity").as_double();
+  m_cost_w_area = this->get_parameter("cost_w_area").as_double();
+  RCLCPP_INFO(get_logger(), "Cost weights: joint=%.2f, proximity=%.2f, area=%.2f",
+      m_cost_w_joint, m_cost_w_proximity, m_cost_w_area);
+
+  // Pass 1: Collect all valid solutions and their raw costs
   std::vector<std::vector<double>> all_solutions;
-  std::vector<double> all_costs;
+  std::vector<RawIKCost> all_raw_costs;
 
   // Sweep gantry positions at 0.1m steps and solve analytical IK at each
   std::set<int> tried_positions_mm;
@@ -318,21 +330,15 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     if (tried_positions_mm.count(key_mm)) continue;
     tried_positions_mm.insert(key_mm);
 
-    // Set gantry position and use MoveIt FK to get the DH frame 0 transform
-    // (base_link_inertia is where the UR DH chain starts, after the Rz(pi) from base_link)
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
     seed_state->setJointPositions(actuator_joint, &gantry_pos);
     seed_state->update();
     Eigen::Isometry3d dh_frame0_in_world = seed_state->getGlobalLinkTransform("base_link_inertia");
-
-    // Transform target pose from world frame to DH frame 0
     Eigen::Isometry3d target_in_dh0 = dh_frame0_in_world.inverse() * target_in_world;
 
-    // Get up to 8 analytical solutions
     auto ik_solutions = ur16e_ik::solve(target_in_dh0);
 
     for (const auto& sol : ik_solutions) {
-      // Set the 6 arm joints on the same seed_state (gantry already set)
       for (int j = 0; j < 6; ++j) {
         seed_state->setJointPositions(arm_joint_names[j], &sol.joints[j]);
       }
@@ -340,27 +346,27 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
 
       if (!seed_state->satisfiesBounds(jmg)) continue;
 
-      double cost = getConfigurationCost(current_state, seed_state);
-      if (std::isinf(cost)) continue;
+      RawIKCost raw = getRawConfigurationCost(current_state, seed_state);
+      if (!raw.valid) continue;
 
       std::vector<double> joint_positions;
       seed_state->copyJointGroupPositions(jmg, joint_positions);
       all_solutions.push_back(joint_positions);
-      all_costs.push_back(cost);
+      all_raw_costs.push_back(raw);
     }
   }
 
-  // Fallback: 7-DOF KDL solve from current state (NaN offset case)
+  // Fallback: 7-DOF KDL solve from current state
   {
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
     if (seed_state->setFromIK(jmg, target_pose, ee_link, 0.3)) {
       seed_state->update();
-      double cost = getConfigurationCost(current_state, seed_state);
-      if (!std::isinf(cost)) {
+      RawIKCost raw = getRawConfigurationCost(current_state, seed_state);
+      if (raw.valid) {
         std::vector<double> joint_positions;
         seed_state->copyJointGroupPositions(jmg, joint_positions);
         all_solutions.push_back(joint_positions);
-        all_costs.push_back(cost);
+        all_raw_costs.push_back(raw);
       }
     }
   }
@@ -370,10 +376,40 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     return {};
   }
 
-  // Sort by cost ascending
+  // Pass 2: Normalize each cost component to [0,1] and combine with weights
+  double min_joint = std::numeric_limits<double>::max();
+  double max_joint = std::numeric_limits<double>::lowest();
+  double min_prox  = std::numeric_limits<double>::max();
+  double max_prox  = std::numeric_limits<double>::lowest();
+  double min_area  = std::numeric_limits<double>::max();
+  double max_area  = std::numeric_limits<double>::lowest();
+
+  for (const auto& raw : all_raw_costs) {
+    min_joint = std::min(min_joint, raw.joint_distance);
+    max_joint = std::max(max_joint, raw.joint_distance);
+    min_prox  = std::min(min_prox,  raw.proximity_penalty);
+    max_prox  = std::max(max_prox,  raw.proximity_penalty);
+    min_area  = std::min(min_area,  raw.area_penalty);
+    max_area  = std::max(max_area,  raw.area_penalty);
+  }
+
+  double range_joint = max_joint - min_joint;
+  double range_prox  = max_prox  - min_prox;
+  double range_area  = max_area  - min_area;
+
+  std::vector<double> all_costs(all_solutions.size());
+  for (size_t i = 0; i < all_solutions.size(); ++i) {
+    double norm_joint = (range_joint > 1e-12) ? (all_raw_costs[i].joint_distance - min_joint) / range_joint : 0.0;
+    double norm_prox  = (range_prox  > 1e-12) ? (all_raw_costs[i].proximity_penalty - min_prox) / range_prox : 0.0;
+    double norm_area  = (range_area  > 1e-12) ? (all_raw_costs[i].area_penalty - min_area) / range_area : 0.0;
+
+    all_costs[i] = m_cost_w_joint * norm_joint + m_cost_w_proximity * norm_prox + m_cost_w_area * norm_area;
+  }
+
+  // Sort by normalized cost ascending (stable_sort preserves discovery order when costs are equal)
   std::vector<size_t> indices(all_solutions.size());
   std::iota(indices.begin(), indices.end(), 0);
-  std::sort(indices.begin(), indices.end(),
+  std::stable_sort(indices.begin(), indices.end(),
       [&](size_t a, size_t b) { return all_costs[a] < all_costs[b]; });
 
   std::vector<std::vector<double>> sorted_solutions;
@@ -382,8 +418,8 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     sorted_solutions.push_back(all_solutions[idx]);
   }
 
-  RCLCPP_INFO(get_logger(), "Found %zu IK solutions (%zu analytical + KDL fallback, best cost=%.4f, worst cost=%.4f)",
-      sorted_solutions.size(), sorted_solutions.size() - 1, all_costs[indices.front()], all_costs[indices.back()]);
+  RCLCPP_INFO(get_logger(), "Found %zu IK solutions (best cost=%.4f, worst cost=%.4f)",
+      sorted_solutions.size(), all_costs[indices.front()], all_costs[indices.back()]);
 
   return sorted_solutions;
 }

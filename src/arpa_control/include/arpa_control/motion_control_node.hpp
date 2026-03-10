@@ -35,6 +35,13 @@
 #include <random>
 
 
+struct RawIKCost {
+  double joint_distance{0.0};
+  double proximity_penalty{0.0};
+  double area_penalty{0.0};
+  bool valid{false};
+};
+
 class MotionControlNode : public rclcpp::Node
 {
 public:
@@ -93,6 +100,9 @@ private:
   double getConfigurationCost(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
+  RawIKCost getRawConfigurationCost(
+      const std::shared_ptr<moveit::core::RobotState>& current_state,
+      const std::shared_ptr<moveit::core::RobotState>& target_state);
   std::vector<std::vector<double>> getJointConfigurations(geometry_msgs::msg::Pose target_pose);
   /** Multi-objective IK seed selection (clearance, manipulability, joint distance, limit margin). */
   double getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state);
@@ -123,6 +133,11 @@ private:
   std::vector<double> m_goal_joint_values;
 
   const std::vector<double> m_joint_weights = {0.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+
+  // Cost weights for IK seed ranking (settable via ROS params at runtime)
+  double m_cost_w_joint{1.0};
+  double m_cost_w_proximity{1.0};
+  double m_cost_w_area{1.0};
 
   // Dedicated node and thread for MoveGroupInterface
   rclcpp::Node::SharedPtr m_move_group_node;
