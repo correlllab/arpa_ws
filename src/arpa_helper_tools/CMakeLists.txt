@@ -19,7 +19,14 @@ install(PROGRAMS
   scripts/scan_battery.py
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
+  scripts/bag_chunker.py
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install Launch Files
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}/
 )
 
 if(BUILD_TESTING)
