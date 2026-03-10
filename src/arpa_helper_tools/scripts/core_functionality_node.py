@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
-from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger
+from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart
 from std_srvs.srv import Trigger
 from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import CollisionObject, PlanningScene
@@ -22,6 +22,10 @@ from tf2_ros import LookupException, ConnectivityException, ExtrapolationExcepti
 
 BASE_FRAME = "floor_link"
 EE_FRAME = "wrist_3_link"
+
+Z_OFFSET_M = 0.03
+REMOVE_WAIT_SECONDS = 4
+MOTOR_SPEED = 100
 
 
 
@@ -40,6 +44,10 @@ class CoreNode(Node):
         self.update_depth_client = self.create_client(Trigger, 'update_depth')
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix')
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
+
+        self.remove_part_service = self.create_service(
+            RemovePart, 'remove_part', self._handle_remove_part
+        )
 
         # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
@@ -77,31 +85,36 @@ class CoreNode(Node):
         self._spin_thread = threading.Thread(target=rclpy.spin, args=(self,), daemon=True)
         self._spin_thread.start()
 
-        self.get_logger().info("Looking up wrist_3_link -> tool_head_link transform...")
+        self.get_logger().info("Looking up wrist_3_link -> tool frame transform...")
         self.T_wrist3_to_toolhead = None
         while self.T_wrist3_to_toolhead is None:
-            try:
-                tf = self.tf_buffer.lookup_transform(
-                    #'tool_head_link', 'wrist_3_link',
-                    'test_ratchet_extension_link', 'wrist_3_link',
-                    rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=1.0)
-                )
-                t = tf.transform.translation
-                r = tf.transform.rotation
-                from scipy.spatial.transform import Rotation
-                rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
-                mat = np.eye(4)
-                mat[:3, :3] = rot
-                mat[:3,  3] = [t.x, t.y, t.z]
-                self.T_wrist3_to_toolhead = mat
-                self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
-            except (LookupException, ConnectivityException, ExtrapolationException) as e:
-                self.get_logger().warn(f"TF not ready yet: {e}. Retrying...")
+            last_error = None
+            for tool_frame in ("test_ratchet_extension_link", "tool_head_link"):
+                try:
+                    tf = self.tf_buffer.lookup_transform(
+                        tool_frame, 'wrist_3_link',
+                        rclpy.time.Time(),
+                        timeout=rclpy.duration.Duration(seconds=1.0)
+                    )
+                    t = tf.transform.translation
+                    r = tf.transform.rotation
+                    from scipy.spatial.transform import Rotation
+                    rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
+                    mat = np.eye(4)
+                    mat[:3, :3] = rot
+                    mat[:3,  3] = [t.x, t.y, t.z]
+                    self.T_wrist3_to_toolhead = mat
+                    self.get_logger().info(f"Using tool frame '{tool_frame}'")
+                    self.get_logger().info(f"wrist_3_link -> {tool_frame}:\n{mat}")
+                    break
+                except (LookupException, ConnectivityException, ExtrapolationException) as e:
+                    last_error = e
+            if self.T_wrist3_to_toolhead is None:
+                self.get_logger().warn(f"TF not ready yet: {last_error}. Retrying...")
                 time.sleep(0.5)
         self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
 
-    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
+    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world", use_cartesian=False):
         req = PlanToPose.Request()
         req.target_pose.header.frame_id = frame_id
         req.target_pose.pose.position.x = x
@@ -111,10 +124,11 @@ class CoreNode(Node):
         req.target_pose.pose.orientation.y = qy
         req.target_pose.pose.orientation.z = qz
         req.target_pose.pose.orientation.w = qw
+        req.use_cartesian = use_cartesian
 
         self.get_logger().info(f"Planning to pose: x={x:.3f}, y={y:.3f}, z={z:.3f}, "
                                f"qx={qx:.3f}, qy={qy:.3f}, qz={qz:.3f}, qw={qw:.3f} "
-                               f"in frame '{frame_id}'")
+                               f"in frame '{frame_id}' (cartesian={use_cartesian})")
 
         future = self.plan_client.call_async(req)
         while not future.done():
@@ -132,8 +146,7 @@ class CoreNode(Node):
         target_toolhead = np.eye(4)
         target_toolhead[:3, :3] = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
         target_toolhead[:3, 3] = [x, y, z]
-        # target_wrist3 = target_toolhead @ self.T_toolhead_to_wrist3
-        target_wrist3 = target_toolhead @ self.T_wrist3_to_toolhead 
+        target_wrist3 = target_toolhead @ self.T_toolhead_to_wrist3
 
 
         wx, wy, wz = target_wrist3[:3, 3]
@@ -420,8 +433,63 @@ class CoreNode(Node):
                 ordered.append(poses[node - 1])  # -1: node 0 is start
             index = solution.Value(routing.NextVar(index))
         return ordered
-        
 
+    def _handle_remove_part(self, request, response):
+        part_name = request.part_name
+        p = request.pose.position
+        o = request.pose.orientation
+        x, y, z = p.x, p.y, p.z
+        qx, qy, qz, qw = o.x, o.y, o.z, o.w
+
+        self.get_logger().info(
+            f"remove_part requested: '{part_name}' at "
+            f"({x:.3f}, {y:.3f}, {z:.3f}, {qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f})"
+        )
+
+        try:
+            # Step 1: Approach — plan to 3cm above part
+            self.get_logger().info(f"[{part_name}] Step 1: Approach 3cm above")
+            if not self.plan_to_pose(x, y, z + Z_OFFSET_M, qx, qy, qz, qw, frame_id=BASE_FRAME):
+                raise RuntimeError("Plan to approach position failed")
+            if not self.execute_plan():
+                raise RuntimeError("Execute approach failed")
+
+            # Step 2: Descend — Cartesian move down to part
+            self.get_logger().info(f"[{part_name}] Step 2: Descend (Cartesian)")
+            if not self.plan_to_pose(x, y, z, qx, qy, qz, qw, frame_id=BASE_FRAME, use_cartesian=True):
+                raise RuntimeError("Plan Cartesian descend failed")
+            if not self.execute_plan():
+                raise RuntimeError("Execute descend failed")
+
+            # Step 3: Motor ON
+            self.get_logger().info(f"[{part_name}] Step 3: Motor ON")
+            self.motor_control(MOTOR_SPEED)
+
+            # Step 4: Wait (simulate removal)
+            self.get_logger().info(f"[{part_name}] Step 4: Wait {REMOVE_WAIT_SECONDS}s")
+            time.sleep(REMOVE_WAIT_SECONDS)
+
+            # Step 5: Motor OFF
+            self.get_logger().info(f"[{part_name}] Step 5: Motor OFF")
+            self.motor_control(0)
+
+            # Step 6: Retract — Cartesian move back up
+            self.get_logger().info(f"[{part_name}] Step 6: Retract (Cartesian)")
+            if not self.plan_to_pose(x, y, z + Z_OFFSET_M, qx, qy, qz, qw, frame_id=BASE_FRAME, use_cartesian=True):
+                raise RuntimeError("Plan Cartesian retract failed")
+            if not self.execute_plan():
+                raise RuntimeError("Execute retract failed")
+
+            response.success = True
+            response.message = f"Part '{part_name}' removal complete"
+            self.get_logger().info(f"[{part_name}] Removal sequence complete")
+
+        except RuntimeError as e:
+            response.success = False
+            response.message = str(e)
+            self.get_logger().error(f"[{part_name}] Removal failed: {e}")
+
+        return response
 
 
 def print_menu():

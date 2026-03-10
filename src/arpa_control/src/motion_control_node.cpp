@@ -478,8 +478,6 @@ void MotionControlNode::planToPoseCallback(
     std::shared_ptr<arpa_control::srv::PlanToPose::Response> response)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() START");
-  //TODO remove all move cartesian stuff
-  //TODO set parameters in constructor?
   const bool use_corridor = this->get_parameter("use_corridor_constraint").as_bool();
   const bool constrain_orientation = this->get_parameter("constrain_corridor_orientation").as_bool();
   
@@ -520,6 +518,39 @@ void MotionControlNode::planToPoseCallback(
   publishTargetTransform(target_pose_in_planning_frame);
 
   m_move_group->setStartStateToCurrentState();
+  if (!request->path_constraints.position_constraints.empty() ||
+      !request->path_constraints.orientation_constraints.empty() ||
+      !request->path_constraints.joint_constraints.empty() ||
+      !request->path_constraints.visibility_constraints.empty()) {
+    m_move_group->setPathConstraints(request->path_constraints);
+  }
+
+  if (request->use_cartesian) {
+    std::vector<geometry_msgs::msg::Pose> waypoints = {target_pose_in_planning_frame.pose};
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    constexpr double kEefStep = 0.005;
+    constexpr double kJumpThreshold = 0.0;
+    const double fraction = m_move_group->computeCartesianPath(
+        waypoints, kEefStep, kJumpThreshold, trajectory, true);
+
+    if (fraction >= 0.999) {
+      m_current_plan = moveit::planning_interface::MoveGroupInterface::Plan();
+      m_current_plan.trajectory_ = trajectory;
+      response->success = true;
+      response->message = "Cartesian planning successful";
+      RCLCPP_INFO(get_logger(), "Cartesian planning succeeded (fraction=%.3f, %zu trajectory points)",
+                  fraction, m_current_plan.trajectory_.joint_trajectory.points.size());
+    } else {
+      response->success = false;
+      response->message = "Cartesian planning failed (fraction=" + std::to_string(fraction) + ")";
+      RCLCPP_ERROR(get_logger(), "Cartesian planning failed (fraction=%.3f)", fraction);
+    }
+
+    m_move_group->clearPathConstraints();
+    RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
+    return;
+  }
+
   if (use_corridor) {
     setPathConstraints(target_pose_in_planning_frame);
   }
