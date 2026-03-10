@@ -4,16 +4,7 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from core_functionality_node import CoreNode
 import time
-
-def trigger_with_retry(node, behavior, retries=3):
-    for attempt in range(1, retries + 1):
-        if node.trigger_behavior(behavior):
-            return True
-        node.get_logger().warn(f"Behavior '{behavior}' failed (attempt {attempt}/{retries}), retrying...")
-        time.sleep(1)
-    node.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
-    return False
-
+from std_msgs.msg import String
 
 def main(args=None):
     import time
@@ -46,7 +37,7 @@ def main(args=None):
     timeout = 10.0
     waited = 0.0
     while not markers_received and waited < timeout:
-        rclpy.spin_once(node, timeout_sec=0.5)
+        time.sleep(0.5)
         waited += 0.5
 
     if not markers_received:
@@ -75,7 +66,7 @@ def main(args=None):
     node.get_logger().info(f"{len(ordered_poses)} poses TSP ordered.")
 
     try:
-        for pose in ordered_poses:
+        for i, pose in enumerate(ordered_poses):
             x = pose.pose.position.x
             y = pose.pose.position.y
             z = pose.pose.position.z
@@ -83,27 +74,8 @@ def main(args=None):
             qy = pose.pose.orientation.y
             qz = pose.pose.orientation.z
             qw = pose.pose.orientation.w
-            plan_successful = False
-            while not plan_successful:
-                success = node.plan_to_pose(x, y, z, qx, qy, qz, qw)
-                if success:
-                    plan_successful = True
-                    node.get_logger().info("Planning succeeded!")
-                else:
-                    node.get_logger().warn("Planning failed, retrying...")
-            node.execute_plan()
-
-            trigger_with_retry(node, "zforce")
-            node.motor_control(100)
-            trigger_with_retry(node, "play")
-            time.sleep(2)
-
-            trigger_with_retry(node, "retract")
-            trigger_with_retry(node, "play")
-            time.sleep(1)
-
-            node.motor_control(0)
-            trigger_with_retry(node, "ros2control")
+            
+            
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
     finally:

@@ -44,13 +44,13 @@ CAMERA_MIN_RANGE_M = 0.1
 CAMERA_MAX_RANGE_M = 0.5
 
 # --- Outlier removal ---
-RADIUS_OUTLIER_REMOVAL        = True
+RADIUS_OUTLIER_REMOVAL        = False
 RADIUS_OUTLIER_NB_POINTS      = 100     # min neighbours within radius
 RADIUS_OUTLIER_RADIUS         = 0.01  # search radius in metres
 
 STATISTICAL_OUTLIER_REMOVAL      = True
-STATISTICAL_OUTLIER_NB_NEIGHBORS = 100  # neighbours to analyse
-STATISTICAL_OUTLIER_STD_RATIO    = 0.05 # std-dev multiplier threshold
+STATISTICAL_OUTLIER_NB_NEIGHBORS = 256  # neighbours to analyse
+STATISTICAL_OUTLIER_STD_RATIO    = 0.00001 # std-dev multiplier threshold
 
 PCD_MIN_POINTS = 100  # discard clouds with fewer points than this
 
@@ -236,6 +236,7 @@ class VisionNode(Node):
                     bboxes_3d.append(pcd.get_axis_aligned_bounding_box())
                     labels_3d.append(label)
                     probs_3d.append(prob)
+                    print(f"{label=} n_points={pcd.point['positions'].shape[0]}")
         pcd_ms = (time.time() - t1) * 1000
 
         if pcds:
@@ -379,7 +380,9 @@ class VisionNode(Node):
         if self.last_annotated is not None:
             self.annotated_pub.publish(self.last_annotated)
 
-        if not self.detections:
+        with self.lock:
+            detections = dict(self.detections)
+        if not detections:
             return
 
         # DetectionBundle
@@ -409,7 +412,7 @@ class VisionNode(Node):
         delete_all.header.frame_id = BASE_FRAME
         delete_all.action = Marker.DELETEALL
         markers.markers.append(delete_all)
-        for label_idx, (label, dets) in enumerate(self.detections.items()):
+        for label_idx, (label, dets) in enumerate(detections.items()):
             for i, det in enumerate(dets):
                 mn = det['bbox'].min_bound.numpy()
                 mx = det['bbox'].max_bound.numpy()
@@ -435,7 +438,7 @@ class VisionNode(Node):
         # self.get_logger().info(f'Published MarkerArray with {len(markers.markers)-1} markers')
 
         # PointCloud2 — all detection PCDs merged into one message
-        all_dets = [det for dets in self.detections.values() for det in dets]
+        all_dets = [det for dets in detections.values() for det in dets]
         all_pts = np.vstack([d['pcd'].point["positions"].numpy() for d in all_dets])
         all_cls = np.vstack([d['pcd'].point["colors"].numpy()    for d in all_dets])
 

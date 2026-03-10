@@ -5,27 +5,34 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
-from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger
+from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, UnscrewPose
 from std_srvs.srv import Trigger
+from std_msgs.msg import Int8
+from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
 from custom_ros_messages.msg import DetectionBundle
 from moveit_msgs.action import ExecuteTrajectory
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from shape_msgs.msg import SolidPrimitive
-from geometry_msgs.msg import Pose, PoseStamped
 from scipy.spatial.transform import Rotation
+import open3d as o3d
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 import threading
 import time
 from cv_bridge import CvBridge
+import cv2
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.callback_groups import ReentrantCallbackGroup
 import tf2_ros
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
+from scipy.spatial.transform import Rotation
+import cv2
+
+from std_msgs.msg import String
 
 BASE_FRAME = "floor_link"
 EE_FRAME = "wrist_3_link"
-
 
 
 
@@ -33,16 +40,23 @@ class CoreNode(Node):
     def __init__(self):
         super().__init__('core_functionality_node')
 
-        self.plan_client = self.create_client(PlanToPose, 'plan_to_pose')
-        self.exec_client = self.create_client(ExecutePlan, 'execute_plan')
-        self.motor_client = self.create_client(EthernetMotor, 'motor_control')
-        self.behavior_client = self.create_client(UR16BehaviorTrigger, 'ur16e_rest/BehaviorTrigger')
-        self.execute_trajectory_client = ActionClient(
-            self, ExecuteTrajectory, '/execute_trajectory'
-        )
-        self.update_depth_client = self.create_client(Trigger, 'update_depth')
-        self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix')
+        # ReentrantCallbackGroup allows _unscrew_cb to block while client response
+        # callbacks (plan, exec, motor, behavior) run concurrently in the same group.
+        # Without this, the default MutuallyExclusiveCallbackGroup would deadlock.
+        self._reentrant_cb_group = ReentrantCallbackGroup()
+
+        self.plan_client = self.create_client(PlanToPose, 'plan_to_pose', callback_group=self._reentrant_cb_group)
+        self.exec_client = self.create_client(ExecutePlan, 'execute_plan', callback_group=self._reentrant_cb_group)
+        self.motor_client = self.create_client(EthernetMotor, 'motor_control', callback_group=self._reentrant_cb_group)
+        self.behavior_client = self.create_client(UR16BehaviorTrigger, 'ur16e_rest/BehaviorTrigger', callback_group=self._reentrant_cb_group)
+        self.execute_trajectory_client = ActionClient(self, ExecuteTrajectory, '/execute_trajectory', callback_group=self._reentrant_cb_group)
+        self.update_depth_client = self.create_client(Trigger, 'update_depth', callback_group=self._reentrant_cb_group)
+        self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix', callback_group=self._reentrant_cb_group)
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
+        self.create_service(UnscrewPose, 'unscrew_pose', self._unscrew_cb, callback_group=self._reentrant_cb_group)
+        self.unscrew_client = self.create_client(UnscrewPose, 'unscrew_pose', callback_group=self._reentrant_cb_group)
+        self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
+
 
         self.latest_detection_bundle: DetectionBundle = None
         _det_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
@@ -74,42 +88,172 @@ class CoreNode(Node):
         if not self._pose_cost_matrix_available:
             self.get_logger().warn("get_pose_cost_matrix service not available (will use pose list order without TSP optimization)")
 
+        # Servo node
+        self.servo_twist_pub = self.create_publisher(TwistStamped, '/servo_node/delta_twist_cmds', 10)
+        self.servo_status_sub = self.create_subscription(Int8, '/servo_node/status', self._servo_status_cb, 10)
+        self._servo_status: int = -1
+        self.servo_start_client = self.create_client(Trigger, '/servo_node/start_servo')
+        self.servo_stop_client = self.create_client(Trigger, '/servo_node/stop_servo')
+
+
         self.get_logger().info("Core services ready!")
 
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # Spin in a background thread to keep TF buffer up to date
-        self._spin_thread = threading.Thread(target=rclpy.spin, args=(self,), daemon=True)
+        # MultiThreadedExecutor so service callbacks (e.g. _unscrew_cb) can block on
+        # nested service calls without starving the executor of threads to process responses.
+        self._executor = rclpy.executors.MultiThreadedExecutor()
+        self._executor.add_node(self)
+        self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
 
         self.get_logger().info("Looking up wrist_3_link -> tool_head_link transform...")
         self.T_wrist3_to_toolhead = None
-        while self.T_wrist3_to_toolhead is None:
+        self.T_wrist3_to_camera_optical = None
+        while self.T_wrist3_to_toolhead is None or self.T_wrist3_to_camera_optical is None:
             try:
                 tf = self.tf_buffer.lookup_transform(
-                    #'tool_head_link', 'wrist_3_link',
                     'test_ratchet_extension_link', 'wrist_3_link',
                     rclpy.time.Time(),
                     timeout=rclpy.duration.Duration(seconds=1.0)
                 )
                 t = tf.transform.translation
                 r = tf.transform.rotation
-                from scipy.spatial.transform import Rotation
                 rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
                 mat = np.eye(4)
                 mat[:3, :3] = rot
                 mat[:3,  3] = [t.x, t.y, t.z]
                 self.T_wrist3_to_toolhead = mat
                 self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
+
+
+                tf = self.tf_buffer.lookup_transform(
+                    'ee_cam_color_optical_frame', 'wrist_3_link',
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=1.0)
+                )
+                t = tf.transform.translation
+                r = tf.transform.rotation
+                rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
+                mat = np.eye(4)
+                mat[:3, :3] = rot
+                mat[:3,  3] = [t.x, t.y, t.z]
+                self.T_wrist3_to_camera_optical = mat
+                self.get_logger().info(f"wrist_3_link -> camera_optical_frame:\n{mat}")
+
+
             except (LookupException, ConnectivityException, ExtrapolationException) as e:
                 self.get_logger().warn(f"TF not ready yet: {e}. Retrying...")
                 time.sleep(0.5)
         self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
+        self.T_camera_optical_to_wrist3 = np.linalg.inv(self.T_wrist3_to_camera_optical)
+
+        #visualization variables
+        self.obj_bbox_point = None
+        self.target_pixel = None
+        self.PIXEL_TOLERANCE = 100.0  # pixels
+        self.DIST_TOLERANCE = 0.05  # meters
+
+        # Wait for the first detection bundle so we have camera pose and intrinsics
+        self.get_logger().info("Waiting for first detection bundle...")
+        while self.latest_detection_bundle is None:
+            time.sleep(0.1)
+        self.get_logger().info("Detection bundle received.")
+
+        # Set target_pixel from the static camera→toolhead TF directly
+        bundle = self.latest_detection_bundle
+        # toolhead origin expressed in camera optical frame
+        T_toolhead_in_cam = self.T_wrist3_to_camera_optical @ self.T_toolhead_to_wrist3
+        tx, ty, tz = T_toolhead_in_cam[:3, 3]
+        ifx, ify = bundle.camera_info.k[0], bundle.camera_info.k[4]
+        icx, icy = bundle.camera_info.k[2], bundle.camera_info.k[5]
+        TARGET_PIXEL_OFFSET = np.array([-30.0, -25.0])  # [left, up] in pixels
+        self.target_pixel = np.array([ifx * tx / tz + icx,
+                                      ify * ty / tz + icy]) + TARGET_PIXEL_OFFSET
+                
+        self.get_logger().info(f"target_pixel set to toolhead projection: {self.target_pixel}")
 
     def _detection_bundle_cb(self, msg: DetectionBundle):
         self.latest_detection_bundle = msg
+
+    def _servo_status_cb(self, msg: Int8):
+        self._servo_status = msg.data
+
+    def trigger_with_retry(self, behavior, retries=3):
+        for attempt in range(1, retries + 1):
+            if self.trigger_behavior(behavior):
+                return True
+            self.get_logger().warn(f"Behavior '{behavior}' failed (attempt {attempt}/{retries}), retrying...")
+            time.sleep(1)
+        self.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
+        return False
+
+    def _unscrew_cb(self, request: UnscrewPose.Request, response: UnscrewPose.Response):
+        pose = request.target_pose
+        x  = pose.pose.position.x
+        y  = pose.pose.position.y
+        z  = 0.91
+        qx = pose.pose.orientation.x
+        qy = pose.pose.orientation.y
+        qz = pose.pose.orientation.z
+        qw = pose.pose.orientation.w
+        frame_id = pose.header.frame_id or BASE_FRAME
+
+        plan_successful = False
+        tries = 0
+        self.behavior_publisher.publish(String(data=f"planning_to_unscrew"))
+        while not plan_successful and tries < 3:
+            tries += 1
+            success = self.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw, frame_id=frame_id)
+            if success:
+                plan_successful = True
+                self.get_logger().info("Planning succeeded!")
+            else:
+                self.get_logger().warn("Planning failed, retrying...")
+
+        if not plan_successful:
+            response.success = False
+            response.message = "Planning failed after 3 attempts"
+            return response
+
+        self.behavior_publisher.publish(String(data="executing_plan"))
+        self.execute_plan()
+        time.sleep(1)
+
+        self.behavior_publisher.publish(String(data="removal"))
+        self.motor_control(100)
+        self.trigger_with_retry("ZForce")
+        self.trigger_with_retry("play")
+        time.sleep(2)
+
+        self.behavior_publisher.publish(String(data="retracting"))
+        self.trigger_with_retry("retract")
+        self.trigger_with_retry("play")
+        time.sleep(2)
+        self.behavior_publisher.publish(String(data="retracted finishes"))
+
+        self.motor_control(0)
+        self.trigger_with_retry("ros2control")
+
+        response.success = True
+        response.message = "Unscrew complete"
+        return response
+
+    def servo_twist(self, x: float, y: float, z: float,
+                    roll: float, pitch: float, yaw: float,
+                    frame_id: str = BASE_FRAME):
+        msg = TwistStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = frame_id
+        msg.twist.linear.x = x
+        msg.twist.linear.y = y
+        msg.twist.linear.z = z
+        msg.twist.angular.x = roll
+        msg.twist.angular.y = pitch
+        msg.twist.angular.z = yaw
+        self.servo_twist_pub.publish(msg)
 
     def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         req = PlanToPose.Request()
@@ -136,6 +280,19 @@ class CoreNode(Node):
         else:
             self.get_logger().error(f"Planning failed: {result.message}")
         return result.success
+
+    def plan_camera_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
+        # Convert camera pose to wrist_3_link pose using the known transform
+        target_camera = np.eye(4)
+        target_camera[:3, :3] = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
+        target_camera[:3, 3] = [x, y, z]
+        target_wrist3 = target_camera @ self.T_wrist3_to_camera_optical
+
+        wx, wy, wz = target_wrist3[:3, 3]
+        rot = target_wrist3[:3, :3]
+        qx, qy, qz, qw = Rotation.from_matrix(rot).as_quat()
+
+        return self.plan_to_pose(wx, wy, wz, qx, qy, qz, qw, frame_id)
 
     def plan_toolhead_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         # Convert toolhead pose to wrist_3_link pose using the known transform
@@ -288,16 +445,24 @@ class CoreNode(Node):
         self.planning_scene_pub.publish(planning_scene)
         self.get_logger().info(f"Removed collision plane '{plane_id}'")
 
-    def go_home(self, frame_id="floor_link", toolhead=False):
+    def go_home(self, frame_kwrd):
         self.get_logger().info("Going home...")
         plan_success = False
         exec_success = False
-        if toolhead:
-            plan_success = self.plan_toolhead_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
+        if frame_kwrd == "wrist_3_link":
+            plan_success = self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id="floor_link")
+            exec_success = self.execute_plan()
+        elif frame_kwrd == "test_ratchet_extension_link":
+            plan_success = self.plan_toolhead_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id="floor_link")
+            exec_success = self.execute_plan()
+        elif frame_kwrd == "ee_cam_color_optical_frame":
+            #TODO use so that all home poses have same orientation 
+            #rot_90_z = Rotation.from_euler('z', -90, degrees=True).as_matrix()
+
+            plan_success = self.plan_camera_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id="floor_link")
             exec_success = self.execute_plan()
         else:
-            plan_success = self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
-            exec_success = self.execute_plan()
+            print(f"Unknown frame keyword '{frame_kwrd}' for go_home")
         self.get_logger().error(f"go home {plan_success=}, {exec_success=}")
         return plan_success and exec_success
 
@@ -324,7 +489,276 @@ class CoreNode(Node):
         else:
             self.get_logger().error(f"Behavior failed: {result.message}")
         return result.success
+    
+    def detection_bundle_to_pointclouds(self, bundle: DetectionBundle):
+        """Return a list of o3d.geometry.PointCloud (world frame), one per detection in the bundle.
+        Entries are None for detections with no valid depth points."""
+        # Decode compressedDepth image (12-byte config header before PNG payload)
+        depth_buf = np.frombuffer(bytes(bundle.depth_image.data)[12:], dtype=np.uint8)
+        depth_raw = cv2.imdecode(depth_buf, cv2.IMREAD_UNCHANGED)  # uint16 mm
+        if depth_raw is None:
+            raise RuntimeError("Failed to decode depth image")
 
+        h, w = depth_raw.shape
+        fx, fy = bundle.camera_info.k[0], bundle.camera_info.k[4]
+        cx, cy = bundle.camera_info.k[2], bundle.camera_info.k[5]
+        intrinsic = o3d.camera.PinholeCameraIntrinsic(w, h, fx, fy, cx, cy)
+
+        # Open3D extrinsic is world-to-camera (inverse of cam-to-world)
+        cp = bundle.camera_pose.pose
+        cam_rot = Rotation.from_quat([cp.orientation.x, cp.orientation.y,
+                                      cp.orientation.z, cp.orientation.w]).as_matrix()
+        T_cam_to_world = np.eye(4)
+        T_cam_to_world[:3, :3] = cam_rot
+        T_cam_to_world[:3, 3] = [cp.position.x, cp.position.y, cp.position.z]
+        extrinsic = np.linalg.inv(T_cam_to_world)
+
+        point_clouds = []
+        for det in bundle.detections:
+            x1 = max(0, int(det.bbox_min.x));  y1 = max(0, int(det.bbox_min.y))
+            x2 = min(w, int(det.bbox_max.x));  y2 = min(h, int(det.bbox_max.y))
+            if x2 <= x1 or y2 <= y1:
+                point_clouds.append(None)
+                continue
+
+            # Zero pixels outside the bbox so only the ROI contributes;
+            # pixel positions are preserved for correct unprojection.
+            depth_masked = np.zeros_like(depth_raw)
+            depth_masked[y1:y2, x1:x2] = depth_raw[y1:y2, x1:x2]
+
+            pcd = o3d.geometry.PointCloud.create_from_depth_image(
+                o3d.geometry.Image(depth_masked), intrinsic, extrinsic,
+                depth_scale=1000.0, depth_trunc=0.5)
+            pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.05)
+            point_clouds.append(pcd if len(pcd.points) > 0 else None)
+
+        return point_clouds
+
+    def align_to_screw_img(self, initial_screw_pose=None):
+        # Lock orientation from the first bundle so it doesn't drift across steps
+        bundle = self.latest_detection_bundle
+        if bundle is None:
+            self.get_logger().error("No detection bundle available")
+            return False
+        cp = bundle.camera_pose.pose
+        locked_quat = (cp.orientation.x, cp.orientation.y, cp.orientation.z, cp.orientation.w)
+
+        alignment_in_progress = True
+        max_steps = 10
+        current_step = 0
+        while alignment_in_progress and max_steps > current_step:
+            alignment_in_progress = self._one_step_align_to_screw_img(initial_screw_pose, locked_quat)
+            current_step += 1
+            time.sleep(0.25)
+        return alignment_in_progress
+
+    def _one_step_align_to_screw_img(self, initial_screw_pose=None, locked_quat=None):
+        STEP_GAIN = 0.3
+        MAX_STEP = 0.05
+
+        bundle = self.latest_detection_bundle
+        if bundle is None:
+            self.get_logger().error("No detection bundle available")
+            return False
+
+        detections = [d for d in bundle.detections if d.cls.lower() in ["screw", "nut"]]
+        if not detections:
+            self.get_logger().warn("No detections in bundle")
+            return False
+
+
+        # --- Camera intrinsics and pose ---
+        cp = bundle.camera_pose.pose
+        R_cam_world = Rotation.from_quat([cp.orientation.x, cp.orientation.y,
+                                      cp.orientation.z, cp.orientation.w]).as_matrix()
+        T_cam_to_world = np.eye(4)
+        T_cam_to_world[:3, :3] = R_cam_world
+        T_cam_to_world[:3, 3]  = [cp.position.x, cp.position.y, cp.position.z]
+        ifx, ify = bundle.camera_info.k[0], bundle.camera_info.k[4]
+        icx, icy = bundle.camera_info.k[2], bundle.camera_info.k[5]
+
+        T_world_to_cam = np.linalg.inv(T_cam_to_world)
+
+        # Use locked orientation for world_delta so it is consistent with plan_camera_to_pose
+        R_for_delta = Rotation.from_quat(locked_quat).as_matrix() if locked_quat is not None else R_cam_world
+        
+        
+        
+        # --- Reference pixel for bbox selection ---
+        if initial_screw_pose is not None:
+            p = initial_screw_pose.pose.position
+            p_cam = T_world_to_cam @ np.array([p.x, p.y, p.z, 1.0])
+            if p_cam[2] <= 0:
+                self.get_logger().error(f"Screw is behind the camera (p_cam_Z={p_cam[2]:.3f})")
+                return False
+            ref_pixel = np.array([ifx * p_cam[0] / p_cam[2] + icx,
+                                  ify * p_cam[1] / p_cam[2] + icy])
+            self.get_logger().info(
+                f"ref_pixel=({ref_pixel[0]:.1f}, {ref_pixel[1]:.1f})  "
+                f"screw_world=({p.x:.3f}, {p.y:.3f}, {p.z:.3f})"
+            )
+        else:
+            ref_pixel = self.target_pixel
+            self.get_logger().info(f"ref_pixel=target_pixel=({ref_pixel[0]:.1f}, {ref_pixel[1]:.1f})")
+
+        self.get_logger().info(
+            f"target_pixel=({self.target_pixel[0]:.1f}, {self.target_pixel[1]:.1f})  "
+            f"cam_pos=({cp.position.x:.3f}, {cp.position.y:.3f}, {cp.position.z:.3f})"
+        )
+
+        # --- Match closest bounding box ---
+        best_det, best_dist, best_pixel = None, float('inf'), None
+        for det in detections:
+            bbox_center = np.array([(det.bbox_min.x + det.bbox_max.x) / 2.0,
+                                    (det.bbox_min.y + det.bbox_max.y) / 2.0])
+            dist = np.linalg.norm(bbox_center - ref_pixel)
+            self.get_logger().info(f"  det '{det.cls}' bbox=({bbox_center[0]:.1f}, {bbox_center[1]:.1f}) dist={dist:.1f}px")
+            if dist < best_dist:
+                best_dist, best_det, best_pixel = dist, det, bbox_center
+        if best_det is None or (best_dist > self.PIXEL_TOLERANCE and initial_screw_pose is not None):
+            self.get_logger().error(f"No detection within {self.PIXEL_TOLERANCE}px of ref_pixel (closest={best_dist:.1f}px)")
+            return False
+        obj_bbox_pixel = best_pixel
+        dist_to_target = np.linalg.norm(obj_bbox_pixel - self.target_pixel)
+        self.get_logger().info(
+            f"Matched '{best_det.cls}' ({best_det.prob:.2f})  "
+            f"bbox=({obj_bbox_pixel[0]:.1f}, {obj_bbox_pixel[1]:.1f})  "
+            f"dist_to_ref={best_dist:.1f}px  dist_to_target={dist_to_target:.1f}px"
+        )
+
+        if dist_to_target < 10.0:
+            self.get_logger().info(f"Already aligned (dist_to_target={dist_to_target:.1f}px < 10px), skipping move.")
+            return False
+
+        # --- Z from mean of valid depth pixels in bbox ROI ---
+        Z = None
+        depth_buf = np.frombuffer(bytes(bundle.depth_image.data)[12:], dtype=np.uint8)
+        depth_raw = cv2.imdecode(depth_buf, cv2.IMREAD_UNCHANGED)  # uint16 mm
+        if depth_raw is not None:
+            u0 = int(np.clip(best_det.bbox_min.x, 0, depth_raw.shape[1] - 1))
+            v0 = int(np.clip(best_det.bbox_min.y, 0, depth_raw.shape[0] - 1))
+            u1 = int(np.clip(best_det.bbox_max.x, 0, depth_raw.shape[1]))
+            v1 = int(np.clip(best_det.bbox_max.y, 0, depth_raw.shape[0]))
+            roi = depth_raw[v0:v1, u0:u1]
+            valid = roi[roi > 0]
+            valid = valid[valid < 500]  # exclude background beyond 0.5 m
+            if len(valid) > 0:
+                Z = float(np.median(valid)) / 1000.0  # mm → m
+                self.get_logger().info(f"Depth from image: Z={Z:.3f}m ({len(valid)} valid px)")
+            else:
+                self.get_logger().warn("No valid depth pixels in bbox ROI")
+        else:
+            self.get_logger().warn("Failed to decode depth image")
+
+        if Z is None:
+            if initial_screw_pose is not None:
+                # Geometric fallback: optical-axis depth from camera height above screw
+                screw_z_world = initial_screw_pose.pose.position.z
+                cam_z_world = cp.position.z
+                Z = max(0.05, cam_z_world - screw_z_world)
+                self.get_logger().warn(f"Using geometric Z fallback: {Z:.3f}m")
+            else:
+                Z = 0.2
+                self.get_logger().warn("Using hardcoded Z fallback: 0.200m")
+
+
+        # --- IBVS one-shot control law (ViSP formulation) ---
+        #   Normalized image coords:  x = (u - u0) / fx,  y = (v - v0) / fy
+        #   Feature error:            e = s - s*   (current - desired)
+        #   Interaction matrix:       Lx = [[-1/Z, 0, x/Z], [0, -1/Z, y/Z]]
+        #   Control law:              vc = -lambda * pinv(Lx) * e   (lam=1 → one-shot)
+        s      = np.array([(obj_bbox_pixel[0] - icx) / ifx,
+                           (obj_bbox_pixel[1] - icy) / ify])
+        s_star = np.array([(self.target_pixel[0]   - icx) / ifx,
+                           (self.target_pixel[1]   - icy) / ify])
+        e      = s - s_star
+
+        L  = np.array([[-1/Z,    0,     s_star[0]/Z],
+                       [   0, -1/Z, s_star[1]/Z]])
+        vc_cam = -np.linalg.pinv(L) @ e
+        vc_cam[2] = 0.0
+        # Rotate IBVS delta to world frame and apply to current camera world position
+        # Use locked orientation matrix so world_delta is consistent with plan_camera_to_pose
+        delta_cam = STEP_GAIN * vc_cam
+        step_norm = np.linalg.norm(delta_cam)
+        if step_norm > MAX_STEP:
+            delta_cam *= MAX_STEP / step_norm
+        world_delta = R_for_delta @ delta_cam
+        target_cam_pose = T_cam_to_world[:3, 3] + world_delta
+        cx, cy, _ = target_cam_pose
+        self.get_logger().info(
+            f"IBVS  Z={Z:.3f}  e=({e[0]:.4f}, {e[1]:.4f})  "
+            f"{target_cam_pose=}"
+            f"vc_cam=({vc_cam[0]:.4f}, {vc_cam[1]:.4f})  "
+            f"→ world ({cx:.4f}, {cy:.4f})"
+        )
+
+        # Keep orientation locked from loop start — prevents Z drift via cam→wrist transform
+        if locked_quat is not None:
+            qx, qy, qz, qw = locked_quat
+        else:
+            qx, qy, qz, qw = Rotation.from_matrix(T_cam_to_world[:3, :3]).as_quat()
+
+        # Calculate world position of bbox center
+        p_cam = np.array([(obj_bbox_pixel[0] - icx) / ifx * Z,
+                          (obj_bbox_pixel[1] - icy) / ify * Z,
+                          Z,
+                          1.0])
+        p_world = T_cam_to_world @ p_cam
+        self.obj_bbox_point = p_world[:3]
+        cam_z = T_cam_to_world[2, 3]  # maintain current height
+        plan_success = self.plan_camera_to_pose(cx, cy, cam_z, qx, qy, qz, qw)
+        if not plan_success:
+            self.get_logger().error("Failed to plan to above-screw pose")
+            return False
+        return self.execute_plan()
+
+    def align_to_screw_pcd(self, initial_screw_pose=None):
+        bundle = self.latest_detection_bundle
+        if bundle is None:
+            self.get_logger().error("No detection bundle available")
+            return False
+
+        detections = [d for d in bundle.detections if d.cls.lower() in ["screw", "nut"]]
+        if not detections:
+            self.get_logger().warn("No detections in bundle")
+            return False
+        point_clouds = self.detection_bundle_to_pointclouds(bundle)
+
+        ref_point = bundle.camera_pose.pose.position if initial_screw_pose is None else initial_screw_pose.pose.position
+        best_det, best_pcd, best_dist = None, None, float('inf')
+        for det, pcd in zip(detections, point_clouds):
+            if pcd is None or len(pcd.points) == 0:
+                continue
+            dist = np.linalg.norm(np.asarray(pcd.points) - np.array([ref_point.x, ref_point.y, ref_point.z]), axis=1).min()
+            self.get_logger().info(f"  det '{det.cls}' dist to ref={dist:.3f}m")
+            if dist < best_dist:
+                best_dist, best_det, best_pcd = dist, det, pcd
+        if best_det is None:
+            self.get_logger().error("No valid point clouds for any detections")
+            return False
+        if best_dist > self.DIST_TOLERANCE and initial_screw_pose is not None:
+            self.get_logger().error(f"No detections within {self.DIST_TOLERANCE:.3f}m of ref_point (closest={best_dist:.3f}m)")
+            return False
+        self.get_logger().info(f"Best match: '{best_det.cls}' with dist={best_dist:.3f}m")
+
+        centroid = best_pcd.get_center()
+        self.obj_bbox_point = centroid
+        cx, cy, cz = centroid
+
+        # --- Orientation: tool-Z down, tool-Y toward origin ---
+        z_axis = np.array([0.0, 0.0, -1.0])
+        y_dir  = np.array([-cx, -cy, 0.0])
+        y_norm = np.linalg.norm(y_dir)
+        y_axis = y_dir / y_norm if y_norm > 1e-6 else np.array([0.0, 1.0, 0.0])
+        x_axis = np.cross(y_axis, z_axis)
+        qx, qy, qz, qw = Rotation.from_matrix(np.column_stack([x_axis, y_axis, z_axis])).as_quat()
+
+        plan_success = self.plan_toolhead_to_pose(cx, cy, 0.91, qx, qy, qz, qw)
+        if not plan_success:
+            self.get_logger().error("Failed to plan to above-screw pose")
+            return False
+        return self.execute_plan()
 
     def get_tsp_order(self, poses, euclidean=True):
         """
@@ -430,8 +864,63 @@ class CoreNode(Node):
                 ordered.append(poses[node - 1])  # -1: node 0 is start
             index = solution.Value(routing.NextVar(index))
         return ordered
-        
 
+    def visualize_detections(self):
+        def visualize_detections_thread_func():
+            bridge = CvBridge()
+            while rclpy.ok():
+                if self.latest_detection_bundle is not None:
+                    rgb_msg = self.latest_detection_bundle.rgb_image
+                    depth_msg = self.latest_detection_bundle.depth_image
+                    detections = self.latest_detection_bundle.detections
+                    rgb_img = bridge.compressed_imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
+                    try:
+                        depth_buf = np.frombuffer(bytes(depth_msg.data)[12:], dtype=np.uint8)
+                        depth_raw = cv2.imdecode(depth_buf, cv2.IMREAD_UNCHANGED)  # uint16 mm
+                        if depth_raw is None:
+                            raise ValueError("imdecode returned None")
+                        depth_norm = cv2.normalize(depth_raw, None, 0, 255, cv2.NORM_MINMAX)
+                        depth_u8 = depth_norm.astype(np.uint8)
+                        depth_color = cv2.applyColorMap(depth_u8, cv2.COLORMAP_JET)
+                    except Exception:
+                        depth_color = np.zeros((rgb_img.shape[0], rgb_img.shape[1], 3), dtype=np.uint8)
+                    for det in detections:
+                        x1, y1 = int(det.bbox_min.x), int(det.bbox_min.y)
+                        x2, y2 = int(det.bbox_max.x), int(det.bbox_max.y)
+                        label = f"{det.cls} {det.prob:.2f}"
+                        for img in (rgb_img, depth_color):
+                            cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            cv2.putText(img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                    for img in (rgb_img, depth_color):
+                        if self.target_pixel is not None:
+                            tp = (int(self.target_pixel[0]), int(self.target_pixel[1]))
+                            cv2.drawMarker(img, tp, (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
+                            cv2.putText(img, "target", (tp[0] + 6, tp[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+                        if self.obj_bbox_point is not None:
+                            cp = self.latest_detection_bundle.camera_pose.pose
+                            R_cam_world = Rotation.from_quat([cp.orientation.x, cp.orientation.y,
+                                                          cp.orientation.z, cp.orientation.w]).as_matrix()
+                            T_cam_to_world_vis = np.eye(4)
+                            T_cam_to_world_vis[:3, :3] = R_cam_world
+                            T_cam_to_world_vis[:3, 3] = [cp.position.x, cp.position.y, cp.position.z]
+                            T_world_to_cam = np.linalg.inv(T_cam_to_world_vis)
+                            fx, fy = self.latest_detection_bundle.camera_info.k[0], self.latest_detection_bundle.camera_info.k[4]
+                            cx2, cy2 = self.latest_detection_bundle.camera_info.k[2], self.latest_detection_bundle.camera_info.k[5]
+                            p_cam = T_world_to_cam @ np.append(self.obj_bbox_point, 1.0)
+                            if p_cam[2] > 0:
+                                bu = int(fx * p_cam[0] / p_cam[2] + cx2)
+                                bv = int(fy * p_cam[1] / p_cam[2] + cy2)
+                                cv2.circle(img, (bu, bv), 8, (255, 0, 0), 2)
+                                cv2.putText(img, "bbox", (bu + 10, bv), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 0), 1)
+                    if rgb_img.shape[:2] != depth_color.shape[:2]:
+                        depth_color = cv2.resize(depth_color, (rgb_img.shape[1], rgb_img.shape[0]))
+                    combined = np.hstack([rgb_img, depth_color])
+                    cv2.imshow("Detections", combined)
+                    cv2.waitKey(1)
+                else:
+                    time.sleep(0.1)
+        vis_thread = threading.Thread(target=visualize_detections_thread_func, daemon=True)
+        vis_thread.start()
 
 
 def print_menu():
@@ -441,34 +930,19 @@ def print_menu():
     print("3. Trigger behavior")
     print("4. Update depth")
     print("5. Motor control")
-    print("6. Send toolhead home")
+    print("6. Servo")
+    print("7. Align to screw img")
+    print("8. Unscrew Service")
+    print("9. Motor test zforce then retract")
     print("0. Quit")
     print("========================")
 
 
 def main(args=None):
-    import cv2
     rclpy.init(args=args)
     node = CoreNode()
-    def visualize_detections_thread_func():
-        bridge = CvBridge()
-        while rclpy.ok():
-            if node.latest_detection_bundle is not None:
-                rgb_msg = node.latest_detection_bundle.rgb_image
-                detections = node.latest_detection_bundle.detections
-                cv_img = bridge.compressed_imgmsg_to_cv2(rgb_msg, desired_encoding='bgr8')
-                for det in detections:
-                    x1, y1 = int(det.bbox_min.x), int(det.bbox_min.y)
-                    x2, y2 = int(det.bbox_max.x), int(det.bbox_max.y)
-                    cv2.rectangle(cv_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(cv_img, f"{det.cls} {det.prob:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                                0.5, (0, 255, 0), 2)
-                cv2.imshow("Detections", cv_img)
-                cv2.waitKey(1)
-            else:
-                time.sleep(0.1)
-    vis_thread = threading.Thread(target=visualize_detections_thread_func, daemon=True)
-    vis_thread.start()
+    node.visualize_detections()
+    
     node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
 
     try:
@@ -477,7 +951,21 @@ def main(args=None):
             choice = input("Select: ").strip()
 
             if choice == "1":
-                node.go_home(toolhead=False)
+                print("\n=== What frame should be home ===")
+                print("1. Wrist 3 link (default)")
+                print("2. Toolhead")
+                print("3. Camera")
+                print("========================")
+                frame_choice = input("Select: ").strip()
+                if frame_choice == "1":
+                    node.go_home("wrist_3_link")
+                elif frame_choice == "2":
+                    node.go_home("test_ratchet_extension_link")
+                elif frame_choice == "3":
+                    node.go_home("ee_cam_color_optical_frame")
+                else:
+                    print("Invalid choice, going home to wrist_3_link")
+                    node.go_home("wrist_3_link")
 
             elif choice == "2":
                 plane_id = input("Plane ID [battery_do_not_cross]: ").strip() or "battery_do_not_cross"
@@ -497,7 +985,45 @@ def main(args=None):
                 node.motor_control(speed)
 
             elif choice == "6":
-                node.go_home(toolhead=True)
+                print("not implemented yet`")
+
+            elif choice == "7":
+                node.align_to_screw_img(None)
+                # node.trigger_behavior("zforce")
+                # node.trigger_behavior("play")
+                # time.sleep(1)
+                # node.trigger_behavior("retract")
+                # node.trigger_behavior("play")
+                # time.sleep(1)
+                # node.trigger_behavior("ros2control")
+
+            elif choice == "8":
+                x, y, z, qx, qy, qz, qw = [1.026, -0.477, 0.857, -0.241, 0.971, 0.002, 0.000]
+                req = UnscrewPose.Request()
+                req.target_pose.header.frame_id = BASE_FRAME
+                req.target_pose.pose.position.x = x
+                req.target_pose.pose.position.y = y
+                req.target_pose.pose.position.z = z
+                req.target_pose.pose.orientation.x = qx
+                req.target_pose.pose.orientation.y = qy
+                req.target_pose.pose.orientation.z = qz
+                req.target_pose.pose.orientation.w = qw
+                future = node.unscrew_client.call_async(req)
+                while not future.done():
+                    time.sleep(0.05)
+                result = future.result()
+                print(f"Unscrew result: {result.success} — {result.message}")
+            
+            elif choice == "9":
+                node.motor_control(100)
+                node.trigger_behavior("zforce")
+                node.trigger_behavior("play")
+                time.sleep(5)
+                node.trigger_behavior("retract")
+                node.trigger_behavior("play")
+                time.sleep(1)
+                node.trigger_behavior("ros2control")
+                node.motor_control(0)
 
             elif choice == "0":
                 break
