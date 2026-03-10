@@ -162,9 +162,10 @@ class CostBenchmark(Node):
             cart_dist = np.sqrt(dx**2 + dy**2 + dz**2)
 
             # Plan
+            manipulability = 0.0
             plan_start = time.time()
             try:
-                plan_ok = self.core_node.plan_to_pose(
+                plan_ok, manipulability = self.core_node.plan_to_pose(
                     goal['x'], goal['y'], goal['z'],
                     goal['qx'], goal['qy'], goal['qz'], goal['qw'],
                     frame_id=self._base_frame
@@ -211,13 +212,15 @@ class CostBenchmark(Node):
                 'plan_time_s': plan_time,
                 'execution_time_s': exec_time,
                 'success': int(success),
+                'manipulability_score': manipulability,
             })
 
             status = "OK" if success else "FAIL"
             self.get_logger().info(
                 f"[{case_name}] {i+1:4d}/{n_poses}: {status} | "
                 f"Plan: {plan_time:.3f}s | Exec: {exec_time:.3f}s | "
-                f"Dist: {cart_dist:.3f}m | Path: {path_length:.3f}m"
+                f"Dist: {cart_dist:.3f}m | Path: {path_length:.3f}m | "
+                f"Manip: {manipulability:.6f}"
             )
 
         wall_time = time.time() - run_start
@@ -231,8 +234,12 @@ class CostBenchmark(Node):
         summary_path = os.path.join(output_dir, f"benchmark_cost_{case_name}.csv")
         with open(summary_path, 'w', newline='') as f:
             w = csv.writer(f)
+            # Compute avg manipulability over successful poses only
+            manip_scores = [r['manipulability_score'] for r in detail_records if r['success']]
+            avg_manip = sum(manip_scores) / len(manip_scores) if manip_scores else 0.0
             w.writerow(['case', 'completed', 'total', 'success_rate', 'wall_s',
-                         'sum_plan_time_s', 'sum_execution_time_s', 'sum_path_length_m'])
+                         'sum_plan_time_s', 'sum_execution_time_s', 'sum_path_length_m',
+                         'avg_manipulability'])
             w.writerow([
                 case_name,
                 successful,
@@ -242,6 +249,7 @@ class CostBenchmark(Node):
                 f"{sum(r['plan_time_s'] for r in detail_records):.2f}",
                 f"{sum(r['execution_time_s'] for r in detail_records):.2f}",
                 f"{sum(r['path_length_m'] for r in detail_records):.3f}",
+                f"{avg_manip:.6f}",
             ])
         self.get_logger().info(f"Wrote {summary_path}")
 
@@ -250,7 +258,8 @@ class CostBenchmark(Node):
         with open(detail_path, 'w', newline='') as f:
             fieldnames = ['case', 'pose_index', 'goal_x', 'goal_y', 'goal_z',
                           'cartesian_distance_m', 'path_length_m',
-                          'plan_time_s', 'execution_time_s', 'success']
+                          'plan_time_s', 'execution_time_s', 'success',
+                          'manipulability_score']
             w = csv.DictWriter(f, fieldnames=fieldnames)
             w.writeheader()
             w.writerows(detail_records)
@@ -268,6 +277,7 @@ class CostBenchmark(Node):
             'plan_time_s': 0.0,
             'execution_time_s': 0.0,
             'success': 0,
+            'manipulability_score': 0.0,
         }
 
 

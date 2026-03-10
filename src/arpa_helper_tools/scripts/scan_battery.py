@@ -272,7 +272,7 @@ def main(args=None):
                     node.get_logger().info(f"  Orientation [{j+1}/{len(active_orientations)}]")
 
                 t0 = time.time()
-                success = node.plan_to_pose(
+                success, _ = node.plan_to_pose(
                     p.x, p.y, p.z, qx, qy, qz, qw,
                     frame_id=pose.header.frame_id)
                 plan_time_s = time.time() - t0

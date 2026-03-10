@@ -243,7 +243,7 @@ class RandomP2PBenchmark(Node):
             # Plan (plan_to_pose expects x, y, z, qx, qy, qz, qw, frame_id); timeout and exceptions => failure, continue
             plan_start = time.time()
             try:
-                success = self.core_node.plan_to_pose(
+                success, _ = self.core_node.plan_to_pose(
                     goal_dict['x'], goal_dict['y'], goal_dict['z'],
                     goal_dict['qx'], goal_dict['qy'], goal_dict['qz'], goal_dict['qw'],
                     frame_id=self._base_frame

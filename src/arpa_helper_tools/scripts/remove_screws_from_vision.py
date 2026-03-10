@@ -95,7 +95,7 @@ def main(args=None):
             tries = 0
             while not plan_successful and tries < 3:
                 tries += 1
-                success = node.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw)
+                success, _ = node.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw)
                 if success:
                     plan_successful = True
                     node.get_logger().info("Planning succeeded!")

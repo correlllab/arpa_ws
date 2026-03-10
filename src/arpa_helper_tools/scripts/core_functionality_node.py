@@ -121,10 +121,10 @@ class CoreNode(Node):
 
         result = future.result()
         if result.success:
-            self.get_logger().info("Planning successful!")
+            self.get_logger().info(f"Planning successful! (manipulability={result.manipulability_score:.6f})")
         else:
             self.get_logger().error(f"Planning failed: {result.message}")
-        return result.success
+        return result.success, result.manipulability_score
 
     def plan_toolhead_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         # Convert toolhead pose to wrist_3_link pose using the known transform
@@ -282,10 +282,10 @@ class CoreNode(Node):
         plan_success = False
         exec_success = False
         if toolhead:
-            plan_success = self.plan_toolhead_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
+            plan_success, _ = self.plan_toolhead_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
             exec_success = self.execute_plan()
         else:
-            plan_success = self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
+            plan_success, _ = self.plan_to_pose(1.112, -0.573, 1.253, 0.7071068, 0.7071068, 0.0, 0.0, frame_id=frame_id)
             exec_success = self.execute_plan()
         self.get_logger().error(f"go home {plan_success=}, {exec_success=}")
         return plan_success and exec_success

@@ -2,3 +2,4 @@ geometry_msgs/PoseStamped target_pose
 ---
 bool success
 string message
+float64 manipulability_score

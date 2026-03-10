@@ -85,7 +85,7 @@ def main(args=None):
             qw = pose.pose.orientation.w
             plan_successful = False
             while not plan_successful:
-                success = node.plan_to_pose(x, y, z, qx, qy, qz, qw)
+                success, _ = node.plan_to_pose(x, y, z, qx, qy, qz, qw)
                 if success:
                     plan_successful = True
                     node.get_logger().info("Planning succeeded!")

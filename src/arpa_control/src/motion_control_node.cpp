@@ -425,6 +425,15 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
 }
 
 
+double MotionControlNode::getManipulability(const std::shared_ptr<moveit::core::RobotState>& state)
+{
+  const auto* jmg = state->getJointModelGroup(m_move_group->getName());
+  Eigen::MatrixXd jacobian = state->getJacobian(jmg);
+  Eigen::MatrixXd JJt = jacobian * jacobian.transpose();
+  double det = JJt.determinant();
+  return (det > 0.0) ? std::sqrt(det) : 0.0;
+}
+
 double MotionControlNode::getWeightedJointDistance(
     const std::shared_ptr<moveit::core::RobotState>& current_state,
     const std::shared_ptr<moveit::core::RobotState>& target_state)
@@ -638,6 +647,7 @@ void MotionControlNode::planToPoseCallback(
   auto solutions = getJointConfigurations(m_current_target_pose);
   if (solutions.empty()) {
     response->success = false;
+    response->manipulability_score = 0.0;
     response->message = "No valid IK solutions found";
     return;
   }
@@ -660,7 +670,9 @@ void MotionControlNode::planToPoseCallback(
       updateGoalMarker(goal_state);
 
       response->success = true;
+      response->manipulability_score = getManipulability(goal_state);
       response->message = "Planning successful (solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
+      RCLCPP_INFO(get_logger(), "Manipulability score: %.6f", response->manipulability_score);
       RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
       m_move_group->clearPathConstraints();                // remove constraints
       return;
@@ -671,6 +683,7 @@ void MotionControlNode::planToPoseCallback(
   }
 
   response->success = false;
+  response->manipulability_score = 0.0;
   response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions";
   RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions", solutions.size());
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
