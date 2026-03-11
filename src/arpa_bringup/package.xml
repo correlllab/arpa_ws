@@ -12,6 +12,7 @@
   <!-- Launch -->
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <depend>rosbridge_server</depend>
 
   <!-- Gazebo Classic integration -->
   <!-- <exec_depend>gazebo_ros</exec_depend>
