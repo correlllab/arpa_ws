@@ -19,6 +19,7 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include "std_srvs/srv/trigger.hpp"
 #include <moveit_msgs/msg/constraints.hpp>
+#include <moveit_msgs/msg/robot_trajectory.hpp>
 #include <moveit_msgs/msg/joint_constraint.hpp>
 #include <moveit_msgs/msg/orientation_constraint.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
