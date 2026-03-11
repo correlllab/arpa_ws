@@ -68,9 +68,9 @@ At time 1770252100.237171449
 SAVE_IMAGES = False
 
 # Scan area bounds (X, Y)
-LOWER_LEFT = [1.109, -0.743]   # Starting corner
-UPPER_RIGHT = [-0.873, 0.631]  # Opposite corner
-_Z_HEIGHT = 1.253
+LOWER_LEFT = [1.0, -0.75]   # Starting corner
+UPPER_RIGHT = [-0.90, 0.65]  # Opposite corner
+_Z_HEIGHT = 1.25
 
 # Grid configuration
 N_X_STEPS = 8 # Number of positions along X
@@ -145,6 +145,8 @@ def scan_points_to_pose_stamped(points, frame_id):
         ps.pose.orientation.z = qz
         ps.pose.orientation.w = qw
         pose_stamped_list.append(ps)
+
+
     return pose_stamped_list
     
 
@@ -226,6 +228,24 @@ def main(args=None):
     marker_pub = node.create_publisher(MarkerArray, '/scan_poses_markers', 10)
     pose_stamped_list = scan_points_to_pose_stamped(scan_points, FRAME_ID)
     pose_arr = node.get_tsp_order(pose_stamped_list)
+
+    for y in _Y_POSITIONS:
+        x = _X_POSITIONS[0]
+        z_hat = np.array([0.0, 0.0, -1.0])
+        y_hat = np.array([-1.0, 0.0, 0.0])
+        x_hat = np.cross(y_hat, z_hat)
+        rot = np.column_stack([x_hat, y_hat, z_hat])
+        qx, qy, qz, qw = R.from_matrix(rot).as_quat()
+        ps = PoseStamped()
+        ps.header.frame_id = FRAME_ID
+        ps.pose.position.x = x-0.05
+        ps.pose.position.y = y
+        ps.pose.position.z = _Z_HEIGHT
+        ps.pose.orientation.x = qx
+        ps.pose.orientation.y = qy
+        ps.pose.orientation.z = qz
+        ps.pose.orientation.w = qw
+        pose_arr.append(ps)
 
     marker_array = build_scan_marker_array(node, pose_arr)
     node.trigger_behavior("ros2control")
@@ -309,7 +329,7 @@ def main(args=None):
                     else:
                         node.get_logger().warn(f"  Capture timed out at orientation {j+1}")
                 else:
-                    node.get_logger().warn(f"  Capture service not available at orientation {j+1}, skipping")
+                    node.get_logger().warn(f"  Capture service not available at orientation or SAVE_IMAGES is false {SAVE_IMAGES=}, skipping")
 
             if orientation_successes == 0:
                 skipped_indices.append(i)
