@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m,avg_manipulability
+baseline,996,1000,0.9960,7176.53,962.27,6212.92,2390.138,0.481050

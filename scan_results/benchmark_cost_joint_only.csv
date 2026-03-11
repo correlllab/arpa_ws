@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m,avg_manipulability
+joint_only,983,1000,0.9830,5136.15,620.22,4514.54,1617.536,0.489310

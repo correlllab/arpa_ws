@@ -1,0 +1,2 @@
+run_id,test_case,completed,total,success_rate,total_wall_s,distance_travelled_m,path_length_travelled_m,sum_plan_time_s,sum_execution_time_s
+corridor_position_only_1773040398,corridor_position_only,934,1000,0.934,50920.03933954239,984.9875188748601,1178.204484207411,44269.922004938126,6649.126327037811

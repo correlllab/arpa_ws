@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m
+area_only,992,1000,0.9920,6752.05,527.43,6223.47,2491.209

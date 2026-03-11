@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m,avg_manipulability
+area_only,990,1000,0.9900,6836.79,573.87,6261.70,2499.413,0.421378

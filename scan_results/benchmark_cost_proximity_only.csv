@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m,avg_manipulability
+proximity_only,993,1000,0.9930,4656.07,443.50,4211.14,1857.265,0.700394

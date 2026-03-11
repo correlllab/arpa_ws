@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m
+all_equal,990,1000,0.9900,4296.95,292.44,4003.37,1684.099

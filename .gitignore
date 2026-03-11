@@ -13,6 +13,6 @@ src/arpa_vision/arpa_vision/scripts/dataset/
 *__pycache__*
 .cursor/*
 src/ur_msgs/
-scan_results/*
+# scan_results/*
 *.pkl
 *rosbag*

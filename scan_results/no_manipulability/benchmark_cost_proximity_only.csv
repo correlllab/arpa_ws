@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m
+proximity_only,995,1000,0.9950,4687.90,448.94,4237.78,1864.360

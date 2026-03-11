@@ -1,0 +1,2 @@
+case,completed,total,success_rate,wall_s,sum_plan_time_s,sum_execution_time_s,sum_path_length_m
+no_joint,991,1000,0.9910,4698.98,360.16,4337.47,1983.715
