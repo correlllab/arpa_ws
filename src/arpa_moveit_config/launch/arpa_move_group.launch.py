@@ -359,6 +359,9 @@ def launch_setup(context, *args, **kwargs):
 
     # Servo node for realtime control
     servo_yaml = load_yaml("ur_moveit_config", "config/ur_servo.yaml")
+    # Use the active joint_trajectory_controller instead of the non-existent forward_position_controller
+    servo_yaml["command_out_type"] = "trajectory_msgs/JointTrajectory"
+    servo_yaml["command_out_topic"] = "/joint_trajectory_controller/commands"
     servo_params = {"moveit_servo": servo_yaml}
     servo_node = Node(
         package="moveit_servo",

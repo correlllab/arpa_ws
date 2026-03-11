@@ -32,7 +32,7 @@ import cv2
 from std_msgs.msg import String
 
 BASE_FRAME = "floor_link"
-EE_FRAME = "wrist_3_link"
+EE_FRAME = "tool0"
 
 
 
@@ -94,8 +94,9 @@ class CoreNode(Node):
         self.servo_twist_pub = self.create_publisher(TwistStamped, '/servo_node/delta_twist_cmds', 10)
         self.servo_status_sub = self.create_subscription(Int8, '/servo_node/status', self._servo_status_cb, 10)
         self._servo_status: int = -1
-        self.servo_start_client = self.create_client(Trigger, '/servo_node/start_servo')
-        self.servo_stop_client = self.create_client(Trigger, '/servo_node/stop_servo')
+        self._servo_started: bool = False
+        self.servo_start_client = self.create_client(Trigger, '/servo_node/start_servo', callback_group=self._reentrant_cb_group)
+        self.servo_stop_client = self.create_client(Trigger, '/servo_node/stop_servo', callback_group=self._reentrant_cb_group)
 
 
         self.get_logger().info("Core services ready!")
@@ -267,11 +268,11 @@ class CoreNode(Node):
     def servo_twist(self, x: float, y: float, z: float,
                     roll: float, pitch: float, yaw: float,
                     frame_id: str = EE_FRAME):
-        print("IMPLEMENTATION INCOMPLETE")
-        return
-        # Start servo if not yet started (status -1 = never received, 0 = NO_WARNING = running)
-        if self._servo_status == -1:
-            self.get_logger().info(f"Servo status={self._servo_status}, starting servo...")
+        # print("IMPLEMENTATION INCOMPLETE")
+        # return
+        # Start servo once; after that just publish
+        if not self._servo_started:
+            self.get_logger().info("Starting servo...")
             if not self.servo_start_client.wait_for_service(timeout_sec=2.0):
                 self.get_logger().error("start_servo service not available")
                 return
@@ -279,6 +280,7 @@ class CoreNode(Node):
             while not future.done():
                 time.sleep(0.05)
             self.get_logger().info(f"start_servo: {future.result().message}")
+            self._servo_started = True
             time.sleep(0.1)  # brief settle before publishing
 
         all_zero = (x == 0.0 and y == 0.0 and z == 0.0 and
@@ -292,7 +294,7 @@ class CoreNode(Node):
             while not future.done():
                 time.sleep(0.05)
             self.get_logger().info(f"stop_servo: {future.result().message}")
-            self._servo_status = -1  # force re-start on next use
+            self._servo_started = False  # force re-start on next use
             return
 
         msg = TwistStamped()
@@ -955,7 +957,7 @@ def main(args=None):
             elif choice == "6":
                 # raw = input("x y z roll pitch yaw: ").strip().split()
                 # v = np.array([float(n) for n in raw])
-                v = np.array([0.1, 0, 0, 0, 0, 0])
+                v = np.array([0, 0, 0.1, 0, 0, 0])
                 norm = np.linalg.norm(v)
                 if norm > 0:
                     v = v / norm * 0.1
