@@ -56,6 +56,8 @@ class CoreNode(Node):
         self.create_service(UnscrewPose, 'unscrew_pose', self._unscrew_cb, callback_group=self._reentrant_cb_group)
         self.unscrew_client = self.create_client(UnscrewPose, 'unscrew_pose', callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
+        self.capture_client = self.create_client(Trigger, 'record_images/capture')
+        self.save_imgs = False
 
 
         self.latest_detection_bundle: DetectionBundle = None
@@ -222,6 +224,27 @@ class CoreNode(Node):
         self.execute_plan()
         time.sleep(1)
 
+        if request.visual_servo:
+            self.behavior_publisher.publish(String(data="second sight"))
+            screw_pose = PoseStamped()
+            screw_pose.header = pose.header
+            screw_pose.pose.position.x = pose.pose.position.x
+            screw_pose.pose.position.y = pose.pose.position.y
+            screw_pose.pose.position.z = pose.pose.position.z
+            screw_pose.pose.orientation = pose.pose.orientation
+            alignment_result = self.align_to_screw_img(initial_screw_pose=screw_pose)
+            self.get_logger().info(f"Second sight done final result={alignment_result}. Proceeding with removal (screw may be occluded by EE when aligned).")
+
+        if self.capture_client.service_is_ready() and self.save_imgs:
+            future = self.capture_client.call_async(Trigger.Request())
+            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
+            if future.done():
+                self.get_logger().info(f"  Captured img: {future.result().message}")
+            else:
+                self.get_logger().warn(f"  Capture timed out at orientation")
+        else:
+            self.get_logger().warn(f"  Capture service not available at orientation or self.save_imgs is false {self.save_imgs=}, skipping")
+
         self.behavior_publisher.publish(String(data="removal"))
         self.motor_control(100)
         self.trigger_with_retry("ZForce")
@@ -243,7 +266,35 @@ class CoreNode(Node):
 
     def servo_twist(self, x: float, y: float, z: float,
                     roll: float, pitch: float, yaw: float,
-                    frame_id: str = BASE_FRAME):
+                    frame_id: str = EE_FRAME):
+        print("IMPLEMENTATION INCOMPLETE")
+        return
+        # Start servo if not yet started (status -1 = never received, 0 = NO_WARNING = running)
+        if self._servo_status == -1:
+            self.get_logger().info(f"Servo status={self._servo_status}, starting servo...")
+            if not self.servo_start_client.wait_for_service(timeout_sec=2.0):
+                self.get_logger().error("start_servo service not available")
+                return
+            future = self.servo_start_client.call_async(Trigger.Request())
+            while not future.done():
+                time.sleep(0.05)
+            self.get_logger().info(f"start_servo: {future.result().message}")
+            time.sleep(0.1)  # brief settle before publishing
+
+        all_zero = (x == 0.0 and y == 0.0 and z == 0.0 and
+                    roll == 0.0 and pitch == 0.0 and yaw == 0.0)
+
+        if all_zero:
+            if not self.servo_stop_client.wait_for_service(timeout_sec=2.0):
+                self.get_logger().warn("stop_servo service not available")
+                return
+            future = self.servo_stop_client.call_async(Trigger.Request())
+            while not future.done():
+                time.sleep(0.05)
+            self.get_logger().info(f"stop_servo: {future.result().message}")
+            self._servo_status = -1  # force re-start on next use
+            return
+
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = frame_id
@@ -254,6 +305,7 @@ class CoreNode(Node):
         msg.twist.angular.y = pitch
         msg.twist.angular.z = yaw
         self.servo_twist_pub.publish(msg)
+
 
     def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         req = PlanToPose.Request()
@@ -488,51 +540,14 @@ class CoreNode(Node):
             self.get_logger().info(f"Behavior: {result.message}")
         else:
             self.get_logger().error(f"Behavior failed: {result.message}")
+
+
+        #TODO play behaviors without the need to call play independently
+        # if not behavior in  ("ros2control", "externalcontrol", "play"):
+        #     return result.success
+        
         return result.success
     
-    def detection_bundle_to_pointclouds(self, bundle: DetectionBundle):
-        """Return a list of o3d.geometry.PointCloud (world frame), one per detection in the bundle.
-        Entries are None for detections with no valid depth points."""
-        # Decode compressedDepth image (12-byte config header before PNG payload)
-        depth_buf = np.frombuffer(bytes(bundle.depth_image.data)[12:], dtype=np.uint8)
-        depth_raw = cv2.imdecode(depth_buf, cv2.IMREAD_UNCHANGED)  # uint16 mm
-        if depth_raw is None:
-            raise RuntimeError("Failed to decode depth image")
-
-        h, w = depth_raw.shape
-        fx, fy = bundle.camera_info.k[0], bundle.camera_info.k[4]
-        cx, cy = bundle.camera_info.k[2], bundle.camera_info.k[5]
-        intrinsic = o3d.camera.PinholeCameraIntrinsic(w, h, fx, fy, cx, cy)
-
-        # Open3D extrinsic is world-to-camera (inverse of cam-to-world)
-        cp = bundle.camera_pose.pose
-        cam_rot = Rotation.from_quat([cp.orientation.x, cp.orientation.y,
-                                      cp.orientation.z, cp.orientation.w]).as_matrix()
-        T_cam_to_world = np.eye(4)
-        T_cam_to_world[:3, :3] = cam_rot
-        T_cam_to_world[:3, 3] = [cp.position.x, cp.position.y, cp.position.z]
-        extrinsic = np.linalg.inv(T_cam_to_world)
-
-        point_clouds = []
-        for det in bundle.detections:
-            x1 = max(0, int(det.bbox_min.x));  y1 = max(0, int(det.bbox_min.y))
-            x2 = min(w, int(det.bbox_max.x));  y2 = min(h, int(det.bbox_max.y))
-            if x2 <= x1 or y2 <= y1:
-                point_clouds.append(None)
-                continue
-
-            # Zero pixels outside the bbox so only the ROI contributes;
-            # pixel positions are preserved for correct unprojection.
-            depth_masked = np.zeros_like(depth_raw)
-            depth_masked[y1:y2, x1:x2] = depth_raw[y1:y2, x1:x2]
-
-            pcd = o3d.geometry.PointCloud.create_from_depth_image(
-                o3d.geometry.Image(depth_masked), intrinsic, extrinsic,
-                depth_scale=1000.0, depth_trunc=0.5)
-            pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=100, std_ratio=0.05)
-            point_clouds.append(pcd if len(pcd.points) > 0 else None)
-
-        return point_clouds
 
     def align_to_screw_img(self, initial_screw_pose=None):
         # Lock orientation from the first bundle so it doesn't drift across steps
@@ -708,53 +723,6 @@ class CoreNode(Node):
         self.obj_bbox_point = p_world[:3]
         cam_z = T_cam_to_world[2, 3]  # maintain current height
         plan_success = self.plan_camera_to_pose(cx, cy, cam_z, qx, qy, qz, qw)
-        if not plan_success:
-            self.get_logger().error("Failed to plan to above-screw pose")
-            return False
-        return self.execute_plan()
-
-    def align_to_screw_pcd(self, initial_screw_pose=None):
-        bundle = self.latest_detection_bundle
-        if bundle is None:
-            self.get_logger().error("No detection bundle available")
-            return False
-
-        detections = [d for d in bundle.detections if d.cls.lower() in ["screw", "nut"]]
-        if not detections:
-            self.get_logger().warn("No detections in bundle")
-            return False
-        point_clouds = self.detection_bundle_to_pointclouds(bundle)
-
-        ref_point = bundle.camera_pose.pose.position if initial_screw_pose is None else initial_screw_pose.pose.position
-        best_det, best_pcd, best_dist = None, None, float('inf')
-        for det, pcd in zip(detections, point_clouds):
-            if pcd is None or len(pcd.points) == 0:
-                continue
-            dist = np.linalg.norm(np.asarray(pcd.points) - np.array([ref_point.x, ref_point.y, ref_point.z]), axis=1).min()
-            self.get_logger().info(f"  det '{det.cls}' dist to ref={dist:.3f}m")
-            if dist < best_dist:
-                best_dist, best_det, best_pcd = dist, det, pcd
-        if best_det is None:
-            self.get_logger().error("No valid point clouds for any detections")
-            return False
-        if best_dist > self.DIST_TOLERANCE and initial_screw_pose is not None:
-            self.get_logger().error(f"No detections within {self.DIST_TOLERANCE:.3f}m of ref_point (closest={best_dist:.3f}m)")
-            return False
-        self.get_logger().info(f"Best match: '{best_det.cls}' with dist={best_dist:.3f}m")
-
-        centroid = best_pcd.get_center()
-        self.obj_bbox_point = centroid
-        cx, cy, cz = centroid
-
-        # --- Orientation: tool-Z down, tool-Y toward origin ---
-        z_axis = np.array([0.0, 0.0, -1.0])
-        y_dir  = np.array([-cx, -cy, 0.0])
-        y_norm = np.linalg.norm(y_dir)
-        y_axis = y_dir / y_norm if y_norm > 1e-6 else np.array([0.0, 1.0, 0.0])
-        x_axis = np.cross(y_axis, z_axis)
-        qx, qy, qz, qw = Rotation.from_matrix(np.column_stack([x_axis, y_axis, z_axis])).as_quat()
-
-        plan_success = self.plan_toolhead_to_pose(cx, cy, 0.91, qx, qy, qz, qw)
         if not plan_success:
             self.get_logger().error("Failed to plan to above-screw pose")
             return False
@@ -985,7 +953,17 @@ def main(args=None):
                 node.motor_control(speed)
 
             elif choice == "6":
-                print("not implemented yet`")
+                # raw = input("x y z roll pitch yaw: ").strip().split()
+                # v = np.array([float(n) for n in raw])
+                v = np.array([0.1, 0, 0, 0, 0, 0])
+                norm = np.linalg.norm(v)
+                if norm > 0:
+                    v = v / norm * 0.1
+                start_time = time.time()
+                while time.time() - start_time < 1:
+                    node.servo_twist(*v)
+                v = np.array([0,0,0,0,0,0])
+                node.servo_twist(*v)
 
             elif choice == "7":
                 node.align_to_screw_img(None)
@@ -1001,6 +979,7 @@ def main(args=None):
                 x, y, z, qx, qy, qz, qw = [1.026, -0.477, 0.857, -0.241, 0.971, 0.002, 0.000]
                 req = UnscrewPose.Request()
                 req.target_pose.header.frame_id = BASE_FRAME
+                req.visual_servo = True
                 req.target_pose.pose.position.x = x
                 req.target_pose.pose.position.y = y
                 req.target_pose.pose.position.z = z
