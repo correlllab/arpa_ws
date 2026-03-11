@@ -234,12 +234,6 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
-    arpa_gui = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            get_package_share_directory("arpa_gui") + "/launch/arpa_gui.launch.py"
-        )
-    )
-
     static_tf_world_to_floor = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -357,14 +351,25 @@ def launch_setup(context, *args, **kwargs):
     # Start move_group and motion_control after controllers are loaded (spawners run after entity spawn).
     # Avoids "controller_manager_ does not exist" / "Unable to identify controllers" at execute.
     delayed_moveit_and_motion = TimerAction(
-        period=28.0,
+        period=3.0,
         actions=[arpa_moveit_launch, arpa_motion_control],
+    )
+
+    rosbridge_mcp = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            get_package_share_directory("arpa_bringup") + "/launch/rosbridge_mcp.launch.py"
+        ),
+        launch_arguments={
+            "port":         "9090",
+            "address":      "",
+            "params_file":  os.path.join(get_package_share_directory('arpa_bringup'), 'config', 'rosbridge_params.yaml'),
+        }.items(),
     )
 
     to_return = [
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
-        arpa_gui,
+        rosbridge_mcp,
         static_tf_world_to_floor,
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":

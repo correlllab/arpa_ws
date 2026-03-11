@@ -10,9 +10,10 @@ src/gazebo_ros2_control/gazebo_ros2_control_demos/COLCON_IGNORE
 *.pth
 src/arpa_vision/arpa_vision/scripts/runs/
 src/arpa_vision/arpa_vision/scripts/dataset/
-__pycache__/
+*__pycache__*
 .cursor/*
 src/ur_msgs/
 scan_results/*
 *.pkl
-*/rosbag*/
+*rosbag*
+.vscode
