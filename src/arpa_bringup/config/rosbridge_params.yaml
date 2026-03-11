@@ -2,6 +2,6 @@ rosbridge_websocket:
   ros__parameters:
     port: 9090
     topics_glob: "[/joint_states, /tf, /tf_static]"
-    services_glob: "[/plan_to_pose, /execute_plan, /stop_motion, /update_depth, /rosapi/services, /rosapi/get_ros_version, /rosapi/nodes]"
+    services_glob: "[/plan_to_pose, /execute_plan, /rosapi/services, /rosapi/get_ros_version, /rosapi/nodes]"
     actions_glob: "[]"
     params_glob: "[]"
