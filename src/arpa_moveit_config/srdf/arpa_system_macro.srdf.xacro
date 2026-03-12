@@ -30,7 +30,7 @@
       <joint name="wrist_3_joint"/>
     </group>
     <group_state name="actuator_home" group="linear_actuator_axis">
-      <joint name="linear_actuator_to_linear_actuator_plate_joint" value="-1.12"/>
+      <joint name="linear_actuator_to_linear_actuator_plate_joint" value="0.45"/>
     </group_state>
     <group_state name="arm_home" group="ur_manipulator">
       <joint name="elbow_joint" value="2.3387"/>
@@ -41,7 +41,7 @@
       <joint name="wrist_3_joint" value="1.1868"/>
     </group_state>
     <group_state name="arpa_home" group="ur16e_on_gantry">
-      <joint name="linear_actuator_to_linear_actuator_plate_joint" value="-1.12"/>
+      <joint name="linear_actuator_to_linear_actuator_plate_joint" value="0.45"/>
       <joint name="shoulder_pan_joint" value="-2.7576"/>
       <joint name="shoulder_lift_joint" value="-2.6179"/>
       <joint name="elbow_joint" value="2.3386"/>

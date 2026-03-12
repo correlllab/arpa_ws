@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
-from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, UnscrewPose
+from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart
 from std_srvs.srv import Trigger
 from std_msgs.msg import Int8
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
@@ -33,6 +33,10 @@ from std_msgs.msg import String
 
 BASE_FRAME = "floor_link"
 EE_FRAME = "tool0"
+
+Z_OFFSET_M = 0.03
+REMOVE_WAIT_SECONDS = 4
+MOTOR_SPEED = 100
 
 
 
@@ -63,6 +67,10 @@ class CoreNode(Node):
         self.latest_detection_bundle: DetectionBundle = None
         _det_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(DetectionBundle, '/realsense/ee_cam/detections', self._detection_bundle_cb, _det_qos)
+
+        self.remove_part_service = self.create_service(
+            RemovePart, 'remove_part', self._handle_remove_part
+        )
 
         # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
@@ -112,7 +120,7 @@ class CoreNode(Node):
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
 
-        self.get_logger().info("Looking up wrist_3_link -> tool_head_link transform...")
+        self.get_logger().info("Looking up wrist_3_link -> tool frame transform...")
         self.T_wrist3_to_toolhead = None
         self.T_wrist3_to_camera_optical = None
         while self.T_wrist3_to_toolhead is None or self.T_wrist3_to_camera_optical is None:
@@ -308,8 +316,7 @@ class CoreNode(Node):
         msg.twist.angular.z = yaw
         self.servo_twist_pub.publish(msg)
 
-
-    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
+    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world", use_cartesian=False):
         req = PlanToPose.Request()
         req.target_pose.header.frame_id = frame_id
         req.target_pose.pose.position.x = x
@@ -319,10 +326,11 @@ class CoreNode(Node):
         req.target_pose.pose.orientation.y = qy
         req.target_pose.pose.orientation.z = qz
         req.target_pose.pose.orientation.w = qw
+        req.use_cartesian = use_cartesian
 
         self.get_logger().info(f"Planning to pose: x={x:.3f}, y={y:.3f}, z={z:.3f}, "
                                f"qx={qx:.3f}, qy={qy:.3f}, qz={qz:.3f}, qw={qw:.3f} "
-                               f"in frame '{frame_id}'")
+                               f"in frame '{frame_id}' (cartesian={use_cartesian})")
 
         future = self.plan_client.call_async(req)
         while not future.done():
@@ -353,8 +361,7 @@ class CoreNode(Node):
         target_toolhead = np.eye(4)
         target_toolhead[:3, :3] = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
         target_toolhead[:3, 3] = [x, y, z]
-        # target_wrist3 = target_toolhead @ self.T_toolhead_to_wrist3
-        target_wrist3 = target_toolhead @ self.T_wrist3_to_toolhead 
+        target_wrist3 = target_toolhead @ self.T_toolhead_to_wrist3
 
 
         wx, wy, wz = target_wrist3[:3, 3]
