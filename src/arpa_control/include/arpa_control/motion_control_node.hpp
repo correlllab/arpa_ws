@@ -65,6 +65,10 @@ private:
       const std::shared_ptr<arpa_control::srv::GetPoseCostMatrix::Request> request,
       std::shared_ptr<arpa_control::srv::GetPoseCostMatrix::Response> response);
 
+  void planToPoseRelativeCallback(
+      const std::shared_ptr<arpa_control::srv::PlanToPose::Request> request,
+      std::shared_ptr<arpa_control::srv::PlanToPose::Response> response);
+
   void updateDepthCallback(
       const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
       std::shared_ptr<std_srvs::srv::Trigger::Response> response);
@@ -76,6 +80,7 @@ private:
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_depth_reset_client;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr m_update_depth_service;
   rclcpp::Service<arpa_control::srv::PlanToPose>::SharedPtr m_plan_to_pose_service;
+  rclcpp::Service<arpa_control::srv::PlanToPose>::SharedPtr m_plan_to_pose_relative_service;
   rclcpp::Service<arpa_control::srv::ExecutePlan>::SharedPtr m_execute_plan_service;
   rclcpp::Service<arpa_control::srv::StopMotion>::SharedPtr m_stop_motion_service;
   rclcpp::Service<arpa_control::srv::GetPoseCostMatrix>::SharedPtr m_get_pose_cost_matrix_service;
