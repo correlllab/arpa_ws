@@ -27,6 +27,10 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
       "plan_to_pose",
       std::bind(&MotionControlNode::planToPoseCallback, this, std::placeholders::_1, std::placeholders::_2));
 
+  m_plan_to_pose_relative_service = this->create_service<arpa_control::srv::PlanToPose>(
+      "plan_to_pose_relative",
+      std::bind(&MotionControlNode::planToPoseRelativeCallback, this, std::placeholders::_1, std::placeholders::_2));
+
   m_execute_plan_service = this->create_service<arpa_control::srv::ExecutePlan>(
       "execute_plan",
       std::bind(&MotionControlNode::executePlanCallback, this, std::placeholders::_1, std::placeholders::_2));
@@ -604,6 +608,70 @@ void MotionControlNode::planToPoseCallback(
 
 }
 
+
+void MotionControlNode::planToPoseRelativeCallback(
+    const std::shared_ptr<arpa_control::srv::PlanToPose::Request> request,
+    std::shared_ptr<arpa_control::srv::PlanToPose::Response> response)
+{
+  RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseRelativeCallback() START");
+
+  // Look up current wrist_3_link pose in the planning frame
+  geometry_msgs::msg::TransformStamped wrist_tf;
+  try {
+    wrist_tf = m_tf_buffer->lookupTransform(
+        m_move_group->getPlanningFrame(), "wrist_3_link", tf2::TimePointZero);
+  } catch (const tf2::TransformException& ex) {
+    RCLCPP_ERROR(get_logger(), "Failed to look up wrist_3_link transform: %s", ex.what());
+    response->success = false;
+    response->message = std::string("TF lookup failed: ") + ex.what();
+    return;
+  }
+
+  // Current wrist position and orientation
+  Eigen::Vector3d current_pos(
+      wrist_tf.transform.translation.x,
+      wrist_tf.transform.translation.y,
+      wrist_tf.transform.translation.z);
+  Eigen::Quaterniond current_quat(
+      wrist_tf.transform.rotation.w,
+      wrist_tf.transform.rotation.x,
+      wrist_tf.transform.rotation.y,
+      wrist_tf.transform.rotation.z);
+
+  // Offset from request (treated as relative displacement)
+  const auto& offset = request->target_pose.pose;
+  Eigen::Vector3d offset_pos(offset.position.x, offset.position.y, offset.position.z);
+  Eigen::Quaterniond offset_quat(
+      offset.orientation.w,
+      offset.orientation.x,
+      offset.orientation.y,
+      offset.orientation.z);
+
+  // Compute absolute target = current + offset
+  Eigen::Vector3d target_pos = current_pos + offset_pos;
+  Eigen::Quaterniond target_quat = current_quat * offset_quat;
+  target_quat.normalize();
+
+  // Build the absolute pose request and forward to planToPoseCallback
+  auto absolute_request = std::make_shared<arpa_control::srv::PlanToPose::Request>(*request);
+  absolute_request->target_pose.header.frame_id = m_move_group->getPlanningFrame();
+  absolute_request->target_pose.pose.position.x = target_pos.x();
+  absolute_request->target_pose.pose.position.y = target_pos.y();
+  absolute_request->target_pose.pose.position.z = target_pos.z();
+  absolute_request->target_pose.pose.orientation.x = target_quat.x();
+  absolute_request->target_pose.pose.orientation.y = target_quat.y();
+  absolute_request->target_pose.pose.orientation.z = target_quat.z();
+  absolute_request->target_pose.pose.orientation.w = target_quat.w();
+
+  RCLCPP_INFO(get_logger(),
+      "[planToPoseRelative] wrist_3_link current: [%.3f, %.3f, %.3f], offset: [%.3f, %.3f, %.3f], target: [%.3f, %.3f, %.3f]",
+      current_pos.x(), current_pos.y(), current_pos.z(),
+      offset_pos.x(), offset_pos.y(), offset_pos.z(),
+      target_pos.x(), target_pos.y(), target_pos.z());
+
+  planToPoseCallback(absolute_request, response);
+  RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseRelativeCallback() END");
+}
 
 void MotionControlNode::executePlanCallback(
     const std::shared_ptr<arpa_control::srv::ExecutePlan::Request> request,
