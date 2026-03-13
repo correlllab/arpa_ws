@@ -8,25 +8,17 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 from core_functionality_node import CoreNode
 import time
+from custom_ros_messages.srv import UnscrewPose
 
-HEIGHT_OFFSET = 0.075  # Adjust as needed for the gripper's approach height
-
-def trigger_with_retry(node, behavior, retries=3):
-    for attempt in range(1, retries + 1):
-        if node.trigger_behavior(behavior):
-            return True
-        node.get_logger().warn(f"Behavior '{behavior}' failed (attempt {attempt}/{retries}), retrying...")
-        time.sleep(1)
-    node.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
-    return False
-
-    
 def main(args=None):
-
+    #create everything we need
     rclpy.init(args=args)
     node = CoreNode()
+    node.visualize_detections()
     node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
 
+    SECOND_LOOK = False
+    
     # Get detections from vision node
     client = node.create_client(Trigger, '/arpa_vision_node/get_detections_json')
     node.get_logger().info("Waiting for /arpa_vision_node/get_detections_json service...")
@@ -42,14 +34,12 @@ def main(args=None):
         return
     detections = json.loads(response.message)
     # node.get_logger().info(f"Got detections: {detections}")
-    REMOVAL_BEHAVIOR = "ZForce"#SpiralForce" #"SpiralForce" or ZForce 
-
+    
+    
     # Convert centroids to PoseStamped for TSP ordering
     pose_stamped_list = []
     label_list = []
     for label, centroid in detections.items():
-        # print(f"{label=}")
-        # print(f"{label.lower().split('_')[0]=}")
         if not any(label.lower().split('_')[0] == k for k in ('nut', 'screw')):
             continue
         cx, cy, cz = centroid
@@ -67,7 +57,7 @@ def main(args=None):
         ps.header.frame_id = 'floor_link'
         ps.pose.position.x = cx
         ps.pose.position.y = cy
-        ps.pose.position.z = cz + HEIGHT_OFFSET
+        ps.pose.position.z = cz
         ps.pose.orientation.x = qx
         ps.pose.orientation.y = qy
         ps.pose.orientation.z = qz
@@ -81,9 +71,12 @@ def main(args=None):
     ordered_labels = [_pose_id_to_label[id(p)] for p in ordered_poses]
     node.get_logger().info(f"Got {len(ordered_poses)} poses from vision (TSP ordered).")
 
+    
+
     try:
         for label, pose in zip(ordered_labels, ordered_poses):
             node.get_logger().info(f"\n\nProcessing {label} at position=({pose.pose.position.x:.3f}, {pose.pose.position.y:.3f}, {pose.pose.position.z:.3f})")
+
             x = pose.pose.position.x
             y = pose.pose.position.y
             z = pose.pose.position.z
@@ -91,32 +84,24 @@ def main(args=None):
             qy = pose.pose.orientation.y
             qz = pose.pose.orientation.z
             qw = pose.pose.orientation.w
-            plan_successful = False
-            tries = 0
-            while not plan_successful and tries < 3:
-                tries += 1
-                success = node.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw)
-                if success:
-                    plan_successful = True
-                    node.get_logger().info("Planning succeeded!")
-                else:
-                    node.get_logger().warn(f"Planning failed, retrying... (attempt {tries}/3)")
-            if not plan_successful:
-                node.get_logger().error("Failed to plan after 3 attempts, skipping this target.")
-                continue       
-            node.execute_plan()
 
-            trigger_with_retry(node, REMOVAL_BEHAVIOR)
-            node.motor_control(100)
-            trigger_with_retry(node, "play")
-            time.sleep(2)
 
-            trigger_with_retry(node, "retract")
-            trigger_with_retry(node, "play")
-            time.sleep(1)
+            req = UnscrewPose.Request()
+            req.visual_servo = SECOND_LOOK
+            req.target_pose.header.frame_id = "floor_link"
+            req.target_pose.pose.position.x = x
+            req.target_pose.pose.position.y = y
+            req.target_pose.pose.position.z = z
+            req.target_pose.pose.orientation.x = qx
+            req.target_pose.pose.orientation.y = qy
+            req.target_pose.pose.orientation.z = qz
+            req.target_pose.pose.orientation.w = qw
+            future = node.unscrew_client.call_async(req)
+            while not future.done():
+                time.sleep(0.05)
+            result = future.result()
+            print(f"Unscrew result: {result.success} — {result.message}")
 
-            node.motor_control(0)
-            trigger_with_retry(node, "ros2control")
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
     finally:
