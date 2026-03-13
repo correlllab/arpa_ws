@@ -44,7 +44,7 @@ class CoreNode(Node):
     def __init__(self):
         super().__init__('core_functionality_node')
 
-        # ReentrantCallbackGroup allows _unscrew_cb to block while client response
+        # ReentrantCallbackGroup allows _remove_part_cb to block while client response
         # callbacks (plan, exec, motor, behavior) run concurrently in the same group.
         # Without this, the default MutuallyExclusiveCallbackGroup would deadlock.
         self._reentrant_cb_group = ReentrantCallbackGroup()
@@ -57,8 +57,8 @@ class CoreNode(Node):
         self.update_depth_client = self.create_client(Trigger, 'update_depth', callback_group=self._reentrant_cb_group)
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix', callback_group=self._reentrant_cb_group)
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
-        self.create_service(UnscrewPose, 'unscrew_pose', self._unscrew_cb, callback_group=self._reentrant_cb_group)
-        self.unscrew_client = self.create_client(UnscrewPose, 'unscrew_pose', callback_group=self._reentrant_cb_group)
+        self.create_service(RemovePart, 'remove_part', self._remove_part_cb, callback_group=self._reentrant_cb_group)
+        self.remove_part_client = self.create_client(RemovePart, 'remove_part', callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
         self.capture_client = self.create_client(Trigger, 'record_images/capture')
         self.save_imgs = False
@@ -68,9 +68,9 @@ class CoreNode(Node):
         _det_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(DetectionBundle, '/realsense/ee_cam/detections', self._detection_bundle_cb, _det_qos)
 
-        self.remove_part_service = self.create_service(
-            RemovePart, 'remove_part', self._handle_remove_part
-        )
+        # self.remove_part_service = self.create_service(
+        #     RemovePart, 'remove_part', self._handle_remove_part
+        # )
 
         # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
@@ -99,12 +99,12 @@ class CoreNode(Node):
             self.get_logger().warn("get_pose_cost_matrix service not available (will use pose list order without TSP optimization)")
 
         # Servo node
-        self.servo_twist_pub = self.create_publisher(TwistStamped, '/servo_node/delta_twist_cmds', 10)
-        self.servo_status_sub = self.create_subscription(Int8, '/servo_node/status', self._servo_status_cb, 10)
-        self._servo_status: int = -1
-        self._servo_started: bool = False
-        self.servo_start_client = self.create_client(Trigger, '/servo_node/start_servo', callback_group=self._reentrant_cb_group)
-        self.servo_stop_client = self.create_client(Trigger, '/servo_node/stop_servo', callback_group=self._reentrant_cb_group)
+        # self.servo_twist_pub = self.create_publisher(TwistStamped, '/servo_node/delta_twist_cmds', 10)
+        # self.servo_status_sub = self.create_subscription(Int8, '/servo_node/status', self._servo_status_cb, 10)
+        # self._servo_status: int = -1
+        # self._servo_started: bool = False
+        # self.servo_start_client = self.create_client(Trigger, '/servo_node/start_servo', callback_group=self._reentrant_cb_group)
+        # self.servo_stop_client = self.create_client(Trigger, '/servo_node/stop_servo', callback_group=self._reentrant_cb_group)
 
 
         self.get_logger().info("Core services ready!")
@@ -113,7 +113,7 @@ class CoreNode(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
-        # MultiThreadedExecutor so service callbacks (e.g. _unscrew_cb) can block on
+        # MultiThreadedExecutor so service callbacks (e.g. _remove_part_cb) can block on
         # nested service calls without starving the executor of threads to process responses.
         self._executor = rclpy.executors.MultiThreadedExecutor()
         self._executor.add_node(self)
@@ -189,8 +189,8 @@ class CoreNode(Node):
     def _detection_bundle_cb(self, msg: DetectionBundle):
         self.latest_detection_bundle = msg
 
-    def _servo_status_cb(self, msg: Int8):
-        self._servo_status = msg.data
+    # def _servo_status_cb(self, msg: Int8):
+    #     self._servo_status = msg.data
 
     def trigger_with_retry(self, behavior, retries=3):
         for attempt in range(1, retries + 1):
@@ -201,11 +201,11 @@ class CoreNode(Node):
         self.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
         return False
 
-    def _unscrew_cb(self, request: UnscrewPose.Request, response: UnscrewPose.Response):
+    def _remove_part_cb(self, request: RemovePart.Request, response: RemovePart.Response):
         pose = request.target_pose
         x  = pose.pose.position.x
         y  = pose.pose.position.y
-        z  = 0.91
+        z  = 0.90
         qx = pose.pose.orientation.x
         qy = pose.pose.orientation.y
         qz = pose.pose.orientation.z
@@ -270,53 +270,61 @@ class CoreNode(Node):
         self.trigger_with_retry("ros2control")
 
         response.success = True
-        response.message = "Unscrew complete"
+        response.message = "Remove Part complete"
         return response
 
-    def servo_twist(self, x: float, y: float, z: float,
-                    roll: float, pitch: float, yaw: float,
-                    frame_id: str = EE_FRAME):
-        # print("IMPLEMENTATION INCOMPLETE")
-        # return
-        # Start servo once; after that just publish
-        if not self._servo_started:
-            self.get_logger().info("Starting servo...")
-            if not self.servo_start_client.wait_for_service(timeout_sec=2.0):
-                self.get_logger().error("start_servo service not available")
-                return
-            future = self.servo_start_client.call_async(Trigger.Request())
-            while not future.done():
-                time.sleep(0.05)
-            self.get_logger().info(f"start_servo: {future.result().message}")
-            self._servo_started = True
-            time.sleep(0.1)  # brief settle before publishing
+    # def _start_servo(self) -> bool:
+    #     """Call start_servo service and wait for it. Returns True on success."""
+    #     if not self.servo_start_client.wait_for_service(timeout_sec=2.0):
+    #         self.get_logger().error("start_servo service not available")
+    #         return False
+    #     future = self.servo_start_client.call_async(Trigger.Request())
+    #     while not future.done():
+    #         time.sleep(0.05)
+    #     self.get_logger().info(f"start_servo: {future.result().message}")
+    #     self._servo_started = True
+    #     return True
 
-        all_zero = (x == 0.0 and y == 0.0 and z == 0.0 and
-                    roll == 0.0 and pitch == 0.0 and yaw == 0.0)
+    # def servo_twist(self, x: float, y: float, z: float,
+    #                 roll: float, pitch: float, yaw: float,
+    #                 frame_id: str = EE_FRAME):
+    #     # Re-start servo if not started or if it has halted (status 2=singularity, 5=collision, 6=joint bound)
+    #     servo_halted = self._servo_status in (2, 5, 6)
+    #     if not self._servo_started or servo_halted:
+    #         if servo_halted:
+    #             self.get_logger().warn(f"Servo halted (status={self._servo_status}), restarting...")
+    #         else:
+    #             self.get_logger().info("Starting servo...")
+    #         if not self._start_servo():
+    #             return
+    #         time.sleep(0.05)  # brief settle before publishing
 
-        if all_zero:
-            if not self.servo_stop_client.wait_for_service(timeout_sec=2.0):
-                self.get_logger().warn("stop_servo service not available")
-                return
-            future = self.servo_stop_client.call_async(Trigger.Request())
-            while not future.done():
-                time.sleep(0.05)
-            self.get_logger().info(f"stop_servo: {future.result().message}")
-            self._servo_started = False  # force re-start on next use
-            return
+    #     all_zero = (x == 0.0 and y == 0.0 and z == 0.0 and
+    #                 roll == 0.0 and pitch == 0.0 and yaw == 0.0)
 
-        msg = TwistStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = frame_id
-        msg.twist.linear.x = x
-        msg.twist.linear.y = y
-        msg.twist.linear.z = z
-        msg.twist.angular.x = roll
-        msg.twist.angular.y = pitch
-        msg.twist.angular.z = yaw
-        self.servo_twist_pub.publish(msg)
+    #     if all_zero:
+    #         if not self.servo_stop_client.wait_for_service(timeout_sec=2.0):
+    #             self.get_logger().warn("stop_servo service not available")
+    #             return
+    #         future = self.servo_stop_client.call_async(Trigger.Request())
+    #         while not future.done():
+    #             time.sleep(0.05)
+    #         self.get_logger().info(f"stop_servo: {future.result().message}")
+    #         self._servo_started = False  # force re-start on next use
+    #         return
 
-    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world", use_cartesian=False):
+    #     msg = TwistStamped()
+    #     msg.header.stamp = self.get_clock().now().to_msg()
+    #     msg.header.frame_id = frame_id
+    #     msg.twist.linear.x = x
+    #     msg.twist.linear.y = y
+    #     msg.twist.linear.z = z
+    #     msg.twist.angular.x = roll
+    #     msg.twist.angular.y = pitch
+    #     msg.twist.angular.z = yaw
+    #     self.servo_twist_pub.publish(msg)
+
+    def plan_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         req = PlanToPose.Request()
         req.target_pose.header.frame_id = frame_id
         req.target_pose.pose.position.x = x
@@ -326,11 +334,10 @@ class CoreNode(Node):
         req.target_pose.pose.orientation.y = qy
         req.target_pose.pose.orientation.z = qz
         req.target_pose.pose.orientation.w = qw
-        req.use_cartesian = use_cartesian
 
         self.get_logger().info(f"Planning to pose: x={x:.3f}, y={y:.3f}, z={z:.3f}, "
                                f"qx={qx:.3f}, qy={qy:.3f}, qz={qz:.3f}, qw={qw:.3f} "
-                               f"in frame '{frame_id}' (cartesian={use_cartesian})")
+                               f"in frame '{frame_id}'")
 
         future = self.plan_client.call_async(req)
         while not future.done():
@@ -465,7 +472,16 @@ class CoreNode(Node):
             self.get_logger().error(f"Depth update failed: {result.message}")
         return result.success
 
-    def add_collision_plane(self, plane_id, frame_id, x, y, z, size_x, size_y, thickness=0.02):
+    def add_collision_plane(self, plane_id = None, frame_id = None, x=None, y=None, z=None, size_x=None, size_y=None, thickness=None):
+        plane_id = "battery_do_not_cross" if plane_id is None else plane_id
+        frame_id = "floor_link" if frame_id is None else frame_id
+        x = 0.118 if x is None else x
+        y = -0.056 if y is None else y
+        z = 0.87 if z is None else z
+        size_x = 2.182 if size_x is None else size_x
+        size_y = 1.574 if size_y is None else size_y
+        thickness = 0.02 if thickness is None else thickness
+
         collision_object = CollisionObject()
         collision_object.header.frame_id = frame_id
         collision_object.header.stamp = self.get_clock().now().to_msg()
@@ -909,7 +925,7 @@ def print_menu():
     print("5. Motor control")
     print("6. Servo")
     print("7. Align to screw img")
-    print("8. Unscrew Service")
+    print("8. Remove Part Service")
     print("9. Motor test zforce then retract")
     print("0. Quit")
     print("========================")
@@ -918,9 +934,9 @@ def print_menu():
 def main(args=None):
     rclpy.init(args=args)
     node = CoreNode()
-    node.visualize_detections()
+    # node.visualize_detections()
     
-    node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
+    node.add_collision_plane()
 
     try:
         while True:
@@ -962,17 +978,19 @@ def main(args=None):
                 node.motor_control(speed)
 
             elif choice == "6":
+                print("sorry fam not implemented")
                 # raw = input("x y z roll pitch yaw: ").strip().split()
                 # v = np.array([float(n) for n in raw])
-                v = np.array([0, 0, 0.1, 0, 0, 0])
-                norm = np.linalg.norm(v)
-                if norm > 0:
-                    v = v / norm * 0.1
-                start_time = time.time()
-                while time.time() - start_time < 1:
-                    node.servo_twist(*v)
-                v = np.array([0,0,0,0,0,0])
-                node.servo_twist(*v)
+                # v = np.array([0.1, 0, 0, 0, 0, 0])
+                # norm = np.linalg.norm(v)
+                # if norm > 0:
+                #     v = v / norm * 0.1
+                # start_time = time.time()
+                # while time.time() - start_time < 1:
+                #     node.servo_twist(*v)
+                #     time.sleep(0.02)  # ~50 Hz, well within 0.1s incoming_command_timeout
+                # v = np.array([0,0,0,0,0,0])
+                # node.servo_twist(*v)
 
             elif choice == "7":
                 node.align_to_screw_img(None)
@@ -986,7 +1004,7 @@ def main(args=None):
 
             elif choice == "8":
                 x, y, z, qx, qy, qz, qw = [1.026, -0.477, 0.857, -0.241, 0.971, 0.002, 0.000]
-                req = UnscrewPose.Request()
+                req = RemovePart.Request()
                 req.target_pose.header.frame_id = BASE_FRAME
                 req.visual_servo = True
                 req.target_pose.pose.position.x = x
@@ -996,11 +1014,11 @@ def main(args=None):
                 req.target_pose.pose.orientation.y = qy
                 req.target_pose.pose.orientation.z = qz
                 req.target_pose.pose.orientation.w = qw
-                future = node.unscrew_client.call_async(req)
+                future = node.remove_part_client.call_async(req)
                 while not future.done():
                     time.sleep(0.05)
                 result = future.result()
-                print(f"Unscrew result: {result.success} — {result.message}")
+                print(f"RemovePart result: {result.success} — {result.message}")
             
             elif choice == "9":
                 node.motor_control(100)

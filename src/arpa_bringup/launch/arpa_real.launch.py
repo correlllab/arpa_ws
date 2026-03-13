@@ -10,6 +10,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+import os
 
 
 def launch_setup(context, *args, **kwargs):
@@ -325,6 +326,17 @@ def launch_setup(context, *args, **kwargs):
         arguments=["0", "0", "-0.165", "0", "0", "-3.14159", "test_ratchet_attachment", "test_ratchet_extension_link"]
     )
 
+    rosbridge_mcp = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            get_package_share_directory("arpa_bringup") + "/launch/rosbridge_mcp.launch.py"
+        ),
+        launch_arguments={
+            "port":         "9090",
+            "address":      "",
+            "params_file":  os.path.join(get_package_share_directory('arpa_bringup'), 'config', 'rosbridge_params.yaml'),
+        }.items(),
+    )
+
     return [
         ur_driver,
         ur_rest_api,
@@ -340,7 +352,8 @@ def launch_setup(context, *args, **kwargs):
         record_images_node,
         # recorded_poses_publisher
         test_static_tf_ratchet_attatchemnt,
-        test_static_tf_ratchet_ee
+        test_static_tf_ratchet_ee,
+        rosbridge_mcp
     ]
 
 

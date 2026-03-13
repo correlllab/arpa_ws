@@ -7,12 +7,12 @@ import time
 from std_msgs.msg import String
 import time
 from visualization_msgs.msg import MarkerArray
-from custom_ros_messages.srv import UnscrewPose
+from custom_ros_messages.srv import RemovePart
 
 def main(args=None):
     rclpy.init(args=args)
     node = CoreNode()
-    node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
+    node.add_collision_plane()
 
     # Marker subscription state (local to main)
     recorded_poses = []
@@ -66,15 +66,15 @@ def main(args=None):
 
     try:
         for i, pose in enumerate(ordered_poses):
-            req = UnscrewPose.Request()
+            req = RemovePart.Request()
             req.visual_servo = False
             req.target_pose.header.frame_id = "floor_link"
             req.target_pose.pose = pose.pose
-            future = node.unscrew_client.call_async(req)
+            future = node.RemovePart.call_async(req)
             while not future.done():
                 time.sleep(0.05)
             result = future.result()
-            print(f"Unscrew result: {result.success} — {result.message}")
+            print(f"RemovePart result: {result.success} — {result.message}")
             
             
     except KeyboardInterrupt:

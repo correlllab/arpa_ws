@@ -8,14 +8,14 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 from core_functionality_node import CoreNode
 import time
-from custom_ros_messages.srv import UnscrewPose
+from custom_ros_messages.srv import RemovePart
 
 def main(args=None):
     #create everything we need
     rclpy.init(args=args)
     node = CoreNode()
-    node.visualize_detections()
-    node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
+    # node.visualize_detections()
+    node.add_collision_plane()
 
     SECOND_LOOK = False
     
@@ -86,7 +86,7 @@ def main(args=None):
             qw = pose.pose.orientation.w
 
 
-            req = UnscrewPose.Request()
+            req = RemovePart.Request()
             req.visual_servo = SECOND_LOOK
             req.target_pose.header.frame_id = "floor_link"
             req.target_pose.pose.position.x = x
@@ -96,11 +96,11 @@ def main(args=None):
             req.target_pose.pose.orientation.y = qy
             req.target_pose.pose.orientation.z = qz
             req.target_pose.pose.orientation.w = qw
-            future = node.unscrew_client.call_async(req)
+            future = node.RemovePart.call_async(req)
             while not future.done():
                 time.sleep(0.05)
             result = future.result()
-            print(f"Unscrew result: {result.success} — {result.message}")
+            print(f"RemovePart result: {result.success} — {result.message}")
 
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
