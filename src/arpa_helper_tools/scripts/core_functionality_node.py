@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
-from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, UnscrewPose
+from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart
 from std_srvs.srv import Trigger
 from std_msgs.msg import Int8
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
@@ -53,8 +53,8 @@ class CoreNode(Node):
         self.update_depth_client = self.create_client(Trigger, 'update_depth', callback_group=self._reentrant_cb_group)
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix', callback_group=self._reentrant_cb_group)
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
-        self.create_service(UnscrewPose, 'unscrew_pose', self._unscrew_cb, callback_group=self._reentrant_cb_group)
-        self.unscrew_client = self.create_client(UnscrewPose, 'unscrew_pose', callback_group=self._reentrant_cb_group)
+        self.create_service(RemovePart, 'unscrew_pose', self._unscrew_cb, callback_group=self._reentrant_cb_group)
+        self.unscrew_client = self.create_client(RemovePart, 'unscrew_pose', callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
         self.capture_client = self.create_client(Trigger, 'record_images/capture')
         self.save_imgs = False
@@ -192,7 +192,7 @@ class CoreNode(Node):
         self.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
         return False
 
-    def _unscrew_cb(self, request: UnscrewPose.Request, response: UnscrewPose.Response):
+    def _unscrew_cb(self, request: RemovePart.Request, response: RemovePart.Response):
         pose = request.target_pose
         x  = pose.pose.position.x
         y  = pose.pose.position.y
@@ -977,7 +977,7 @@ def main(args=None):
 
             elif choice == "8":
                 x, y, z, qx, qy, qz, qw = [1.026, -0.477, 0.857, -0.241, 0.971, 0.002, 0.000]
-                req = UnscrewPose.Request()
+                req = RemovePart.Request()
                 req.target_pose.header.frame_id = BASE_FRAME
                 req.visual_servo = True
                 req.target_pose.pose.position.x = x

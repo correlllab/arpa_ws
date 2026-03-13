@@ -8,7 +8,7 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 from core_functionality_node import CoreNode
 import time
-from custom_ros_messages.srv import UnscrewPose
+from custom_ros_messages.srv import RemovePart
 
 def main(args=None):
     #create everything we need
@@ -86,7 +86,7 @@ def main(args=None):
             qw = pose.pose.orientation.w
 
 
-            req = UnscrewPose.Request()
+            req = RemovePart.Request()
             req.visual_servo = SECOND_LOOK
             req.target_pose.header.frame_id = "floor_link"
             req.target_pose.pose.position.x = x

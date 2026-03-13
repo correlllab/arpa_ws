@@ -7,7 +7,7 @@ import time
 from std_msgs.msg import String
 import time
 from visualization_msgs.msg import MarkerArray
-from custom_ros_messages.srv import UnscrewPose
+from custom_ros_messages.srv import RemovePart
 
 def main(args=None):
     rclpy.init(args=args)
@@ -66,7 +66,7 @@ def main(args=None):
 
     try:
         for i, pose in enumerate(ordered_poses):
-            req = UnscrewPose.Request()
+            req = RemovePart.Request()
             req.visual_servo = False
             req.target_pose.header.frame_id = "floor_link"
             req.target_pose.pose = pose.pose
