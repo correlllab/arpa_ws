@@ -17,7 +17,7 @@ def main(args=None):
     # node.visualize_detections()
     node.add_collision_plane()
 
-    SECOND_LOOK = False
+    SECOND_LOOK = True
     
     # Get detections from vision node
     client = node.create_client(Trigger, '/arpa_vision_node/get_detections_json')
@@ -96,7 +96,7 @@ def main(args=None):
             req.target_pose.pose.orientation.y = qy
             req.target_pose.pose.orientation.z = qz
             req.target_pose.pose.orientation.w = qw
-            future = node.RemovePart.call_async(req)
+            future = node.remove_part_client.call_async(req)
             while not future.done():
                 time.sleep(0.05)
             result = future.result()

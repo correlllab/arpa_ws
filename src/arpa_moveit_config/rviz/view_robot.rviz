@@ -4,19 +4,15 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /MotionPlanning1
         - /MotionPlanning1/Scene Geometry1
         - /MotionPlanning1/Scene Robot1
         - /MotionPlanning1/Planning Request1
-        - /TF1/Frames1
         - /TF1/Tree1
         - /EE_PC1/Topic1
-        - /AccumulatedPC1
         - /AccumulatedPC1/Topic1
         - /AnnotatedImage1/Topic1
         - /OriginalImage1/Topic1
         - /DetectionMarkerArray1/Topic1
-        - /DetectedPointCloud21
         - /DetectedPointCloud21/Topic1
       Splitter Ratio: 0.5010989308357239
     Tree Height: 1209
@@ -391,19 +387,139 @@ Visualization Manager:
       Value: true
       Velocity_Scaling_Factor: 0.1
     - Class: rviz_default_plugins/TF
-      Enabled: false
+      Enabled: true
       Frame Timeout: 15
       Frames:
         All Enabled: false
+        actuator_motor_link:
+          Value: false
+        arm_mount_plate:
+          Value: false
+        base:
+          Value: false
+        base_link:
+          Value: false
+        base_link_inertia:
+          Value: false
+        ee_cam_color_frame:
+          Value: false
+        ee_cam_color_optical_frame:
+          Value: false
+        ee_cam_depth_frame:
+          Value: false
+        ee_cam_depth_optical_frame:
+          Value: false
+        ee_cam_link:
+          Value: false
+        flange:
+          Value: false
+        floor_link:
+          Value: false
+        forearm_link:
+          Value: false
+        ft_frame:
+          Value: false
+        gantry_link:
+          Value: false
+        left_leg_link:
+          Value: false
+        linear_actuator_link:
+          Value: false
+        linear_actuator_plate_link:
+          Value: false
+        pillar_left_link:
+          Value: false
+        pillar_right_link:
+          Value: false
+        ratchet_extension_link:
+          Value: false
+        right_leg_link:
+          Value: false
+        shoulder_link:
+          Value: false
+        target_pose:
+          Value: true
+        test_ratchet_attachment:
+          Value: false
+        test_ratchet_extension_link:
+          Value: false
+        tool0:
+          Value: false
+        tool0_controller:
+          Value: false
+        tool_center_link:
+          Value: false
+        tool_head_link:
+          Value: false
+        tool_holder_link:
+          Value: false
+        upper_arm_link:
+          Value: false
+        ur_base_link:
+          Value: false
+        world:
+          Value: false
+        wrist_1_link:
+          Value: false
+        wrist_2_link:
+          Value: false
+        wrist_3_link:
+          Value: false
       Marker Scale: 1
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: true
       Tree:
-        {}
+        world:
+          floor_link:
+            gantry_link:
+              linear_actuator_link:
+                actuator_motor_link:
+                  {}
+                linear_actuator_plate_link:
+                  arm_mount_plate:
+                    ur_base_link:
+                      base_link:
+                        base:
+                          tool0_controller:
+                            {}
+                        base_link_inertia:
+                          shoulder_link:
+                            upper_arm_link:
+                              forearm_link:
+                                wrist_1_link:
+                                  wrist_2_link:
+                                    wrist_3_link:
+                                      flange:
+                                        tool0:
+                                          ee_cam_link:
+                                            ee_cam_color_frame:
+                                              ee_cam_color_optical_frame:
+                                                {}
+                                            ee_cam_depth_frame:
+                                              ee_cam_depth_optical_frame:
+                                                {}
+                                          tool_holder_link:
+                                            tool_center_link:
+                                              ratchet_extension_link:
+                                                tool_head_link:
+                                                  {}
+                                      ft_frame:
+                                        {}
+                                      test_ratchet_attachment:
+                                        test_ratchet_extension_link:
+                                          {}
+              pillar_left_link:
+                left_leg_link:
+                  {}
+              pillar_right_link:
+                right_leg_link:
+                  {}
+            target_pose:
+              {}
       Update Interval: 0
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -473,7 +589,7 @@ Visualization Manager:
       Use rainbow: true
       Value: true
     - Class: rviz_default_plugins/MarkerArray
-      Enabled: false
+      Enabled: true
       Name: RecordedPoses
       Namespaces:
         {}
@@ -483,7 +599,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /recorded_poses_markers
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: ScanPoses
@@ -669,7 +785,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 10
+      Distance: 7.547329902648926
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -684,10 +800,10 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.6353983879089355
+      Pitch: 0.3953986167907715
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 1.6053977012634277
+      Yaw: 4.795399188995361
     Saved: ~
 Window Geometry:
   AnnotatedImage:
@@ -711,5 +827,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1887
-  X: 1953
+  X: 66
   Y: 32

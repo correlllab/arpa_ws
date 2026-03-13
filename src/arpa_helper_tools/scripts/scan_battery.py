@@ -151,16 +151,16 @@ def scan_points_to_pose_stamped(points, frame_id):
     
 
 
-FRAME_ID = "floor_link"
-# Collision plane configuration
-_PLANE_ID = "battery_do_not_cross"
-_PLANE_Z = 0.9  # Z height of the plane (below scan height)
-_PLANE_THICKNESS = 0.02  # Thin plane
-# Compute plane size and center from scan bounds
-_PLANE_SIZE_X = abs(UPPER_RIGHT[0] - LOWER_LEFT[0]) + 0.2  # Add margin
-_PLANE_SIZE_Y = abs(UPPER_RIGHT[1] - LOWER_LEFT[1]) + 0.2
-_PLANE_CENTER_X = (LOWER_LEFT[0] + UPPER_RIGHT[0]) / 2.0
-_PLANE_CENTER_Y = (LOWER_LEFT[1] + UPPER_RIGHT[1]) / 2.0
+# FRAME_ID = "floor_link"
+# # Collision plane configuration
+# _PLANE_ID = "battery_do_not_cross"
+# _PLANE_Z = 0.9  # Z height of the plane (below scan height)
+# _PLANE_THICKNESS = 0.02  # Thin plane
+# # Compute plane size and center from scan bounds
+# _PLANE_SIZE_X = abs(UPPER_RIGHT[0] - LOWER_LEFT[0]) + 0.2  # Add margin
+# _PLANE_SIZE_Y = abs(UPPER_RIGHT[1] - LOWER_LEFT[1]) + 0.2
+# _PLANE_CENTER_X = (LOWER_LEFT[0] + UPPER_RIGHT[0]) / 2.0
+# _PLANE_CENTER_Y = (LOWER_LEFT[1] + UPPER_RIGHT[1]) / 2.0
 
 
 
@@ -257,7 +257,7 @@ def main(args=None):
     marker_pub.publish(marker_array)
 
     # Add collision plane to prevent planner from going below battery
-    node.add_collision_plane(_PLANE_ID, FRAME_ID, _PLANE_CENTER_X, _PLANE_CENTER_Y, _PLANE_Z, _PLANE_SIZE_X, _PLANE_SIZE_Y, _PLANE_THICKNESS)
+    node.add_collision_plane()
 
     # Publish markers again to ensure visibility
     marker_pub.publish(marker_array)
@@ -357,7 +357,7 @@ def main(args=None):
     except KeyboardInterrupt:
         node.get_logger().info("Scan interrupted by user.")
     finally:
-        node.remove_collision_plane(_PLANE_ID, FRAME_ID)
+        # node.remove_collision_plane(_PLANE_ID, FRAME_ID)
         node.destroy_node()
         rclpy.shutdown()
 

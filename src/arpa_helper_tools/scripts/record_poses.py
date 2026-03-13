@@ -7,7 +7,7 @@ from tf2_ros import Buffer, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 SOURCE_FRAME = "world"
-TARGET_FRAME = "wrist_3_link"
+TARGET_FRAME = "test_ratchet_extension_link"
 
 
 class RecordPoseNode(Node):

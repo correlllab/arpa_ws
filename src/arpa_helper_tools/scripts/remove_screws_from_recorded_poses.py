@@ -70,7 +70,7 @@ def main(args=None):
             req.visual_servo = False
             req.target_pose.header.frame_id = "floor_link"
             req.target_pose.pose = pose.pose
-            future = node.RemovePart.call_async(req)
+            future = node.remove_part_client.call_async(req)
             while not future.done():
                 time.sleep(0.05)
             result = future.result()

@@ -12,6 +12,10 @@ services:
     devices:
       - /dev/bus/usb:/dev/bus/usb
       - /dev:/dev
+      - /dev/ttyACM0:/dev/ttyACM0
+      - /dev/ttyACM1:/dev/ttyACM1
+
+
       # - /dev/dri                  # GPU
     device_cgroup_rules:
       - 'c 189:* rmw'
