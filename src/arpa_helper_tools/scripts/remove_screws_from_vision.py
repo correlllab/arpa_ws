@@ -14,7 +14,7 @@ def main(args=None):
     #create everything we need
     rclpy.init(args=args)
     node = CoreNode()
-    # node.visualize_detections()
+    node.visualize_detections()
     node.add_collision_plane()
 
     SECOND_LOOK = True

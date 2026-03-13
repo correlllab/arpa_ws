@@ -368,7 +368,7 @@ class CoreNode(Node):
         target_toolhead = np.eye(4)
         target_toolhead[:3, :3] = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
         target_toolhead[:3, 3] = [x, y, z]
-        target_wrist3 = target_toolhead @ self.T_toolhead_to_wrist3
+        target_wrist3 = target_toolhead @ self.T_wrist3_to_toolhead
 
 
         wx, wy, wz = target_wrist3[:3, 3]
