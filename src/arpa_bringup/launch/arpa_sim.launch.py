@@ -4,7 +4,7 @@ import subprocess
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction, TimerAction
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.launch_description_sources import AnyLaunchDescriptionSource, PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -348,6 +348,14 @@ def launch_setup(context, *args, **kwargs):
         parameters=[{"use_sim_time": True}, robot_description_param, robot_description_semantic_param],
     )
 
+    core_function = Node(
+        package="arpa_helper_tools",
+        executable="core_functionality_node.py",
+        name="core_functionality_node",
+        output="log",
+        parameters=[{"use_sim_time": True}],
+    )
+
     # Start move_group and motion_control after controllers are loaded (spawners run after entity spawn).
     # Avoids "controller_manager_ does not exist" / "Unable to identify controllers" at execute.
     delayed_moveit_and_motion = TimerAction(
@@ -355,22 +363,44 @@ def launch_setup(context, *args, **kwargs):
         actions=[arpa_moveit_launch, arpa_motion_control],
     )
 
+    # rosbridge_mcp = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(
+    #         get_package_share_directory("arpa_bringup") + "/launch/rosbridge_mcp.launch.py"
+    #     ),
+    #     launch_arguments={
+    #         "port":         "9090",
+    #         "address":      "",
+    #         "params_file":  os.path.join(get_package_share_directory('arpa_bringup'), 'config', 'rosbridge_params.yaml'),
+    #     }.items(),
+    # )
+
     rosbridge_mcp = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            get_package_share_directory("arpa_bringup") + "/launch/rosbridge_mcp.launch.py"
-        ),
-        launch_arguments={
-            "port":         "9090",
-            "address":      "",
-            "params_file":  os.path.join(get_package_share_directory('arpa_bringup'), 'config', 'rosbridge_params.yaml'),
-        }.items(),
+        AnyLaunchDescriptionSource(get_package_share_directory("rosbridge_server") + "/launch/rosbridge_websocket_launch.xml")
     )
+
+    test_static_tf_ratchet_attatchemnt = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_attachment",
+        arguments=["-0.0018", "-0.1488", "0.0922", "0", "0", "-3.14159", "wrist_3_link", "test_ratchet_attachment"]
+    )
+
+    test_static_tf_ratchet_ee = Node(
+        package="tf2_ros", 
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_ee",
+        arguments=["0", "0", "-0.165", "0", "0", "-3.14159", "test_ratchet_attachment", "test_ratchet_extension_link"]
+    )
+
 
     to_return = [
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
         rosbridge_mcp,
         static_tf_world_to_floor,
+        core_function,
+        test_static_tf_ratchet_attatchemnt,
+        test_static_tf_ratchet_ee,
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":
         to_return.append(rviz_node)
@@ -683,21 +713,21 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_corridor_constraint",
-            default_value="true",
+            default_value="false",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
             "constrain_corridor_orientation",
-            default_value="true",
+            default_value="false",
             description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_special_logic",
-            default_value="true",
+            default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
         )
     )

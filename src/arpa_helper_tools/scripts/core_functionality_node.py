@@ -5,11 +5,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
-<<<<<<< HEAD
-from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, UnscrewPose
-=======
 from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart
->>>>>>> target_screw
 from std_srvs.srv import Trigger
 from std_msgs.msg import Int8
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
@@ -61,18 +57,14 @@ class CoreNode(Node):
         self.update_depth_client = self.create_client(Trigger, 'update_depth', callback_group=self._reentrant_cb_group)
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix', callback_group=self._reentrant_cb_group)
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
-        self.create_service(UnscrewPose, 'unscrew_pose', self._unscrew_cb, callback_group=self._reentrant_cb_group)
-        self.unscrew_client = self.create_client(UnscrewPose, 'unscrew_pose', callback_group=self._reentrant_cb_group)
+        self.create_service(RemovePart, 'remove_part', self._remove_part_cb, callback_group=self._reentrant_cb_group)
+        self.remove_part_client = self.create_client(RemovePart, 'remove_part', callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
 
 
         self.latest_detection_bundle: DetectionBundle = None
         _det_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(DetectionBundle, '/realsense/ee_cam/detections', self._detection_bundle_cb, _det_qos)
-
-        self.remove_part_service = self.create_service(
-            RemovePart, 'remove_part', self._handle_remove_part
-        )
 
         # Required services (benchmark should fail fast if these aren't up)
         self.get_logger().info("Waiting for plan_to_pose service...")
@@ -121,7 +113,7 @@ class CoreNode(Node):
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
 
-        self.get_logger().info("Looking up wrist_3_link -> tool frame transform...")
+        # self.get_logger().info("Looking up wrist_3_link -> tool frame transform...")
         self.T_wrist3_to_toolhead = None
         self.T_wrist3_to_camera_optical = None
         while self.T_wrist3_to_toolhead is None or self.T_wrist3_to_camera_optical is None:
@@ -138,22 +130,24 @@ class CoreNode(Node):
                 mat[:3, :3] = rot
                 mat[:3,  3] = [t.x, t.y, t.z]
                 self.T_wrist3_to_toolhead = mat
-                self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
+                # self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
 
-
-                tf = self.tf_buffer.lookup_transform(
-                    'ee_cam_color_optical_frame', 'wrist_3_link',
-                    rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=1.0)
-                )
-                t = tf.transform.translation
-                r = tf.transform.rotation
-                rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
-                mat = np.eye(4)
-                mat[:3, :3] = rot
-                mat[:3,  3] = [t.x, t.y, t.z]
-                self.T_wrist3_to_camera_optical = mat
-                self.get_logger().info(f"wrist_3_link -> camera_optical_frame:\n{mat}")
+                if not self.get_parameter('use_sim_time').get_parameter_value().bool_value:
+                    tf = self.tf_buffer.lookup_transform(
+                        'ee_cam_color_optical_frame', 'wrist_3_link',
+                        rclpy.time.Time(),
+                        timeout=rclpy.duration.Duration(seconds=1.0)
+                    )
+                    t = tf.transform.translation
+                    r = tf.transform.rotation
+                    rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
+                    mat = np.eye(4)
+                    mat[:3, :3] = rot
+                    mat[:3,  3] = [t.x, t.y, t.z]
+                    self.T_wrist3_to_camera_optical = mat
+                else:
+                    # Set to identity
+                    self.T_wrist3_to_camera_optical = np.eye(4)
 
 
             except (LookupException, ConnectivityException, ExtrapolationException) as e:
@@ -201,56 +195,127 @@ class CoreNode(Node):
             time.sleep(1)
         self.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
         return False
+    
+    def compute_part_remove_orientation(self, x, y):
+        # Battery center in floor_link frame
+        battery_cx, battery_cy = 0.118, -0.056
+        # Angle from part position toward battery center
+        angle = np.arctan2(battery_cy - y, battery_cx - x)
 
-    def _unscrew_cb(self, request: UnscrewPose.Request, response: UnscrewPose.Response):
-        pose = request.target_pose
-        x  = pose.pose.position.x
-        y  = pose.pose.position.y
-        z  = 0.91
-        qx = pose.pose.orientation.x
-        qy = pose.pose.orientation.y
-        qz = pose.pose.orientation.z
-        qw = pose.pose.orientation.w
-        frame_id = pose.header.frame_id or BASE_FRAME
+        # Build orientation: tool Z down, yaw rotated so the toolhead
+        # points from (x,y) toward the battery center, aligned with
+        # test_ratchet_extension_link frame (Z down = 180° pitch).
+        R_tool = Rotation.from_euler('xyz', [np.pi, 0, angle])
+        qx, qy, qz, qw = R_tool.as_quat()
 
-        plan_successful = False
-        tries = 0
-        self.behavior_publisher.publish(String(data=f"planning_to_unscrew"))
-        while not plan_successful and tries < 3:
-            tries += 1
-            success = self.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw, frame_id=frame_id)
-            if success:
-                plan_successful = True
-                self.get_logger().info("Planning succeeded!")
-            else:
-                self.get_logger().warn("Planning failed, retrying...")
+        return qx, qy, qz, qw
 
-        if not plan_successful:
-            response.success = False
-            response.message = "Planning failed after 3 attempts"
+    def _remove_part_cb(self, request: RemovePart.Request, response: RemovePart.Response):
+        if not self.get_parameter('use_sim_time').get_parameter_value().bool_value:
+            pose = request.target_pose
+            x  = pose.pose.position.x
+            y  = pose.pose.position.y
+            z  = 0.91
+            qx = pose.pose.orientation.x
+            qy = pose.pose.orientation.y
+            qz = pose.pose.orientation.z
+            qw = pose.pose.orientation.w
+            frame_id = pose.header.frame_id or BASE_FRAME
+
+            plan_successful = False
+            tries = 0
+            self.behavior_publisher.publish(String(data=f"planning_to_remove_part"))
+            while not plan_successful and tries < 3:
+                tries += 1
+                success = self.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw, frame_id=frame_id)
+                if success:
+                    plan_successful = True
+                    self.get_logger().info("Planning succeeded!")
+                else:
+                    self.get_logger().warn("Planning failed, retrying...")
+
+            if not plan_successful:
+                response.success = False
+                response.message = "Planning failed after 3 attempts"
+                return response
+
+            self.behavior_publisher.publish(String(data="executing_plan"))
+            self.execute_plan()
+            time.sleep(1)
+
+            self.behavior_publisher.publish(String(data="removal"))
+            self.motor_control(100)
+            self.trigger_with_retry("ZForce")
+            self.trigger_with_retry("play")
+            time.sleep(2)
+
+            self.behavior_publisher.publish(String(data="retracting"))
+            self.trigger_with_retry("retract")
+            self.trigger_with_retry("play")
+            time.sleep(2)
+            self.behavior_publisher.publish(String(data="retracted finishes"))
+
+            self.motor_control(0)
+            self.trigger_with_retry("ros2control")
+
+            response.success = True
+            response.message = "Remove part complete"
             return response
+        else:
+            part_name = request.part_name
+            p = request.target_pose.pose.position
+            # Set the orientation to angle that represents position x,y to 0,0
+            qx, qy, qz, qw = self.compute_part_remove_orientation(p.x, p.y)            
+            x, y, z = p.x, p.y, p.z
 
-        self.behavior_publisher.publish(String(data="executing_plan"))
-        self.execute_plan()
-        time.sleep(1)
+            self.get_logger().info(
+                f"remove_part requested: '{part_name}' at "
+                f"({x:.3f}, {y:.3f}, {z:.3f}, {qx:.3f}, {qy:.3f}, {qz:.3f}, {qw:.3f})"
+            )
 
-        self.behavior_publisher.publish(String(data="removal"))
-        self.motor_control(100)
-        self.trigger_with_retry("ZForce")
-        self.trigger_with_retry("play")
-        time.sleep(2)
+            try:
+                # Step 1: Approach — plan to 3cm above part
+                self.get_logger().info(f"[{part_name}] Step 1: Approach 3cm above")
+                if not self.plan_to_pose(x, y, z + Z_OFFSET_M, qx, qy, qz, qw, frame_id=BASE_FRAME):
+                    raise RuntimeError("Plan to approach position failed")
+                if not self.execute_plan():
+                    raise RuntimeError("Execute approach failed")
 
-        self.behavior_publisher.publish(String(data="retracting"))
-        self.trigger_with_retry("retract")
-        self.trigger_with_retry("play")
-        time.sleep(2)
-        self.behavior_publisher.publish(String(data="retracted finishes"))
+                # Step 2: Descend — Cartesian move down to part
+                self.get_logger().info(f"[{part_name}] Step 2: Descend (Cartesian)")
+                if not self.plan_to_pose(x, y, z, qx, qy, qz, qw, frame_id=BASE_FRAME, use_cartesian=True):
+                    raise RuntimeError("Plan Cartesian descend failed")
+                if not self.execute_plan():
+                    raise RuntimeError("Execute descend failed")
 
-        self.motor_control(0)
-        self.trigger_with_retry("ros2control")
+                # Step 3: Motor ON
+                self.get_logger().info(f"[{part_name}] Step 3: Motor ON")
+                self.motor_control(MOTOR_SPEED)
 
-        response.success = True
-        response.message = "Unscrew complete"
+                # Step 4: Wait (simulate removal)
+                self.get_logger().info(f"[{part_name}] Step 4: Wait {REMOVE_WAIT_SECONDS}s")
+                time.sleep(REMOVE_WAIT_SECONDS)
+
+                # Step 5: Motor OFF
+                self.get_logger().info(f"[{part_name}] Step 5: Motor OFF")
+                self.motor_control(0)
+
+                # Step 6: Retract — Cartesian move back up
+                self.get_logger().info(f"[{part_name}] Step 6: Retract (Cartesian)")
+                if not self.plan_to_pose(x, y, z + Z_OFFSET_M, qx, qy, qz, qw, frame_id=BASE_FRAME, use_cartesian=True):
+                    raise RuntimeError("Plan Cartesian retract failed")
+                if not self.execute_plan():
+                    raise RuntimeError("Execute retract failed")
+
+                response.success = True
+                response.message = f"Part '{part_name}' removal complete"
+                self.get_logger().info(f"[{part_name}] Removal sequence complete")
+
+            except RuntimeError as e:
+                response.success = False
+                response.message = str(e)
+                self.get_logger().error(f"[{part_name}] Removal failed: {e}")
+
         return response
 
     def servo_twist(self, x: float, y: float, z: float,
@@ -1011,7 +1076,7 @@ def main(args=None):
 
             elif choice == "8":
                 x, y, z, qx, qy, qz, qw = [1.026, -0.477, 0.857, -0.241, 0.971, 0.002, 0.000]
-                req = UnscrewPose.Request()
+                req = RemovePart.Request()
                 req.target_pose.header.frame_id = BASE_FRAME
                 req.target_pose.pose.position.x = x
                 req.target_pose.pose.position.y = y
@@ -1020,11 +1085,11 @@ def main(args=None):
                 req.target_pose.pose.orientation.y = qy
                 req.target_pose.pose.orientation.z = qz
                 req.target_pose.pose.orientation.w = qw
-                future = node.unscrew_client.call_async(req)
+                future = node.remove_part_client.call_async(req)
                 while not future.done():
                     time.sleep(0.05)
                 result = future.result()
-                print(f"Unscrew result: {result.success} — {result.message}")
+                print(f"Remove part result: {result.success} — {result.message}")
             
             elif choice == "9":
                 node.motor_control(100)
