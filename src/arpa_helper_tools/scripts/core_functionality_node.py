@@ -68,6 +68,8 @@ class CoreNode(Node):
             self.get_logger().warn("get_pose_cost_matrix service not available (will use pose list order without TSP optimization)")
 
         self.get_logger().info("Core services ready!")
+        self.last_plan_num_ik_solutions = 0
+        self.last_plan_selected_ik_solution_index = -1
 
 
         self.tf_buffer = tf2_ros.Buffer()
@@ -120,8 +122,14 @@ class CoreNode(Node):
             time.sleep(0.05)
 
         result = future.result()
+        self.last_plan_num_ik_solutions = result.num_ik_solutions
+        self.last_plan_selected_ik_solution_index = result.selected_ik_solution_index
         if result.success:
-            self.get_logger().info(f"Planning successful! (manipulability={result.manipulability_score:.6f})")
+            self.get_logger().info(
+                f"Planning successful! (manipulability={result.manipulability_score:.6f}, "
+                f"ik_solutions={result.num_ik_solutions}, "
+                f"selected={result.selected_ik_solution_index})"
+            )
         else:
             self.get_logger().error(f"Planning failed: {result.message}")
         return result.success, result.manipulability_score

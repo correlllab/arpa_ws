@@ -163,6 +163,8 @@ class CostBenchmark(Node):
 
             # Plan
             manipulability = 0.0
+            num_ik_solutions = 0
+            selected_ik_solution_index = -1
             plan_start = time.time()
             try:
                 plan_ok, manipulability = self.core_node.plan_to_pose(
@@ -170,6 +172,8 @@ class CostBenchmark(Node):
                     goal['qx'], goal['qy'], goal['qz'], goal['qw'],
                     frame_id=self._base_frame
                 )
+                num_ik_solutions = self.core_node.last_plan_num_ik_solutions
+                selected_ik_solution_index = self.core_node.last_plan_selected_ik_solution_index
             except Exception as e:
                 self.get_logger().error(f"Pose {i+1}: plan exception: {e}")
                 plan_ok = False
@@ -213,6 +217,8 @@ class CostBenchmark(Node):
                 'execution_time_s': exec_time,
                 'success': int(success),
                 'manipulability_score': manipulability,
+                'num_ik_solutions': num_ik_solutions,
+                'selected_ik_solution_index': selected_ik_solution_index,
             })
 
             status = "OK" if success else "FAIL"
@@ -220,7 +226,8 @@ class CostBenchmark(Node):
                 f"[{case_name}] {i+1:4d}/{n_poses}: {status} | "
                 f"Plan: {plan_time:.3f}s | Exec: {exec_time:.3f}s | "
                 f"Dist: {cart_dist:.3f}m | Path: {path_length:.3f}m | "
-                f"Manip: {manipulability:.6f}"
+                f"Manip: {manipulability:.6f} | IKs: {num_ik_solutions} | "
+                f"Chosen: {selected_ik_solution_index}"
             )
 
         wall_time = time.time() - run_start
@@ -237,9 +244,14 @@ class CostBenchmark(Node):
             # Compute avg manipulability over successful poses only
             manip_scores = [r['manipulability_score'] for r in detail_records if r['success']]
             avg_manip = sum(manip_scores) / len(manip_scores) if manip_scores else 0.0
+            successful_records = [r for r in detail_records if r['success']]
+            avg_num_ik = (
+                sum(r['num_ik_solutions'] for r in successful_records) / len(successful_records)
+                if successful_records else 0.0
+            )
             w.writerow(['case', 'completed', 'total', 'success_rate', 'wall_s',
                          'sum_plan_time_s', 'sum_execution_time_s', 'sum_path_length_m',
-                         'avg_manipulability'])
+                         'avg_manipulability', 'avg_num_ik_solutions'])
             w.writerow([
                 case_name,
                 successful,
@@ -250,6 +262,7 @@ class CostBenchmark(Node):
                 f"{sum(r['execution_time_s'] for r in detail_records):.2f}",
                 f"{sum(r['path_length_m'] for r in detail_records):.3f}",
                 f"{avg_manip:.6f}",
+                f"{avg_num_ik:.3f}",
             ])
         self.get_logger().info(f"Wrote {summary_path}")
 
@@ -259,7 +272,8 @@ class CostBenchmark(Node):
             fieldnames = ['case', 'pose_index', 'goal_x', 'goal_y', 'goal_z',
                           'cartesian_distance_m', 'path_length_m',
                           'plan_time_s', 'execution_time_s', 'success',
-                          'manipulability_score']
+                          'manipulability_score', 'num_ik_solutions',
+                          'selected_ik_solution_index']
             w = csv.DictWriter(f, fieldnames=fieldnames)
             w.writeheader()
             w.writerows(detail_records)
@@ -278,7 +292,30 @@ class CostBenchmark(Node):
             'execution_time_s': 0.0,
             'success': 0,
             'manipulability_score': 0.0,
+            'num_ik_solutions': 0,
+            'selected_ik_solution_index': -1,
         }
+
+
+def configure_planner(planning_time: float, use_analytical_ik: bool = True) -> bool:
+    """Set planner params on motion_control_node before running the benchmark."""
+    params = [
+        ('planning_time', str(planning_time)),
+        ('use_analytical_ik', 'true' if use_analytical_ik else 'false'),
+    ]
+    print(
+        f"\n--- Configuring planner: planning_time={planning_time}, "
+        f"use_analytical_ik={use_analytical_ik} ---"
+    )
+    for name, value in params:
+        cmd = ['ros2', 'param', 'set', MOTION_CONTROL_NODE, name, value]
+        print(f"  {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            print(f"  ERROR: {result.stderr.strip()}", file=sys.stderr)
+            return False
+    print("--- Planner configured ---\n")
+    return True
 
 
 def set_cost_weights(w_joint: float, w_proximity: float, w_area: float) -> bool:
@@ -316,6 +353,10 @@ def main():
         '--case', type=str, choices=COST_CASE_NAMES, default=None,
         help='Run only a single case (default: run all 8)',
     )
+    parser.add_argument(
+        '--planning-time', type=float, default=20.0,
+        help='Planning time to set on motion_control_node before the benchmark',
+    )
     args = parser.parse_args()
 
     # Determine which cases to run
@@ -344,6 +385,10 @@ def main():
             return
 
         goal_poses = benchmark.load_poses_from_csv(poses_path)
+
+        if not configure_planner(args.planning_time, use_analytical_ik=True):
+            benchmark.get_logger().error("Failed to configure planning_time/use_analytical_ik")
+            return
 
         for case_name, w_joint, w_prox, w_area in cases:
             if not set_cost_weights(w_joint, w_prox, w_area):

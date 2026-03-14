@@ -596,6 +596,8 @@ void MotionControlNode::planToPoseCallback(
     std::shared_ptr<arpa_control::srv::PlanToPose::Response> response)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() START");
+  response->num_ik_solutions = 0;
+  response->selected_ik_solution_index = -1;
   // Apply current planning_time (allows runtime change via ros2 param set, e.g. per benchmark test case)
   const double planning_time = this->get_parameter("planning_time").as_double();
   m_move_group->setPlanningTime(planning_time);
@@ -651,6 +653,7 @@ void MotionControlNode::planToPoseCallback(
 
   // Get IK solutions sorted by ascending cost
   auto solutions = getJointConfigurations(m_current_target_pose);
+  response->num_ik_solutions = static_cast<int32_t>(solutions.size());
   if (solutions.empty()) {
     response->success = false;
     response->manipulability_score = 0.0;
@@ -677,6 +680,7 @@ void MotionControlNode::planToPoseCallback(
 
       response->success = true;
       response->manipulability_score = getManipulability(goal_state);
+      response->selected_ik_solution_index = static_cast<int32_t>(i + 1);
       response->message = "Planning successful (solution " + std::to_string(i + 1) + "/" + std::to_string(solutions.size()) + ")";
       RCLCPP_INFO(get_logger(), "Manipulability score: %.6f", response->manipulability_score);
       RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");

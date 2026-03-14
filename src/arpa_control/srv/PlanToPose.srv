@@ -3,3 +3,5 @@ geometry_msgs/PoseStamped target_pose
 bool success
 string message
 float64 manipulability_score
+int32 num_ik_solutions
+int32 selected_ik_solution_index
