@@ -1,0 +1,2 @@
+run_id,test_case,completed,total,success_rate,total_wall_s,distance_travelled_m,path_length_travelled_m,sum_plan_time_s,sum_execution_time_s
+pure_rrt_1773301630,pure_rrt,990,1000,0.99,4148.96709394455,991.6435705141387,1656.088975569028,215.61141872406006,3932.455889940262

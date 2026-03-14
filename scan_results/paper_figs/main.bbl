@@ -1,0 +1,113 @@
+\begin{thebibliography}{10}
+
+\bibitem{beaudet2020key}
+A.~Beaudet, F.~Larouche, K.~Amouzegar, P.~Bouchard, and K.~Zaghib, ``Key
+  challenges and opportunities for recycling electric vehicle battery
+  materials,'' {\em Sustainability}, vol.~12, no.~14, p.~5837, 2020.
+
+\bibitem{ali2025sustainable}
+A.~Ali, M.~Al~Bahrani, S.~Ahmed, M.~T. Islam, S.~A. Qadir, and M.~Shahid,
+  ``Sustainable recycling of end-of-life electric vehicle batteries: Ev battery
+  recycling frameworks in china and the usa,'' {\em Recycling}, vol.~10, no.~2,
+  p.~68, 2025.
+
+\bibitem{choux2024shred}
+M.~Choux, S.~W. Pripp, F.~Kvalnes, and M.~Hellstr{\"o}m, ``To shred or to
+  disassemble--a techno-economic assessment of automated disassembly vs.
+  shredding in lithium-ion battery module recycling,'' {\em Resources,
+  Conservation and Recycling}, vol.~203, p.~107430, 2024.
+
+\bibitem{rettenmeier2024laser}
+M.~Rettenmeier, A.~Sauer, and M.~M{\"o}ller, ``Laser-based battery pack
+  disassembly: A compact benchmark analysis for separation technologies,'' {\em
+  Procedia CIRP}, vol.~122, pp.~181--186, 2024.
+
+\bibitem{al2024automated}
+A.~Al~Assadi, T.~G{\"o}tz, A.~Gebhardt, O.~Mannu{\ss}, B.~Meese, J.~Wanner,
+  S.~Singha, L.~Halt, P.~Birke, and A.~Sauer, ``Automated disassembly of
+  battery systems to battery modules,'' {\em Procedia CIRP}, vol.~122,
+  pp.~25--30, 2024.
+
+\bibitem{huang2026robotic}
+J.~Huang, Q.~Huang, Y.~Zeng, M.~Tan, Z.~Peng, H.~Song, X.~Ao, and D.~Pham,
+  ``Robotic disassembly of snap-fit plug connectors in end-of-life electric
+  vehicle batteries,'' {\em Robotics and Computer-Integrated Manufacturing},
+  vol.~98, p.~103183, 2026.
+
+\bibitem{tan2025robotic}
+M.~Tan, J.~Huang, X.~Jiang, Y.~Fang, Q.~Liu, and D.~Pham, ``Robotic removal and
+  collection of screws in collaborative disassembly of end-of-life electric
+  vehicle batteries,'' {\em Biomimetics}, vol.~10, no.~8, p.~553, 2025.
+
+\bibitem{qu2024robotic}
+M.~Qu, D.~T. Pham, F.~Altumi, A.~Gbadebo, N.~Hartono, K.~Jiang, M.~Kerin,
+  F.~Lan, M.~Micheli, S.~Xu, {\em et~al.}, ``Robotic disassembly platform for
+  disassembly of a plug-in hybrid electric vehicle battery: a case study,''
+  {\em Automation}, vol.~5, no.~2, pp.~50--67, 2024.
+
+\bibitem{chen2014robot}
+W.~H. Chen, K.~Wegener, and F.~Dietrich, ``A robot assistant for unscrewing in
+  hybrid human-robot disassembly,'' in {\em 2014 IEEE International Conference
+  on Robotics and Biomimetics (ROBIO 2014)}, pp.~536--541, IEEE, 2014.
+
+\bibitem{wegener2015robot}
+K.~Wegener, W.~H. Chen, F.~Dietrich, K.~Dr{\"o}der, and S.~Kara, ``Robot
+  assisted disassembly for the recycling of electric vehicle batteries,'' {\em
+  Procedia Cirp}, vol.~29, pp.~716--721, 2015.
+
+\bibitem{kay2022robotic}
+I.~Kay, S.~Farhad, A.~Mahajan, R.~Esmaeeli, and S.~R. Hashemi, ``Robotic
+  disassembly of electric vehicles’ battery modules for recycling,'' {\em
+  Energies}, vol.~15, no.~13, p.~4856, 2022.
+
+\bibitem{choux2021task}
+M.~Choux, E.~Marti~Bigorra, and I.~Tyapin, ``Task planner for robotic
+  disassembly of electric vehicle battery pack,'' {\em Metals}, vol.~11, no.~3,
+  p.~387, 2021.
+
+\bibitem{lee2022robot}
+M.-L. Lee, W.~Liu, S.~Behdad, X.~Liang, and M.~Zheng, ``Robot-assisted
+  disassembly sequence planning with real-time human motion prediction,'' {\em
+  IEEE Transactions on Systems, Man, and Cybernetics: Systems}, vol.~53, no.~1,
+  pp.~438--450, 2022.
+
+\bibitem{raptis2025agentic}
+E.~K. Raptis, A.~C. Kapoutsis, and E.~B. Kosmatopoulos, ``Agentic llm-based
+  robotic systems for real-world applications: a review on their agenticness
+  and ethics,'' {\em Frontiers in Robotics and AI}, vol.~12, p.~1605405, 2025.
+
+\bibitem{lynch2023interactive}
+C.~Lynch, A.~Wahid, J.~Tompson, T.~Ding, J.~Betker, R.~Baruch, T.~Armstrong,
+  and P.~Florence, ``Interactive language: Talking to robots in real time,''
+  {\em IEEE Robotics and Automation Letters}, 2023.
+
+\bibitem{rachwal2025rai}
+K.~Rachwa{\l}, M.~Majek, B.~Boczek, K.~D\k{a}browski, P.~Liberadzki,
+  A.~D\k{a}browski, and M.~Ganzha, ``Rai: Flexible agent framework for
+  embodied ai,'' in {\em International Conference on Practical Applications of
+  Agents and Multi-Agent Systems}, pp.~195--206, Springer, 2025.
+
+\bibitem{hathaway2024technoeconomic}
+J.~Hathaway, C.~A. Contreras, M.~E. Asif, R.~Stolkin, and A.~Rastegarpanah,
+  ``Technoeconomic assessment of electric vehicle battery
+  disassembly--challenges and opportunities from a robotics perspective,'' {\em
+  IEEE Access}, 2024.
+
+\bibitem{coleman2014reducing}
+D.~Coleman, I.~Sucan, S.~Chitta, and N.~Correll, ``Reducing the barrier to
+  entry of complex robotic software: a moveit! case study,'' {\em arXiv
+  preprint arXiv:1404.3785}, 2014.
+
+\bibitem{smolagents}
+A.~Roucher, A.~V.~del Moral, T.~Wolf, L.~von Werra, and E.~Kaunism\"aki,
+  ``smolagents: a smol library to build great agentic systems,'' 
+  available at: \url{https://github.com/huggingface/smolagents}, 2025.
+
+\bibitem{cuvelier2023or}
+T.~Cuvelier, F.~Didier, V.~Furnon, S.~Gay, S.~Mohajeri, and L.~Perron,
+  ``Or-tools' vehicle routing solver: A generic constraint-programming solver
+  with heuristic search for routing problems,'' in {\em 24e congr{\`e}s annuel
+  de la soci{\'e}t{\'e} fran{\c{c}}aise de recherche op{\'e}rationnelle et
+  d'aide {\`a} la d{\'e}cision}, 2023.
+
+\end{thebibliography}

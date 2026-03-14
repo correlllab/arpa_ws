@@ -1,0 +1,78 @@
+\begin{tikzpicture}[
+  font=\footnotesize,
+  node distance=7mm and 10mm,
+  block/.style={
+    draw, rounded corners,
+    align=center,
+    text width=2.6cm,
+    minimum height=0.8cm
+  },
+  small/.style={
+    draw, rounded corners,
+    align=center,
+    text width=2.2cm,
+    minimum height=0.72cm
+  },
+  iso/.style={
+    draw, rounded corners, dashed,
+    align=center,
+    text width=2.2cm,
+    minimum height=0.72cm
+  },
+  line/.style={-Latex, thick}
+]
+
+% =========================
+% Top row (matches your "classic" orientation)
+% =========================
+\node[block] (pc) {Robot PC\\(ROS2 + agent)};
+\node[block, right=5mm of pc] (eth) {Ethernet\\(TCP/UDP)};
+\node[iso,  right=5mm of eth] (mag) {RJ45 +\\magnetics};
+\node[block, below=5mm of mag] (mcu) {Tool interface\\(MCU + PHY)};
+
+% =========================
+% Middle control chain (under MCU, then to tool on right)
+% =========================
+
+\node[block, below=5mm of mcu] (drv) {Mosfet motor driver (PWM)};
+\node[block, right=5mm of drv] (tool) {Nutrunner\\(motor + gearbox)};
+
+% =========================
+% Bottom power row (classic left-to-right)
+% =========================
+\node[small, left=6mm of drv] (dcdc) {DC/DC rails\\(12V $\rightarrow$ 3.3V)};
+\node[block, left=5mm of dcdc] (bat) {12V tool battery};
+
+% =========================
+% Connections
+% =========================
+% Top row
+\draw[line] (pc) -- (eth);
+\draw[line] (eth) -- (mag);
+\draw[line] (mag) -- (mcu);
+
+% Drop to isolation and driver
+\draw[line] (mcu.south) -- (drv.north);
+
+% Driver to tool
+\draw[line] (drv) -- (tool);
+
+% Power chain (battery -> DC/DC -> driver logic)
+\draw[line] (bat) -- (dcdc);
+\draw[line] (dcdc) -- (drv);
+\draw[line] (bat.south) --++ (0,-4mm) --++(6.4cm,0) -- (drv.south);
+\draw[line] (dcdc) --++ (0, 1.35cm) -- (mcu);
+
+% =========================
+% Labels (kept off arrows)
+% =========================
+\node[font=\scriptsize, above=3mm of pc, xshift = 0mm] {ROBOT / CONTROL DOMAIN};
+\node[font=\scriptsize, above=0mm of pc, xshift = 0mm] {(earth-referenced)};
+
+\node[font=\scriptsize, above=3mm of bat, xshift = 0mm] {TOOL / BATTERY DOMAIN};
+\node[font=\scriptsize, above=0mm of bat, xshift = 0mm] {(floating with battery)};
+\node[font=\scriptsize, above=0.5mm of drv, xshift = 12mm] {enable + PWM};
+\node[font=\scriptsize, below= 0mm of dcdc] {12V motor power};
+\node[font=\scriptsize, left= 4mm of mcu, yshift = 2mm] {3.3V rail};
+
+\end{tikzpicture}

@@ -1,0 +1,107 @@
+\relax 
+\citation{beaudet2020key}
+\citation{ali2025sustainable}
+\citation{choux2024shred}
+\citation{rettenmeier2024laser}
+\citation{al2024automated}
+\citation{huang2026robotic}
+\citation{tan2025robotic}
+\citation{qu2024robotic}
+\citation{chen2014robot}
+\citation{wegener2015robot}
+\citation{al2024automated}
+\citation{chen2014robot}
+\citation{wegener2015robot}
+\citation{qu2024robotic}
+\citation{kay2022robotic}
+\citation{huang2026robotic}
+\citation{tan2025robotic}
+\citation{choux2021task}
+\citation{lee2022robot}
+\citation{raptis2025agentic}
+\citation{lynch2023interactive}
+\citation{rachwal2025rai}
+\@writefile{toc}{\contentsline {section}{\numberline {I}INTRODUCTION}{1}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Hyundai Ioniq5 EV battery is being dismantled by a custom nut-runner mounted on a UR16e collaborative robot and a 2.1m Parker linear axis. }}{1}{}\protected@file@percent }
+\newlabel{fig:overview}{{1}{1}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {I-A}Related work}{1}{}\protected@file@percent }
+\citation{hathaway2024technoeconomic}
+\citation{coleman2014reducing}
+\citation{smolagents}
+\@writefile{toc}{\contentsline {subsection}{\numberline {I-B}Contributions}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {II}SYSTEM OVERVIEW}{2}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Integration of conventional automation systems, open-world vision systems, motion planning and Agentic AI. }}{2}{}\protected@file@percent }
+\newlabel{fig:overview}{{2}{2}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Custom end-effector for the UR16e that holds a nut-runner and a Intel Realsense D435 in place.  }}{2}{}\protected@file@percent }
+\newlabel{fig:nutrunner}{{3}{2}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {II-A}Electric Vehicle Battery: Hyundai Ioniq5}{2}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {II-B}Robotic System}{2}{}\protected@file@percent }
+\citation{coleman2014reducing}
+\@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Battery Disassembly Task Breakdown}}{3}{}\protected@file@percent }
+\newlabel{tab:timing}{{I}{3}}
+\@writefile{lot}{\contentsline {table}{\numberline {II}{\ignorespaces Battery Component Weight and Material Values}}{3}{}\protected@file@percent }
+\newlabel{tab:materials}{{II}{3}}
+\@writefile{toc}{\contentsline {section}{\numberline {III}AUTONOMOUS DISASSEMBLY}{3}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-A}Planning}{3}{}\protected@file@percent }
+\newlabel{sec:planning}{{III-A}{3}}
+\citation{cuvelier2023or}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.1}Analytical Inverse Kinematics}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.2}Multi-Objective IK Seed Selection}{4}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.3}Corridor Constraint}{4}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces RRT vs.\ corridor planning comparison (avg.\ over successful plans).}}{5}{}\protected@file@percent }
+\newlabel{tab:rrt-corridor}{{III}{5}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-B}Vision}{5}{}\protected@file@percent }
+\newlabel{sec:vision}{{III-B}{5}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {III-C}Agentic AI}{5}{}\protected@file@percent }
+\newlabel{sec:agenticAI}{{III-C}{5}}
+\@writefile{toc}{\contentsline {section}{\numberline {IV}RESULTS}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-A}Planning}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.1}RRT vs.\ Corridor-Constrained Planning}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.2}Cost Function Ablation Study}{5}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Plan time distributions for unconstrained RRT vs.\ corridor-constrained planning. Dashed line indicates the 20\,s timeout.}}{5}{}\protected@file@percent }
+\newlabel{fig:plantime-hist}{{4}{5}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Per-goal plan time comparison. Each point represents one of 1{,}000 goals. Points above the diagonal indicate corridor planning was slower.}}{5}{}\protected@file@percent }
+\newlabel{fig:plantime-scatter}{{5}{5}}
+\citation{qu2024robotic}
+\citation{qu2024robotic}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Spatial distribution of planning failures. Left: unconstrained RRT (9 failures). Right: corridor-constrained planning (66 failures), with failures concentrated at the workspace boundary.}}{6}{}\protected@file@percent }
+\newlabel{fig:spatial-failures}{{6}{6}}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Cost function ablation results (avg.\ over successful plans). \textbf  {Bold} = best, \underline  {underline} = second best.}}{6}{}\protected@file@percent }
+\newlabel{tab:cost-ablation}{{IV}{6}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-B}Vision}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-C}Agentic AI}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}DISCUSSION}{6}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Manipulability score vs.\ Cartesian goal distance for the baseline (grey) and proximity-only (orange) configurations. Each point represents one successful plan.}}{6}{}\protected@file@percent }
+\newlabel{fig:manip-vs-dist}{{7}{6}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Planning}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Vision}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Agentic AI}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}CONCLUSIONS}{6}{}\protected@file@percent }
+\bibstyle{ieeetr}
+\bibdata{battery}
+\bibcite{beaudet2020key}{1}
+\bibcite{ali2025sustainable}{2}
+\bibcite{choux2024shred}{3}
+\bibcite{rettenmeier2024laser}{4}
+\bibcite{al2024automated}{5}
+\bibcite{huang2026robotic}{6}
+\bibcite{tan2025robotic}{7}
+\bibcite{qu2024robotic}{8}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Per-goal distributions across eight cost function configurations. (a)\nobreakspace  {}Plan time (log scale), (b)\nobreakspace  {}execution time, (c)\nobreakspace  {}path length, (d)\nobreakspace  {}manipulability score. All metrics computed over successful plans only.}}{7}{}\protected@file@percent }
+\newlabel{fig:cost-boxplots}{{8}{7}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Goal difficulty heatmap. Each of 1{,}000 goals is colored by the number of cost configurations (out of 8) that failed to find a plan.}}{7}{}\protected@file@percent }
+\newlabel{fig:goal-difficulty}{{9}{7}}
+\@writefile{toc}{\contentsline {section}{References}{7}{}\protected@file@percent }
+\bibcite{chen2014robot}{9}
+\bibcite{wegener2015robot}{10}
+\bibcite{kay2022robotic}{11}
+\bibcite{choux2021task}{12}
+\bibcite{lee2022robot}{13}
+\bibcite{raptis2025agentic}{14}
+\bibcite{lynch2023interactive}{15}
+\bibcite{rachwal2025rai}{16}
+\bibcite{hathaway2024technoeconomic}{17}
+\bibcite{coleman2014reducing}{18}
+\bibcite{smolagents}{19}
+\bibcite{cuvelier2023or}{20}
+\gdef \@abspage@last{8}

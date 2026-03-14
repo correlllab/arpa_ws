@@ -1,0 +1,24 @@
+\begin{table}[!t]
+\caption{Cost function ablation results (avg.\ over successful plans).
+\textbf{Bold} = best, \underline{underline} = second best.}
+\label{tab:cost-ablation}
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{l ccccc}
+\toprule
+Config. & SR (\%)$\uparrow$ & Plan (s)$\downarrow$ & Exec (s)$\downarrow$ & Path (m)$\downarrow$ & Manip.$\uparrow$ \\
+\midrule
+Base & \textbf{99.6} & 0.96 & 6.24 & 2.40 & 0.481 \\
+\midrule
+Area & 99.0 & 0.53 & 6.28 & 2.52 & 0.421 \\
+Joint & 98.3 & 0.56 & 4.53 & \underline{1.64} & 0.489 \\
+Prox & 99.3 & 0.38 & 4.24 & 1.87 & \textbf{0.700} \\
+\midrule
+~Area & \underline{99.4} & 0.48 & 4.33 & 1.78 & \underline{0.699} \\
+~Joint & 99.1 & \underline{0.27} & 4.26 & 2.01 & 0.642 \\
+~Prox & 97.9 & 0.27 & \textbf{3.98} & \textbf{1.52} & 0.424 \\
+Equal & 99.3 & \textbf{0.22} & \underline{4.10} & 1.70 & 0.628 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
