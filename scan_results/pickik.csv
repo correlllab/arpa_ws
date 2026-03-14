@@ -1,0 +1,2 @@
+run_id,test_case,completed,total,success_rate,total_wall_s,distance_travelled_m,path_length_travelled_m,sum_plan_time_s,sum_execution_time_s
+kdl_only_1773468608,kdl_only,288,1000,0.288,4690.802342891693,944.573353885206,546.7028617704995,3101.338447332382,1587.6173598766327

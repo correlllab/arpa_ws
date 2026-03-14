@@ -74,6 +74,7 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   this->declare_parameter("cost_w_joint", 1.0);
   this->declare_parameter("cost_w_proximity", 1.0);
   this->declare_parameter("cost_w_area", 1.0);
+  this->declare_parameter("use_analytical_ik", true);
   m_cost_w_joint = this->get_parameter("cost_w_joint").as_double();
   m_cost_w_proximity = this->get_parameter("cost_w_proximity").as_double();
   m_cost_w_area = this->get_parameter("cost_w_area").as_double();
@@ -320,43 +321,47 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
   std::vector<std::vector<double>> all_solutions;
   std::vector<RawIKCost> all_raw_costs;
 
-  // Sweep gantry positions at 0.1m steps and solve analytical IK at each
-  std::set<int> tried_positions_mm;
-  for (double offset : {0.0, -0.1, 0.1, -0.2, 0.2, -0.3, 0.3, -0.4, 0.4,
-                        -0.5, 0.5, -0.6, 0.6, -0.7, 0.7, -0.8, 0.8,
-                        -0.9, 0.9, -1.0, 1.0}) {
-    double gantry_pos = std::clamp(original_actuator_pos + offset, 0.2, 1.9);
-    int key_mm = static_cast<int>(gantry_pos * 1000);
-    if (tried_positions_mm.count(key_mm)) continue;
-    tried_positions_mm.insert(key_mm);
+  bool use_analytical = this->get_parameter("use_analytical_ik").as_bool();
 
-    auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-    seed_state->setJointPositions(actuator_joint, &gantry_pos);
-    seed_state->update();
-    Eigen::Isometry3d dh_frame0_in_world = seed_state->getGlobalLinkTransform("base_link_inertia");
-    Eigen::Isometry3d target_in_dh0 = dh_frame0_in_world.inverse() * target_in_world;
+  if (use_analytical) {
+    // Sweep gantry positions at 0.1m steps and solve analytical IK at each
+    std::set<int> tried_positions_mm;
+    for (double offset : {0.0, -0.1, 0.1, -0.2, 0.2, -0.3, 0.3, -0.4, 0.4,
+                          -0.5, 0.5, -0.6, 0.6, -0.7, 0.7, -0.8, 0.8,
+                          -0.9, 0.9, -1.0, 1.0}) {
+      double gantry_pos = std::clamp(original_actuator_pos + offset, 0.2, 1.9);
+      int key_mm = static_cast<int>(gantry_pos * 1000);
+      if (tried_positions_mm.count(key_mm)) continue;
+      tried_positions_mm.insert(key_mm);
 
-    auto ik_solutions = ur16e_ik::solve(target_in_dh0);
-
-    for (const auto& sol : ik_solutions) {
-      for (int j = 0; j < 6; ++j) {
-        seed_state->setJointPositions(arm_joint_names[j], &sol.joints[j]);
-      }
+      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+      seed_state->setJointPositions(actuator_joint, &gantry_pos);
       seed_state->update();
+      Eigen::Isometry3d dh_frame0_in_world = seed_state->getGlobalLinkTransform("base_link_inertia");
+      Eigen::Isometry3d target_in_dh0 = dh_frame0_in_world.inverse() * target_in_world;
 
-      if (!seed_state->satisfiesBounds(jmg)) continue;
+      auto ik_solutions = ur16e_ik::solve(target_in_dh0);
 
-      RawIKCost raw = getRawConfigurationCost(current_state, seed_state);
-      if (!raw.valid) continue;
+      for (const auto& sol : ik_solutions) {
+        for (int j = 0; j < 6; ++j) {
+          seed_state->setJointPositions(arm_joint_names[j], &sol.joints[j]);
+        }
+        seed_state->update();
 
-      std::vector<double> joint_positions;
-      seed_state->copyJointGroupPositions(jmg, joint_positions);
-      all_solutions.push_back(joint_positions);
-      all_raw_costs.push_back(raw);
+        if (!seed_state->satisfiesBounds(jmg)) continue;
+
+        RawIKCost raw = getRawConfigurationCost(current_state, seed_state);
+        if (!raw.valid) continue;
+
+        std::vector<double> joint_positions;
+        seed_state->copyJointGroupPositions(jmg, joint_positions);
+        all_solutions.push_back(joint_positions);
+        all_raw_costs.push_back(raw);
+      }
     }
   }
 
-  // Fallback: 7-DOF KDL solve from current state
+  // KDL solve from current state (always runs; sole solver when use_analytical_ik=false)
   {
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
     if (seed_state->setFromIK(jmg, target_pose, ee_link, 0.3)) {
@@ -372,7 +377,8 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
   }
 
   if (all_solutions.empty()) {
-    RCLCPP_ERROR(get_logger(), "No valid IK solution found (analytical + KDL fallback)");
+    RCLCPP_ERROR(get_logger(), "No valid IK solution found (%s)",
+        use_analytical ? "analytical + KDL" : "KDL only");
     return {};
   }
 

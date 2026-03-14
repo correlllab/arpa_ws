@@ -247,7 +247,7 @@ C(\bm{q}_k) = \alpha \,\hat{d}_J + \beta \,\hat{p}_P + \gamma \,\hat{p}_A,
 $$
 where $\alpha$, $\beta$, $\gamma \geq 0$ are user-configurable weights exposed as runtime parameters. The candidate with the lowest $C(\bm{q}_k)$ is used as the IK seed for the sampling-based motion planner.
 
-We additionally compute the Yoshikawa manipulability index $\mu = \sqrt{\det(\bm{J}\bm{J}^T)}$, where $\bm{J} \in \mathbb{R}^{6 \times 7}$ is the geometric Jacobian, for each planned configuration. While $\mu$ is not directly incorporated into the cost function, it is recorded as a diagnostic metric to quantify the dexterity of the selected configuration. We observe empirically that the area penalty $p_A$ correlates with manipulability, as collapsed arm triangles coincide with near-singular Jacobians.
+We additionally compute the Yoshikawa manipulability index \cite{yoshikawa1985manipulability} $\mu = \sqrt{\det(\bm{J}\bm{J}^T)}$, where $\bm{J} \in \mathbb{R}^{6 \times 7}$ is the geometric Jacobian, for each planned configuration. While $\mu$ is not directly incorporated into the cost function, it is recorded as a diagnostic metric to quantify the dexterity of the selected configuration. We observe empirically that the area penalty $p_A$ correlates with manipulability, as collapsed arm triangles coincide with near-singular Jacobians.
 
 \subsubsection{Corridor Constraint}
 To produce predictable, human-safe motions in the collaborative workspace, we constrain the end-effector path to lie within a rectangular corridor between the start and goal poses. The corridor is defined as a 3D box whose long axis is aligned with the start-to-goal direction vector, with length equal to the segment distance plus a padding of $2 \times 0.25$\,m, and a square cross-section of $2 \times 0.5$\,m per side. The box is centered at the midpoint between start and goal and enforced as a MoveIt position constraint on the end-effector link.
@@ -267,67 +267,53 @@ We have also timed a disassembly sequence for the top cover, by performing disas
 We evaluate the motion planner in two studies using 1{,}000 randomly sampled goal poses within the battery workspace, with a planning timeout of 20\,s. All metrics are averaged over successful plans only.
 
 \subsubsection{RRT vs.\ Corridor-Constrained Planning}
-We first compare unconstrained RRT planning against corridor-constrained planning (Section~\ref{sec:planning}) using 1{,}000 goals at a fixed height of $z = 1.31$\,m. Table~\ref{tab:rrt-corridor} summarizes the results. RRT achieves a higher success rate (99.1\% vs.\ 93.4\%) with dramatically lower planning times (0.09\,s vs.\ 29.87\,s on average). However, the corridor constraint produces more direct paths, with a path efficiency of 0.910 compared to 0.823 for unconstrained RRT.
+We compare unconstrained RRT planning against corridor-constrained planning (Section~\ref{sec:planning}) using 1{,}000 randomly sampled goals at heights $z \in [1.0, 1.47]$\,m. Table~\ref{tab:rrt-corridor} summarizes the results.
 
 \input{tab_rrt_corridor}
 
-Figure~\ref{fig:plantime-hist} shows the plan time distributions on a logarithmic scale. RRT plan times cluster tightly around 0.10\,s, while corridor-constrained planning exhibits a broad distribution with a median of 13.75\,s, with many plans approaching or exceeding the 20\,s timeout.
+The two strategies represent a fundamental tradeoff between plan quality and planning speed. RRT is unconstrained: the sampling-based planner freely explores joint space to find a collision-free path, and does so very quickly (avg.\ 0.21\,s). The resulting paths are valid but indirect, averaging 1.67\,m of joint-space travel for goals separated by only $\sim$0.99\,m in Cartesian space (path efficiency 0.750). The corridor constraint forces the end-effector to travel inside a tight box aligned with the start-to-goal segment, producing geometrically straight, predictable motions (avg.\ 1.23\,m path length, efficiency 0.889). The cost is a 200$\times$ increase in planning time (41.41\,s on average, median 20.55\,s) as the constrained sampler must find a narrow feasible corridor, and a drop in success rate from 99.0\,\% to 90.4\,\% as some goals cannot be reached within the box. For a collaborative workspace where human workers are nearby, the corridor's straight, legible motions justify this cost.
+
+Figure~\ref{fig:plantime-hist} shows the plan time distributions on a logarithmic scale. RRT plan times cluster tightly around the 0.10\,s median, while corridor-constrained planning spans several decades with a median of 20.55\,s and a long tail of near-timeout plans.
 
 \begin{figure}[!t]
 \centering
 \includegraphics[width=\columnwidth]{fig_rrt_corridor_hist.png}
-\caption{Plan time distributions for unconstrained RRT vs.\ corridor-constrained planning. Dashed line indicates the 20\,s timeout.}
+\caption{Plan time distributions for unconstrained RRT (blue) vs.\ corridor-constrained planning (orange). Dashed lines indicate the median for each strategy.}
 \label{fig:plantime-hist}
 \end{figure}
 
-Figure~\ref{fig:plantime-scatter} shows a per-goal comparison of plan times. Nearly all points lie above the diagonal, confirming that the corridor constraint increases planning time for every goal. Blue points indicate goals where only RRT succeeded, predominantly at high corridor plan times where the constrained planner timed out.
+Figure~\ref{fig:plantime-scatter} shows a per-goal comparison of plan times. Nearly all points lie above the diagonal, confirming that the corridor constraint increases planning time at every goal. Blue points mark goals where only RRT succeeded, concentrated at the long-plan-time edge where the constrained planner timed out.
 
 \begin{figure}[!t]
 \centering
 \includegraphics[width=\columnwidth]{fig_plantime_scatter.png}
-\caption{Per-goal plan time comparison. Each point represents one of 1{,}000 goals. Points above the diagonal indicate corridor planning was slower.}
+\caption{Per-goal plan time comparison. Each point represents one of 1{,}000 goals. Points above the diagonal indicate corridor planning was slower than RRT.}
 \label{fig:plantime-scatter}
 \end{figure}
 
-Figure~\ref{fig:spatial-failures} shows the spatial distribution of failures. RRT failures (9 total) are scattered, while corridor failures (66 total) cluster at the positive-$x$ workspace boundary, where the corridor box extends beyond the reachable workspace.
+Figure~\ref{fig:spatial-failures} shows the spatial distribution of failures. RRT failures (10 total) are scattered across the workspace with no clear spatial pattern, while corridor failures (96 total) cluster at the positive-$x$ boundary, where the corridor box extends into kinematically unreachable regions.
 
 \begin{figure*}[!t]
 \centering
 \includegraphics[width=\textwidth]{fig_spatial_failures.png}
-\caption{Spatial distribution of planning failures. Left: unconstrained RRT (9 failures). Right: corridor-constrained planning (66 failures), with failures concentrated at the workspace boundary.}
+\caption{Spatial distribution of planning failures. Left: unconstrained RRT (10 failures, scattered). Right: corridor-constrained planning (96 failures), concentrated at the positive-$x$ workspace boundary.}
 \label{fig:spatial-failures}
 \end{figure*}
 
 \subsubsection{Cost Function Ablation Study}
-We evaluate the effect of the three IK seed selection cost components (joint distance, proximity penalty, area penalty) using eight weight configurations in an ablation study. Goals are sampled with varying heights ($z \in [1.0, 1.47]$\,m) and planned from a fixed home position. Table~\ref{tab:cost-ablation} summarizes the results.
+We evaluate the effect of the three IK seed selection cost components (joint distance, proximity penalty, area penalty) using eight weight configurations that span the space of the three costs: baseline (all weights zero), all equal, each cost ablated in turn, and each cost in isolation. Goals are sampled with varying heights ($z \in [1.0, 1.47]$\,m) and planned from a fixed home position. Table~\ref{tab:cost-ablation} summarizes the results.
 
 \input{tab_cost_ablation}
 
-The baseline configuration ($\alpha = \beta = \gamma = 0$, uniform random IK seed selection) achieves the highest success rate (99.6\%) but the slowest average plan time (0.96\,s) and longest paths (2.40\,m). The equally-weighted configuration ($\alpha = \beta = \gamma = 1$) reduces plan time to 0.22\,s while maintaining a 99.3\% success rate and achieving high manipulability (0.628). Removing the proximity penalty (\texttildelow Prox) yields the fastest execution time (3.98\,s) and shortest paths (1.52\,m), but reduces the success rate to 97.9\% and manipulability to 0.424. The proximity-only configuration achieves the highest manipulability (0.700), as configurations that maintain clearance from the gantry tend to be more dexterous. Figure~\ref{fig:manip-vs-dist} illustrates this relationship: compared to the random-seed baseline, the proximity-only configuration consistently selects configurations with higher manipulability scores across all goal distances, with the largest improvement at close-range goals where multiple arm configurations compete.
+The baseline configuration ($\alpha = \beta = \gamma = 0$, uniform random IK seed selection) achieves the highest success rate (99.6\%) but the slowest average plan time (0.96\,s) and longest paths (2.40\,m). The proximity-only configuration achieves the highest manipulability (0.700), as configurations that maintain clearance from the gantry tend to be more dexterous. We adopt the no-area configuration ($\alpha = \beta = 1$, $\gamma = 0$) as our final choice: it ranks second on both success rate and manipulability among the eight cases, trading a small drop in success and manipulability for faster plan times and shorter paths than proximity-only and baseline.
+
+Figure~\ref{fig:manip-bar} summarizes the mean manipulability score across all eight configurations. The proximity term is the dominant driver of dexterity: every configuration that includes it (Prox, \texttildelow Area, \texttildelow Joint, Equal) clusters near $\mu \approx 0.63$--$0.70$, while configurations that omit it (Base, Area, Joint, \texttildelow Prox) fall below $\mu \leq 0.49$. Notably, the area-only and no-proximity configurations achieve the two lowest manipulability scores (0.421 and 0.424 respectively), confirming that the triangle-area penalty alone is insufficient as a dexterity surrogate. The large within-group standard deviations reflect workspace heterogeneity: goals near the kinematic workspace boundary force less dexterous configurations regardless of the cost weights.
 
 \begin{figure}[!t]
 \centering
-\includegraphics[width=\columnwidth]{fig_manip_vs_dist.png}
-\caption{Manipulability score vs.\ Cartesian goal distance for the baseline (grey) and proximity-only (orange) configurations. Each point represents one successful plan.}
-\label{fig:manip-vs-dist}
-\end{figure}
-
-Figure~\ref{fig:cost-boxplots} shows the per-goal distributions across all eight configurations. The plan time panel~(a) reveals that the baseline has a significantly heavier tail compared to the cost-informed configurations. The manipulability panel~(d) shows a clear separation: configurations that include the proximity term (Prox, \texttildelow Area, \texttildelow Joint, Equal) consistently achieve higher manipulability scores than those without it.
-
-\begin{figure*}[!t]
-\centering
-\includegraphics[width=\textwidth]{fig_cost_boxplots.png}
-\caption{Per-goal distributions across eight cost function configurations. (a)~Plan time (log scale), (b)~execution time, (c)~path length, (d)~manipulability score. All metrics computed over successful plans only.}
-\label{fig:cost-boxplots}
-\end{figure*}
-
-Figure~\ref{fig:goal-difficulty} maps the spatial distribution of planning failures across all eight configurations. Goals that failed under multiple configurations cluster near the positive-$x$ workspace boundary, corresponding to extended-reach poses where the arm approaches kinematic limits.
-
-\begin{figure}[!t]
-\centering
-\includegraphics[width=\columnwidth]{fig_goal_difficulty.png}
-\caption{Goal difficulty heatmap. Each of 1{,}000 goals is colored by the number of cost configurations (out of 8) that failed to find a plan.}
-\label{fig:goal-difficulty}
+\includegraphics[width=\columnwidth]{fig_manip_bar.png}
+\caption{Mean manipulability score ($\pm$1\,std.) for each of the eight cost configurations. Configurations that include the proximity term (Prox, \texttildelow Area, \texttildelow Joint, Equal) consistently achieve higher dexterity. Best configuration highlighted in orange.}
+\label{fig:manip-bar}
 \end{figure}
 
 \subsection{Vision}

@@ -45,6 +45,7 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-A}Planning}{3}{}\protected@file@percent }
 \newlabel{sec:planning}{{III-A}{3}}
 \citation{cuvelier2023or}
+\citation{yoshikawa1985manipulability}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.1}Analytical Inverse Kinematics}{4}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.2}Multi-Objective IK Seed Selection}{4}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.3}Corridor Constraint}{4}{}\protected@file@percent }
@@ -57,26 +58,22 @@
 \@writefile{toc}{\contentsline {section}{\numberline {IV}RESULTS}{5}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {IV-A}Planning}{5}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.1}RRT vs.\ Corridor-Constrained Planning}{5}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.2}Cost Function Ablation Study}{5}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Plan time distributions for unconstrained RRT vs.\ corridor-constrained planning. Dashed line indicates the 20\,s timeout.}}{5}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Plan time distributions for unconstrained RRT (blue) vs.\ corridor-constrained planning (orange). Dashed lines indicate the median for each strategy.}}{5}{}\protected@file@percent }
 \newlabel{fig:plantime-hist}{{4}{5}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Per-goal plan time comparison. Each point represents one of 1{,}000 goals. Points above the diagonal indicate corridor planning was slower.}}{5}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Per-goal plan time comparison. Each point represents one of 1{,}000 goals. Points above the diagonal indicate corridor planning was slower than RRT.}}{5}{}\protected@file@percent }
 \newlabel{fig:plantime-scatter}{{5}{5}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.2}Cost Function Ablation Study}{5}{}\protected@file@percent }
 \citation{qu2024robotic}
 \citation{qu2024robotic}
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Spatial distribution of planning failures. Left: unconstrained RRT (9 failures). Right: corridor-constrained planning (66 failures), with failures concentrated at the workspace boundary.}}{6}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Spatial distribution of planning failures. Left: unconstrained RRT (10 failures, scattered). Right: corridor-constrained planning (96 failures), concentrated at the positive-$x$ workspace boundary.}}{6}{}\protected@file@percent }
 \newlabel{fig:spatial-failures}{{6}{6}}
 \@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Cost function ablation results (avg.\ over successful plans). \textbf  {Bold} = best, \underline  {underline} = second best.}}{6}{}\protected@file@percent }
 \newlabel{tab:cost-ablation}{{IV}{6}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Mean manipulability score ($\pm $1\,std.) for each of the eight cost configurations. Configurations that include the proximity term (Prox, \texttildelow Area, \texttildelow Joint, Equal) consistently achieve higher dexterity. Best configuration highlighted in orange.}}{6}{}\protected@file@percent }
+\newlabel{fig:manip-bar}{{7}{6}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {IV-B}Vision}{6}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {IV-C}Agentic AI}{6}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {V}DISCUSSION}{6}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Manipulability score vs.\ Cartesian goal distance for the baseline (grey) and proximity-only (orange) configurations. Each point represents one successful plan.}}{6}{}\protected@file@percent }
-\newlabel{fig:manip-vs-dist}{{7}{6}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Planning}{6}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Vision}{6}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Agentic AI}{6}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {VI}CONCLUSIONS}{6}{}\protected@file@percent }
 \bibstyle{ieeetr}
 \bibdata{battery}
 \bibcite{beaudet2020key}{1}
@@ -87,11 +84,6 @@
 \bibcite{huang2026robotic}{6}
 \bibcite{tan2025robotic}{7}
 \bibcite{qu2024robotic}{8}
-\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Per-goal distributions across eight cost function configurations. (a)\nobreakspace  {}Plan time (log scale), (b)\nobreakspace  {}execution time, (c)\nobreakspace  {}path length, (d)\nobreakspace  {}manipulability score. All metrics computed over successful plans only.}}{7}{}\protected@file@percent }
-\newlabel{fig:cost-boxplots}{{8}{7}}
-\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Goal difficulty heatmap. Each of 1{,}000 goals is colored by the number of cost configurations (out of 8) that failed to find a plan.}}{7}{}\protected@file@percent }
-\newlabel{fig:goal-difficulty}{{9}{7}}
-\@writefile{toc}{\contentsline {section}{References}{7}{}\protected@file@percent }
 \bibcite{chen2014robot}{9}
 \bibcite{wegener2015robot}{10}
 \bibcite{kay2022robotic}{11}
@@ -104,4 +96,9 @@
 \bibcite{coleman2014reducing}{18}
 \bibcite{smolagents}{19}
 \bibcite{cuvelier2023or}{20}
-\gdef \@abspage@last{8}
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Planning}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Vision}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Agentic AI}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}CONCLUSIONS}{7}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{7}{}\protected@file@percent }
+\gdef \@abspage@last{7}

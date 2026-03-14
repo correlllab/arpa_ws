@@ -2,12 +2,12 @@
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
-from paper_style import IEEE_TEXT_W, SCAN_DIR, OUT_DIR, apply_style
+from paper_style import IEEE_TEXT_W, OUT_DIR, RRT_DETAIL, COR_DETAIL, apply_style
 
 apply_style()
 
-rrt = pd.read_csv(os.path.join(SCAN_DIR, 'rrtdetail.csv'), skipinitialspace=True)
-cor = pd.read_csv(os.path.join(SCAN_DIR, 'positiondetail.csv'), skipinitialspace=True)
+rrt = pd.read_csv(RRT_DETAIL, skipinitialspace=True)
+cor = pd.read_csv(COR_DETAIL, skipinitialspace=True)
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(IEEE_TEXT_W, 3.0))
 

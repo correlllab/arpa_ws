@@ -38,3 +38,6 @@ COST_LABELS = [
 DATA_DIR = '/home/the2xman/arpa_ws/scan_results/manipulatability'
 SCAN_DIR = '/home/the2xman/arpa_ws/scan_results'
 OUT_DIR  = '/home/the2xman/arpa_ws/scan_results/paper_figs'
+
+RRT_DETAIL = '/home/the2xman/arpa_ws/scan_results/benchmark_random1000_pure_rrt_detail.csv'
+COR_DETAIL = '/home/the2xman/arpa_ws/scan_results/benchmark_random1000_corridor_position_only_detail.csv'

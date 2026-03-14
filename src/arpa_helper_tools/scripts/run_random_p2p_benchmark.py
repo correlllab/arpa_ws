@@ -375,28 +375,39 @@ TEST_CASE_PARAMS = {
         'constrain_corridor_position': 'false',
         'constrain_corridor_orientation': 'false',
         'planning_time': '20.0',
+        'use_analytical_ik': 'true',
+    },
+    'kdl_only': {
+        'use_corridor_constraint': 'false',
+        'constrain_corridor_position': 'false',
+        'constrain_corridor_orientation': 'false',
+        'planning_time': '20.0',
+        'use_analytical_ik': 'false',
     },
     'corridor_full': {
         'use_corridor_constraint': 'true',
         'constrain_corridor_position': 'true',
         'constrain_corridor_orientation': 'true',
         'planning_time': '20.0',
+        'use_analytical_ik': 'true',
     },
     'corridor_position_only': {
         'use_corridor_constraint': 'true',
         'constrain_corridor_position': 'true',
         'constrain_corridor_orientation': 'false',
         'planning_time': '20.0',
+        'use_analytical_ik': 'true',
     },
     'corridor_orientation_only': {
         'use_corridor_constraint': 'true',
         'constrain_corridor_position': 'false',
         'constrain_corridor_orientation': 'true',
         'planning_time': '20.0',
+        'use_analytical_ik': 'true',
     },
 }
 
-ALL_TEST_CASES = ['pure_rrt', 'corridor_full', 'corridor_position_only', 'corridor_orientation_only']
+ALL_TEST_CASES = ['pure_rrt', 'kdl_only', 'corridor_full', 'corridor_position_only', 'corridor_orientation_only']
 
 
 def configure_params_for_test_case(test_case: str) -> bool:

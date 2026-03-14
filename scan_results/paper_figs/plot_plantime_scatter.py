@@ -4,7 +4,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from paper_style import apply_style, IEEE_COL_W, SCAN_DIR, OUT_DIR
+from paper_style import apply_style, IEEE_COL_W, OUT_DIR, RRT_DETAIL, COR_DETAIL
 apply_style()
 
 import numpy as np
@@ -12,8 +12,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # ── Load data ────────────────────────────────────────────────────────────
-rrt = pd.read_csv(os.path.join(SCAN_DIR, "rrtdetail.csv"), skipinitialspace=True)
-cor = pd.read_csv(os.path.join(SCAN_DIR, "positiondetail.csv"), skipinitialspace=True)
+rrt = pd.read_csv(RRT_DETAIL, skipinitialspace=True)
+cor = pd.read_csv(COR_DETAIL, skipinitialspace=True)
 
 # Merge on move_index, keeping plan_time and success from each
 rrt_sub = rrt[["move_index", "plan_time_s", "success"]].rename(

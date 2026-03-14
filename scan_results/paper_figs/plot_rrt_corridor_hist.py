@@ -4,7 +4,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from paper_style import apply_style, IEEE_COL_W, SCAN_DIR, OUT_DIR
+from paper_style import apply_style, IEEE_COL_W, OUT_DIR, RRT_DETAIL, COR_DETAIL
 apply_style()
 
 import numpy as np
@@ -12,8 +12,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # ── Load data ────────────────────────────────────────────────────────────
-rrt = pd.read_csv(os.path.join(SCAN_DIR, "rrtdetail.csv"))
-cor = pd.read_csv(os.path.join(SCAN_DIR, "positiondetail.csv"))
+rrt = pd.read_csv(RRT_DETAIL)
+cor = pd.read_csv(COR_DETAIL)
 
 # Keep only successful plans
 rrt = rrt[rrt["success"] == 1]

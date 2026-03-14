@@ -2,7 +2,7 @@
 import os
 import pandas as pd
 import numpy as np
-from paper_style import COST_CASES, COST_LABELS, DATA_DIR, SCAN_DIR, OUT_DIR, apply_style
+from paper_style import COST_CASES, COST_LABELS, DATA_DIR, SCAN_DIR, OUT_DIR, RRT_DETAIL, COR_DETAIL, apply_style
 
 apply_style()
 
@@ -98,8 +98,8 @@ print('Wrote tab_cost_ablation.tex')
 # ── Table 2: RRT vs Corridor Summary ─────────────────────────────────────────
 
 strategies = [
-    ('Pure RRT',  os.path.join(SCAN_DIR, 'rrtdetail.csv')),
-    ('Corridor',  os.path.join(SCAN_DIR, 'positiondetail.csv')),
+    ('Pure RRT', RRT_DETAIL),
+    ('Corridor', COR_DETAIL),
 ]
 
 strat_rows = []
