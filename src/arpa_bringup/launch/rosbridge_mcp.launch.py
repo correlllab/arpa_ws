@@ -52,11 +52,11 @@ def launch_setup(context, *args, **kwargs):
                 "max_message_size":                10000000,
                 "use_compression":                 False,
                 "send_action_goals_in_new_thread": True,
-                "call_services_in_new_thread":     True,
-                "default_call_service_timeout":    5.0,
-                "retry_startup_delay":             5.0,
+                "call_services_in_new_thread":     False,
+                "default_call_service_timeout":    120.0,
+                "retry_startup_delay":             10.0,
                 "fragment_timeout":                600,
-                "delay_between_messages":          0.0,
+                "delay_between_messages":          5.0,
                 "unregister_timeout":              120.0,
             }]
         )

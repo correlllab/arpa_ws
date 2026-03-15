@@ -233,8 +233,7 @@ double MotionControlNode::getConfigurationCost(
   //TODO use ros params to test different cost structures
   double total_cost = (2 * weighted_joint_distance) + (0.1 * proximity_penalty) + (0.5 * area_penalty);
 
-  // RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f (dist=%.3fm), Area: %.4f, Total: %.4f",
-  //             joint_cost, proximity_penalty, actuator_wrist_distance, area_penalty, total_cost);
+  RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f, Area: %.4f, Total: %f", weighted_joint_distance, proximity_penalty, area_penalty, total_cost);
 
   return total_cost;
 }
@@ -307,24 +306,25 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     
     
     // updateGoalMarker(seed_state);
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
+    // std::this_thread::sleep_for(std::chrono::seconds(2));
     //TODO dont solve IK for impossible LA positions (wastes timeout?)
     if (!seed_state->setFromIK(use_jmg, target_pose, ee_link, 0.1)) {
-      RCLCPP_DEBUG(get_logger(), "IK failed for actuator offset %.2f", offset);
+      RCLCPP_WARN(get_logger(), "IK failed for actuator offset %.2f", offset);
       continue;
     }
     seed_state->update();
 
     // updateGoalMarker(seed_state);
-    // std::this_thread::sleep_for(std::chrono::seconds(1));
     
     double cost = getConfigurationCost(current_state, seed_state);
+    // std::this_thread::sleep_for(std::chrono::seconds(5));
     if (std::isinf(cost)) continue;
 
     std::vector<double> joint_positions;
     seed_state->copyJointGroupPositions(jmg, joint_positions);
     all_solutions.push_back(joint_positions);
     all_costs.push_back(cost);
+
   }
 
   if (all_solutions.empty()) {
