@@ -65,7 +65,7 @@ At time 1770252100.237171449
  -0.000  0.000 -1.000  1.253
   0.000  0.000  0.000  1.000
 """
-SAVE_IMAGES = False
+SAVE_IMAGES = True
 
 # Scan area bounds (X, Y)
 LOWER_LEFT = [1.0, -0.75]   # Starting corner
@@ -151,7 +151,7 @@ def scan_points_to_pose_stamped(points, frame_id):
     
 
 
-# FRAME_ID = "floor_link"
+FRAME_ID = "floor_link"
 # # Collision plane configuration
 # _PLANE_ID = "battery_do_not_cross"
 # _PLANE_Z = 0.9  # Z height of the plane (below scan height)
