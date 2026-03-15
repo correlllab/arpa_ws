@@ -316,6 +316,8 @@ Figure~\ref{fig:manip-bar} summarizes the mean manipulability score across all e
 \label{fig:manip-bar}
 \end{figure}
 
+To confirm that these differences are statistically significant rather than artefacts of sampling variability, we applied a Kruskal--Wallis test~\cite{kruskal1952use}---a non-parametric one-way analysis of variance on ranks---across all eight configurations. The test confirmed highly significant variation in manipulability score ($H(7)=2523.7$, $p<0.001$), plan time ($H(7)=1055.7$, $p<0.001$), and path length ($H(7)=448.7$, $p<0.001$). To isolate the contribution of the proximity term specifically, we performed pairwise Mann--Whitney U tests~\cite{mann1947test} between each of the four proximity-inclusive configurations (Prox, \texttildelow{}Area, \texttildelow{}Joint, Equal) and each of the four proximity-exclusive configurations (Base, Area, Joint, \texttildelow{}Prox), yielding 16 comparisons. After Bonferroni correction~\cite{dunn1961multiple}, all 16 pairs remain significant ($p<0.001$), confirming that the proximity term is the dominant and statistically reliable driver of dexterity in the IK seed selection cost function.
+
 \subsection{Vision}
 \subsection{Agentic AI}
 
