@@ -1,0 +1,2 @@
+run_id,test_case,completed,total,success_rate,total_wall_s,distance_travelled_m,path_length_travelled_m,sum_plan_time_s,sum_execution_time_s
+kdl_random_restarts_1773542863,kdl_random_restarts,730,1000,0.73,15130.94372344017,940.5771809441338,1714.0135805461214,10456.540922641754,4673.415090560913

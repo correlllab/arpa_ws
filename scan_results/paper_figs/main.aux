@@ -32,9 +32,9 @@
 \@writefile{toc}{\contentsline {section}{\numberline {II}SYSTEM OVERVIEW}{2}{}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Integration of conventional automation systems, open-world vision systems, motion planning and Agentic AI. }}{2}{}\protected@file@percent }
 \newlabel{fig:overview}{{2}{2}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {II-A}Electric Vehicle Battery: Hyundai Ioniq5}{2}{}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Custom end-effector for the UR16e that holds a nut-runner and a Intel Realsense D435 in place.  }}{2}{}\protected@file@percent }
 \newlabel{fig:nutrunner}{{3}{2}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {II-A}Electric Vehicle Battery: Hyundai Ioniq5}{2}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {II-B}Robotic System}{2}{}\protected@file@percent }
 \citation{coleman2014reducing}
 \@writefile{lot}{\contentsline {table}{\numberline {I}{\ignorespaces Battery Disassembly Task Breakdown}}{3}{}\protected@file@percent }
@@ -47,33 +47,28 @@
 \citation{cuvelier2023or}
 \citation{yoshikawa1985manipulability}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.1}Analytical Inverse Kinematics}{4}{}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces IK solver comparison over 1\,000 random goal poses with a 20\,s planning budget. \textbf  {Bold} = best.}}{4}{}\protected@file@percent }
+\newlabel{tab:ik_comparison}{{III}{4}}
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.2}Multi-Objective IK Seed Selection}{4}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsubsection}{\numberline {III-A.3}Corridor Constraint}{4}{}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {III}{\ignorespaces RRT vs.\ corridor planning comparison (avg.\ over successful plans).}}{5}{}\protected@file@percent }
-\newlabel{tab:rrt-corridor}{{III}{5}}
+\citation{kruskal1952use}
+\citation{mann1947test}
+\citation{dunn1961multiple}
+\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Cost function ablation results (avg.\ over successful plans). \textbf  {Bold} = best, \underline  {underline} = second best.}}{5}{}\protected@file@percent }
+\newlabel{tab:cost-ablation}{{IV}{5}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-B}Vision}{5}{}\protected@file@percent }
 \newlabel{sec:vision}{{III-B}{5}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {III-C}Agentic AI}{5}{}\protected@file@percent }
 \newlabel{sec:agenticAI}{{III-C}{5}}
 \@writefile{toc}{\contentsline {section}{\numberline {IV}RESULTS}{5}{}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {IV-A}Planning}{5}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.1}RRT vs.\ Corridor-Constrained Planning}{5}{}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Plan time distributions for unconstrained RRT (blue) vs.\ corridor-constrained planning (orange). Dashed lines indicate the median for each strategy.}}{5}{}\protected@file@percent }
-\newlabel{fig:plantime-hist}{{4}{5}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Per-goal plan time comparison. Each point represents one of 1{,}000 goals. Points above the diagonal indicate corridor planning was slower than RRT.}}{5}{}\protected@file@percent }
-\newlabel{fig:plantime-scatter}{{5}{5}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.2}Cost Function Ablation Study}{5}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.1}Cost Function Ablation Study}{5}{}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Mean manipulability score ($\pm $1\,std.) for each of the eight cost configurations. Configurations that include the proximity term (Prox, \texttildelow Area, \texttildelow Joint, Equal) consistently achieve higher dexterity. Best configuration highlighted in orange.}}{5}{}\protected@file@percent }
+\newlabel{fig:manip-bar}{{4}{5}}
+\newlabel{sec:corridor-results}{{IV-A.2}{5}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {IV-A.2}Path Safety: Unconstrained vs.\ Corridor-Constrained Planning}{5}{}\protected@file@percent }
 \citation{qu2024robotic}
 \citation{qu2024robotic}
-\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Spatial distribution of planning failures. Left: unconstrained RRT (10 failures, scattered). Right: corridor-constrained planning (96 failures), concentrated at the positive-$x$ workspace boundary.}}{6}{}\protected@file@percent }
-\newlabel{fig:spatial-failures}{{6}{6}}
-\@writefile{lot}{\contentsline {table}{\numberline {IV}{\ignorespaces Cost function ablation results (avg.\ over successful plans). \textbf  {Bold} = best, \underline  {underline} = second best.}}{6}{}\protected@file@percent }
-\newlabel{tab:cost-ablation}{{IV}{6}}
-\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Mean manipulability score ($\pm $1\,std.) for each of the eight cost configurations. Configurations that include the proximity term (Prox, \texttildelow Area, \texttildelow Joint, Equal) consistently achieve higher dexterity. Best configuration highlighted in orange.}}{6}{}\protected@file@percent }
-\newlabel{fig:manip-bar}{{7}{6}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {IV-B}Vision}{6}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {IV-C}Agentic AI}{6}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {V}DISCUSSION}{6}{}\protected@file@percent }
 \bibstyle{ieeetr}
 \bibdata{battery}
 \bibcite{beaudet2020key}{1}
@@ -90,15 +85,24 @@
 \bibcite{choux2021task}{12}
 \bibcite{lee2022robot}{13}
 \bibcite{raptis2025agentic}{14}
+\@writefile{lot}{\contentsline {table}{\numberline {V}{\ignorespaces Unconstrained RRT vs.\ corridor-constrained planning over 1\,000 random goal poses. RRT uses the no-area cost configuration selected in Section\nobreakspace  {}\G@refundefinedtrue \text  {\normalfont  \bfseries  ??}\GenericWarning  {               }{LaTeX Warning: Reference `sec:cost' on page 6 undefined}. Averages are over successful plans only. \textbf  {Bold} = best per column.}}{6}{}\protected@file@percent }
+\newlabel{tab:rrt-corridor}{{V}{6}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-B}Vision}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {IV-C}Agentic AI}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {V}DISCUSSION}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Planning}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Vision}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Agentic AI}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {VI}CONCLUSIONS}{6}{}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{6}{}\protected@file@percent }
 \bibcite{lynch2023interactive}{15}
 \bibcite{rachwal2025rai}{16}
 \bibcite{hathaway2024technoeconomic}{17}
 \bibcite{coleman2014reducing}{18}
 \bibcite{smolagents}{19}
 \bibcite{cuvelier2023or}{20}
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-A}Planning}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-B}Vision}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {V-C}Agentic AI}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {VI}CONCLUSIONS}{7}{}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{References}{7}{}\protected@file@percent }
+\bibcite{yoshikawa1985manipulability}{21}
+\bibcite{kruskal1952use}{22}
+\bibcite{mann1947test}{23}
+\bibcite{dunn1961multiple}{24}
 \gdef \@abspage@last{7}

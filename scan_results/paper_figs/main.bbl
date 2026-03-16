@@ -82,8 +82,8 @@ C.~Lynch, A.~Wahid, J.~Tompson, T.~Ding, J.~Betker, R.~Baruch, T.~Armstrong,
   {\em IEEE Robotics and Automation Letters}, 2023.
 
 \bibitem{rachwal2025rai}
-K.~Rachwa{\l}, M.~Majek, B.~Boczek, K.~D\k{a}browski, P.~Liberadzki,
-  A.~D\k{a}browski, and M.~Ganzha, ``Rai: Flexible agent framework for
+K.~Rachwa{\l}, M.~Majek, B.~Boczek, K.~D{\k{a}}browski, P.~Liberadzki,
+  A.~D{\k{a}}browski, and M.~Ganzha, ``Rai: Flexible agent framework for
   embodied ai,'' in {\em International Conference on Practical Applications of
   Agents and Multi-Agent Systems}, pp.~195--206, Springer, 2025.
 
@@ -99,9 +99,9 @@ D.~Coleman, I.~Sucan, S.~Chitta, and N.~Correll, ``Reducing the barrier to
   preprint arXiv:1404.3785}, 2014.
 
 \bibitem{smolagents}
-A.~Roucher, A.~V.~del Moral, T.~Wolf, L.~von Werra, and E.~Kaunism\"aki,
-  ``smolagents: a smol library to build great agentic systems,'' 
-  available at: \url{https://github.com/huggingface/smolagents}, 2025.
+A.~Roucher, A.~V. del Moral, T.~Wolf, L.~von Werra, and E.~Kaunismäki,
+  ```smolagents`: a smol library to build great agentic systems..''
+  \url{https://github.com/huggingface/smolagents}, 2025.
 
 \bibitem{cuvelier2023or}
 T.~Cuvelier, F.~Didier, V.~Furnon, S.~Gay, S.~Mohajeri, and L.~Perron,
@@ -109,5 +109,23 @@ T.~Cuvelier, F.~Didier, V.~Furnon, S.~Gay, S.~Mohajeri, and L.~Perron,
   with heuristic search for routing problems,'' in {\em 24e congr{\`e}s annuel
   de la soci{\'e}t{\'e} fran{\c{c}}aise de recherche op{\'e}rationnelle et
   d'aide {\`a} la d{\'e}cision}, 2023.
+
+\bibitem{yoshikawa1985manipulability}
+T.~Yoshikawa, ``Manipulability of robotic mechanisms,'' {\em The International
+  Journal of Robotics Research}, vol.~4, no.~2, pp.~3--9, 1985.
+
+\bibitem{kruskal1952use}
+W.~H. Kruskal and W.~A. Wallis, ``Use of ranks in one-criterion variance
+  analysis,'' {\em Journal of the American Statistical Association}, vol.~47,
+  no.~260, pp.~583--621, 1952.
+
+\bibitem{mann1947test}
+H.~B. Mann and D.~R. Whitney, ``On a test of whether one of two random
+  variables is stochastically larger than the other,'' {\em The Annals of
+  Mathematical Statistics}, vol.~18, no.~1, pp.~50--60, 1947.
+
+\bibitem{dunn1961multiple}
+O.~J. Dunn, ``Multiple comparisons among means,'' {\em Journal of the American
+  Statistical Association}, vol.~56, no.~293, pp.~52--64, 1961.
 
 \end{thebibliography}

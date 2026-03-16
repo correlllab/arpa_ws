@@ -75,6 +75,8 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   this->declare_parameter("cost_w_proximity", 1.0);
   this->declare_parameter("cost_w_area", 1.0);
   this->declare_parameter("use_analytical_ik", true);
+  this->declare_parameter("kdl_random_restart_count", 1);
+  this->declare_parameter("kdl_restart_timeout", 0.05);
   m_cost_w_joint = this->get_parameter("cost_w_joint").as_double();
   m_cost_w_proximity = this->get_parameter("cost_w_proximity").as_double();
   m_cost_w_area = this->get_parameter("cost_w_area").as_double();
@@ -361,17 +363,29 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     }
   }
 
-  // KDL solve from current state (always runs; sole solver when use_analytical_ik=false)
+  // KDL: single call from current state (when count=1) or N random restarts (count>1)
   {
-    auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
-    if (seed_state->setFromIK(jmg, target_pose, ee_link, 0.3)) {
-      seed_state->update();
-      RawIKCost raw = getRawConfigurationCost(current_state, seed_state);
-      if (raw.valid) {
-        std::vector<double> joint_positions;
-        seed_state->copyJointGroupPositions(jmg, joint_positions);
-        all_solutions.push_back(joint_positions);
-        all_raw_costs.push_back(raw);
+    int kdl_restarts = this->get_parameter("kdl_random_restart_count").as_int();
+    double kdl_timeout = this->get_parameter("kdl_restart_timeout").as_double();
+    // k=0 uses current state as seed (preserves original single-call behavior when count=1)
+    // k>0 uses random 7-DOF seeds to explore redundancy without structure
+    double k0_timeout = (kdl_restarts == 1) ? 0.3 : kdl_timeout;
+    for (int k = 0; k < kdl_restarts; ++k) {
+      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+      if (k > 0) {
+        seed_state->setToRandomPositions(jmg);
+        seed_state->update();
+      }
+      double timeout = (k == 0) ? k0_timeout : kdl_timeout;
+      if (seed_state->setFromIK(jmg, target_pose, ee_link, timeout)) {
+        seed_state->update();
+        RawIKCost raw = getRawConfigurationCost(current_state, seed_state);
+        if (raw.valid) {
+          std::vector<double> joint_positions;
+          seed_state->copyJointGroupPositions(jmg, joint_positions);
+          all_solutions.push_back(joint_positions);
+          all_raw_costs.push_back(raw);
+        }
       }
     }
   }

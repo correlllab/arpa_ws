@@ -405,9 +405,17 @@ TEST_CASE_PARAMS = {
         'planning_time': '20.0',
         'use_analytical_ik': 'true',
     },
+    'kdl_random_restarts': {
+        'use_corridor_constraint': 'false',
+        'constrain_corridor_position': 'false',
+        'constrain_corridor_orientation': 'false',
+        'planning_time': '20.0',
+        'use_analytical_ik': 'false',
+        'kdl_random_restart_count': '50',
+    },
 }
 
-ALL_TEST_CASES = ['pure_rrt', 'kdl_only', 'corridor_full', 'corridor_position_only', 'corridor_orientation_only']
+ALL_TEST_CASES = ['pure_rrt', 'kdl_only', 'corridor_full', 'corridor_position_only', 'corridor_orientation_only', 'kdl_random_restarts']
 
 
 def configure_params_for_test_case(test_case: str) -> bool:

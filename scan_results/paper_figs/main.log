@@ -1,9 +1,10 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.3.12)  15 MAR 2026 00:34
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.3.12)  15 MAR 2026 17:16
 entering extended mode
  restricted \write18 enabled.
+ file:line:error style messages enabled.
  %&-line parsing enabled.
-**main.tex
-(./main.tex
+**/home/the2xman/arpa_ws/scan_results/paper_figs/main.tex
+(/home/the2xman/arpa_ws/scan_results/paper_figs/main.tex
 LaTeX2e <2021-11-15> patch level 1
 L3 programming layer <2022-01-21> (./ieeeconf.cls
 Document Class: ieeeconf 2016/4/23 revision V1.6b by Pradeep Misra
@@ -12,8 +13,7 @@ Document Class: ieeeconf 2016/4/23 revision V1.6b by Pradeep Misra
 \@IEEEtrantmpcountA=\count185
 \@IEEEtrantmpcountB=\count186
 \@IEEEtrantmptoksA=\toks16
-LaTeX Font Info:    Trying to load font information for OT1+ptm on input line 7
-94.
+LaTeX Font Info:    Trying to load font information for OT1+ptm on input line 794.
 (/usr/share/texlive/texmf-dist/tex/latex/psnfss/ot1ptm.fd
 File: ot1ptm.fd 2001/06/04 font definitions for OT1/ptm.
 )
@@ -26,52 +26,42 @@ LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <5> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <5> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <7> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <7> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <8> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <8> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <9> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <9> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <10> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <10> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <11> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <11> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <12> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <12> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <16> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <16> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <20> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <20> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 LaTeX Font Info:    Font shape `OT1/ptm/bx/n' in size <24> not available
 (Font)              Font shape `OT1/ptm/b/n' tried instead on input line 1113.
 LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <24> not available
 (Font)              Font shape `OT1/ptm/b/it' tried instead on input line 1113.
-
 \IEEEilabelindentA=\dimen140
 \IEEEilabelindentB=\dimen141
 \IEEEilabelindent=\dimen142
@@ -100,46 +90,37 @@ LaTeX Font Info:    Font shape `OT1/ptm/bx/it' in size <24> not available
 ** ATTENTION: Overriding IEEE standard margins (line 12).
 (/usr/share/texlive/texmf-dist/tex/latex/graphics/graphicx.sty
 Package: graphicx 2021/09/16 v1.2d Enhanced LaTeX Graphics (DPC,SPQR)
-
-(/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty
+ (/usr/share/texlive/texmf-dist/tex/latex/graphics/keyval.sty
 Package: keyval 2014/10/28 v1.15 key=value parser (DPC)
 \KV@toks@=\toks17
-)
-(/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty
+) (/usr/share/texlive/texmf-dist/tex/latex/graphics/graphics.sty
 Package: graphics 2021/03/04 v1.4d Standard LaTeX Graphics (DPC,SPQR)
-
-(/usr/share/texlive/texmf-dist/tex/latex/graphics/trig.sty
+ (/usr/share/texlive/texmf-dist/tex/latex/graphics/trig.sty
 Package: trig 2021/08/11 v1.11 sin cos tan (DPC)
-)
-(/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg
+) (/usr/share/texlive/texmf-dist/tex/latex/graphics-cfg/graphics.cfg
 File: graphics.cfg 2016/06/04 v1.11 sample graphics configuration
 )
 Package graphics Info: Driver file: pdftex.def on input line 107.
-
-(/usr/share/texlive/texmf-dist/tex/latex/graphics-def/pdftex.def
+ (/usr/share/texlive/texmf-dist/tex/latex/graphics-def/pdftex.def
 File: pdftex.def 2020/10/05 v1.2a Graphics/color driver for pdftex
 ))
 \Gin@req@height=\dimen149
 \Gin@req@width=\dimen150
-)
-(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty
+) (/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsmath.sty
 Package: amsmath 2021/10/15 v2.17l AMS math features
 \@mathmargin=\skip53
 
 For additional information on amsmath, use the `?' option.
 (/usr/share/texlive/texmf-dist/tex/latex/amsmath/amstext.sty
 Package: amstext 2021/08/26 v2.01 AMS text
-
-(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsgen.sty
+ (/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsgen.sty
 File: amsgen.sty 1999/11/30 v2.0 generic functions
 \@emptytoks=\toks18
 \ex@=\dimen151
-))
-(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsbsy.sty
+)) (/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsbsy.sty
 Package: amsbsy 1999/11/29 v1.2d Bold Symbols
 \pmbraise@=\dimen152
-)
-(/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty
+) (/usr/share/texlive/texmf-dist/tex/latex/amsmath/amsopn.sty
 Package: amsopn 2021/08/26 v2.02 operator names
 )
 \inf@bad=\count197
@@ -179,19 +160,16 @@ LaTeX Font Info:    Redeclaring font encoding OMS on input line 744.
 \mathdisplay@stack=\toks22
 LaTeX Info: Redefining \[ on input line 2938.
 LaTeX Info: Redefining \] on input line 2939.
-)
-(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amssymb.sty
+) (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amssymb.sty
 Package: amssymb 2013/01/14 v3.01 AMS font symbols
-
-(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amsfonts.sty
+ (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/amsfonts.sty
 Package: amsfonts 2013/01/14 v3.01 Basic AMSFonts support
 \symAMSa=\mathgroup4
 \symAMSb=\mathgroup5
 LaTeX Font Info:    Redeclaring math symbol \hbar on input line 98.
 LaTeX Font Info:    Overwriting math alphabet `\mathfrak' in version `bold'
 (Font)                  U/euf/m/n --> U/euf/b/n on input line 106.
-))
-(/usr/share/texlive/texmf-dist/tex/latex/booktabs/booktabs.sty
+)) (/usr/share/texlive/texmf-dist/tex/latex/booktabs/booktabs.sty
 Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
 \heavyrulewidth=\dimen160
 \lightrulewidth=\dimen161
@@ -210,8 +188,7 @@ Package: booktabs 2020/01/12 v1.61803398 Publication quality tables
 \@thisruleclass=\count277
 \@lastruleclass=\count278
 \@thisrulewidth=\dimen172
-)
-(/usr/share/texlive/texmf-dist/tex/latex/tools/bm.sty
+) (/usr/share/texlive/texmf-dist/tex/latex/tools/bm.sty
 Package: bm 2021/04/25 v1.2e Bold Symbol Support (DPC/FMi)
 \symboldoperators=\mathgroup6
 \symboldletters=\mathgroup7
@@ -220,17 +197,11 @@ Package bm Info: No bold for \OMX/cmex/m/n, using \pmb.
 Package bm Info: No bold for \U/msa/m/n, using \pmb.
 Package bm Info: No bold for \U/msb/m/n, using \pmb.
 LaTeX Font Info:    Redeclaring math alphabet \mathbf on input line 149.
-)
-(/usr/share/texlive/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
+) (/usr/share/texlive/texmf-dist/tex/latex/l3backend/l3backend-pdftex.def
 File: l3backend-pdftex.def 2022-01-12 L3 backend support: PDF output (pdfTeX)
 \l__color_backend_stack_int=\count279
 \l__pdf_internal_box=\box53
-)
-(./main.aux
-
-LaTeX Warning: Label `fig:overview' multiply defined.
-
-)
+) (./main.aux)
 \openout1 = `main.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 40.
@@ -262,12 +233,9 @@ LaTeX Font Info:    ... okay on input line 40.
 \everyMPtoPDFconversion=\toks24
 ) (/usr/share/texlive/texmf-dist/tex/latex/epstopdf-pkg/epstopdf-base.sty
 Package: epstopdf-base 2020-01-24 v2.11 Base part for package epstopdf
-Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 4
-85.
-
-(/usr/share/texlive/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg
-File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Liv
-e
+Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 485.
+ (/usr/share/texlive/texmf-dist/tex/latex/latexconfig/epstopdf-sys.cfg
+File: epstopdf-sys.cfg 2010/07/13 v1.3 Configuration of (r)epstopdf for TeX Live
 ))
 
 LaTeX Warning: No \author given.
@@ -275,138 +243,256 @@ LaTeX Warning: No \author given.
 
 LaTeX Warning: No \author given.
 
+
+LaTeX Warning: Citation `beaudet2020key' on page 1 undefined on input line 57.
+
+
+LaTeX Warning: Citation `ali2025sustainable' on page 1 undefined on input line 57.
+
+
+LaTeX Warning: Citation `choux2024shred' on page 1 undefined on input line 57.
+
+
+LaTeX Warning: Citation `rettenmeier2024laser' on page 1 undefined on input line 59.
+
+
+LaTeX Warning: Citation `al2024automated' on page 1 undefined on input line 61.
+
+
+LaTeX Warning: Citation `huang2026robotic' on page 1 undefined on input line 61.
+
+
+LaTeX Warning: Citation `tan2025robotic' on page 1 undefined on input line 61.
+
+
+LaTeX Warning: Citation `qu2024robotic' on page 1 undefined on input line 61.
+
+
+LaTeX Warning: Citation `chen2014robot' on page 1 undefined on input line 63.
+
+
+LaTeX Warning: Citation `wegener2015robot' on page 1 undefined on input line 63.
+
 <real.png, id=1, 445.665pt x 339.2675pt>
 File: real.png Graphic file (type png)
 <use real.png>
 Package pdftex.def Info: real.png  used on input line 68.
 (pdftex.def)             Requested size: 221.14479pt x 168.34947pt.
+
+LaTeX Warning: Citation `al2024automated' on page 1 undefined on input line 73.
+
+
+LaTeX Warning: Citation `chen2014robot' on page 1 undefined on input line 73.
+
+
+LaTeX Warning: Citation `wegener2015robot' on page 1 undefined on input line 73.
+
+
+LaTeX Warning: Citation `qu2024robotic' on page 1 undefined on input line 73.
+
+
+LaTeX Warning: Citation `kay2022robotic' on page 1 undefined on input line 73.
+
+
+LaTeX Warning: Citation `huang2026robotic' on page 1 undefined on input line 75.
+
+
+LaTeX Warning: Citation `tan2025robotic' on page 1 undefined on input line 75.
+
+
+LaTeX Warning: Citation `choux2021task' on page 1 undefined on input line 75.
+
+
+LaTeX Warning: Citation `lee2022robot' on page 1 undefined on input line 75.
+
+
+LaTeX Warning: Citation `raptis2025agentic' on page 1 undefined on input line 75.
+
+
+LaTeX Warning: Citation `lynch2023interactive' on page 1 undefined on input line 75.
+
+
+LaTeX Warning: Citation `rachwal2025rai' on page 1 undefined on input line 75.
+
 [1{/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map}
 
 
  <./real.png>]
 
+LaTeX Warning: Citation `hathaway2024technoeconomic' on page 2 undefined on input line 77.
+
+
 LaTeX Warning: Reference `fig:real' on page 2 undefined on input line 83.
+
+
+LaTeX Warning: Citation `coleman2014reducing' on page 2 undefined on input line 83.
+
+
+LaTeX Warning: Citation `smolagents' on page 2 undefined on input line 83.
+
+
+LaTeX Warning: Reference `fig:overview' on page 2 undefined on input line 83.
 
 <overview.png, id=11, 798.985pt x 340.27126pt>
 File: overview.png Graphic file (type png)
 <use overview.png>
 Package pdftex.def Info: overview.png  used on input line 87.
 (pdftex.def)             Requested size: 245.71811pt x 104.64706pt.
-LaTeX Font Info:    Trying to load font information for U+msa on input line 100
-.
+
+LaTeX Warning: Reference `tab:timing' on page 2 undefined on input line 96.
+
+LaTeX Font Info:    Trying to load font information for U+msa on input line 100.
 (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsa.fd
 File: umsa.fd 2013/01/14 v3.01 AMS symbols A
 )
-LaTeX Font Info:    Trying to load font information for U+msb on input line 100
-.
-
-(/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
+LaTeX Font Info:    Trying to load font information for U+msb on input line 100.
+ (/usr/share/texlive/texmf-dist/tex/latex/amsfonts/umsb.fd
 File: umsb.fd 2013/01/14 v3.01 AMS symbols B
 )
 Overfull \hbox (46.85873pt too wide) in paragraph at lines 100--118
  [] 
  []
 
-LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 1
-30.
+
+LaTeX Warning: Reference `tab:materials' on page 2 undefined on input line 121.
+
+LaTeX Font Info:    Trying to load font information for TS1+ptm on input line 130.
 (/usr/share/texlive/texmf-dist/tex/latex/psnfss/ts1ptm.fd
 File: ts1ptm.fd 2001/06/04 font definitions for TS1/ptm.
 )
+
+LaTeX Warning: Reference `fig:nutrunner' on page 2 undefined on input line 150.
+
 <nutrunnerassembly.png, id=13, 680.5425pt x 546.04pt>
 File: nutrunnerassembly.png Graphic file (type png)
 <use nutrunnerassembly.png>
 Package pdftex.def Info: nutrunnerassembly.png  used on input line 154.
 (pdftex.def)             Requested size: 172.00192pt x 138.00107pt.
- [2 <./overview.png> <./nutrunnerassembly.png>] [3]
-Underfull \hbox (badness 3884) in paragraph at lines 233--234
- \OT1/ptm/m/it/10 1) An-a-lyt-i-cal In-verse Kine-mat-ics: [][] \OT1/ptm/m/n/10
- Stan-dard MoveIt-
+[2 <./overview.png> <./nutrunnerassembly.png>]
+
+LaTeX Warning: Citation `coleman2014reducing' on page 3 undefined on input line 165.
+
+[3]
+
+LaTeX Warning: Citation `cuvelier2023or' on page 4 undefined on input line 230.
+
+
+LaTeX Warning: Reference `tab:ik_comparison' on page 4 undefined on input line 238.
+
+
+Underfull \hbox (badness 3942) in paragraph at lines 233--244
+ \OT1/ptm/m/it/10 1) An-a-lyt-i-cal In-verse Kine-mat-ics: [][] \OT1/ptm/m/n/10 Stan-dard it-er-a-tive
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 240--241
-[]\OT1/ptm/m/it/10 Joint dis-tance\OT1/ptm/m/n/10 : weighted Eu-clidean dis-tan
-ce
+Overfull \hbox (10.3728pt too wide) in paragraph at lines 261--270
+ [][] 
  []
 
 
-LaTeX Warning: Citation `yoshikawa1985manipulability' on page 4 undefined on in
-put line 250.
+Underfull \hbox (badness 10000) in paragraph at lines 275--276
+[]\OT1/ptm/m/it/10 Joint dis-tance\OT1/ptm/m/n/10 : weighted Eu-clidean dis-tance
+ []
 
-[4] (./tab_rrt_corridor.tex)
-<fig_rrt_corridor_hist.png, id=34, 238.491pt x 166.221pt>
-File: fig_rrt_corridor_hist.png Graphic file (type png)
-<use fig_rrt_corridor_hist.png>
-Package pdftex.def Info: fig_rrt_corridor_hist.png  used on input line 280.
-(pdftex.def)             Requested size: 245.71811pt x 171.26024pt.
-<fig_plantime_scatter.png, id=35, 238.491pt x 238.491pt>
-File: fig_plantime_scatter.png Graphic file (type png)
-<use fig_plantime_scatter.png>
-Package pdftex.def Info: fig_plantime_scatter.png  used on input line 289.
-(pdftex.def)             Requested size: 245.71811pt x 245.72124pt.
-<fig_spatial_failures.png, id=36, 502.9992pt x 186.6975pt>
-File: fig_spatial_failures.png Graphic file (type png)
-<use fig_spatial_failures.png>
-Package pdftex.def Info: fig_spatial_failures.png  used on input line 298.
-(pdftex.def)             Requested size: 505.89pt x 187.77956pt.
- [5 <./fig_rrt_corridor_hist.png> <./fig_plantime_scatter.png>] (./tab_cost_abl
-ation.tex)
+
+LaTeX Warning: Citation `yoshikawa1985manipulability' on page 4 undefined on input line 285.
+
+[4]
+
+LaTeX Warning: Reference `tab:cost-ablation' on page 5 undefined on input line 305.
+
+(./tab_cost_ablation.tex)
+
+LaTeX Warning: Reference `fig:manip-bar' on page 5 undefined on input line 311.
+
 LaTeX Info: Symbol \texttildelow not provided by
             font family ptm in TS1 encoding.
-            Default family used instead on input line 310.
+            Default family used instead on input line 311.
 LaTeX Info: Symbol \texttildelow not provided by
             font family ptm in TS1 encoding.
-            Default family used instead on input line 310.
+            Default family used instead on input line 311.
 LaTeX Info: Symbol \texttildelow not provided by
             font family ptm in TS1 encoding.
-            Default family used instead on input line 310.
-<fig_manip_bar.png, id=43, 238.491pt x 173.448pt>
+            Default family used instead on input line 311.
+<fig_manip_bar.png, id=35, 238.491pt x 173.448pt>
 File: fig_manip_bar.png Graphic file (type png)
 <use fig_manip_bar.png>
-Package pdftex.def Info: fig_manip_bar.png  used on input line 314.
+Package pdftex.def Info: fig_manip_bar.png  used on input line 315.
 (pdftex.def)             Requested size: 245.71811pt x 178.70636pt.
 LaTeX Info: Symbol \texttildelow not provided by
             font family ptm in TS1 encoding.
-            Default family used instead on input line 315.
+            Default family used instead on input line 316.
 LaTeX Info: Symbol \texttildelow not provided by
             font family ptm in TS1 encoding.
-            Default family used instead on input line 315.
+            Default family used instead on input line 316.
 LaTeX Info: Symbol \texttildelow not provided by
             font family ptm in TS1 encoding.
-            Default family used instead on input line 315.
+            Default family used instead on input line 316.
 LaTeX Info: Symbol \texttildelow not provided by
             font family ptm in TS1 encoding.
-            Default family used instead on input line 315.
- [6 <./fig_spatial_failures.png> <./fig_manip_bar.png>] (./main.bbl
+            Default family used instead on input line 316.
 
-! LaTeX Error: Command \k unavailable in encoding OT1.
+LaTeX Warning: Citation `kruskal1952use' on page 5 undefined on input line 320.
+
+
+LaTeX Warning: Citation `mann1947test' on page 5 undefined on input line 320.
+
+LaTeX Info: Symbol \texttildelow not provided by
+            font family ptm in TS1 encoding.
+            Default family used instead on input line 320.
+LaTeX Info: Symbol \texttildelow not provided by
+            font family ptm in TS1 encoding.
+            Default family used instead on input line 320.
+LaTeX Info: Symbol \texttildelow not provided by
+            font family ptm in TS1 encoding.
+            Default family used instead on input line 320.
+
+LaTeX Warning: Citation `dunn1961multiple' on page 5 undefined on input line 320.
+
+
+LaTeX Warning: Reference `tab:rrt-corridor' on page 5 undefined on input line 325.
+
+(./tab_rrt_corridor.tex
+
+LaTeX Warning: Reference `sec:cost' on page 5 undefined on input line 5.
+
+) [5 <./fig_manip_bar.png>]
+
+LaTeX Warning: Citation `qu2024robotic' on page 6 undefined on input line 356.
+
+
+LaTeX Warning: Citation `qu2024robotic' on page 6 undefined on input line 356.
+
+(./main.bbl [6]
+
+./main.bbl:85: LaTeX Error: Command \k unavailable in encoding OT1.
 
 See the LaTeX manual or LaTeX Companion for explanation.
 Type  H <return>  for immediate help.
  ...                                              
                                                   
-l.85 K.~Rachwa{\l}, M.~Majek, B.~Boczek, K.~D\k
-                                               {a}browski, P.~Liberadzki,
+l.85 K.~Rachwa{\l}, M.~Majek, B.~Boczek, K.~D{\k
+                                                {a}}browski, P.~Liberadzki,
 Your command was ignored.
 Type  I <command> <return>  to replace it with another command,
 or  <return>  to continue without it.
 
 
-! LaTeX Error: Command \k unavailable in encoding OT1.
+./main.bbl:86: LaTeX Error: Command \k unavailable in encoding OT1.
 
 See the LaTeX manual or LaTeX Companion for explanation.
 Type  H <return>  for immediate help.
  ...                                              
                                                   
-l.86   A.~D\k
-             {a}browski, and M.~Ganzha, ``Rai: Flexible agent framework for
+l.86   A.~D{\k
+              {a}}browski, and M.~Ganzha, ``Rai: Flexible agent framework for
 Your command was ignored.
 Type  I <command> <return>  to replace it with another command,
 or  <return>  to continue without it.
 
-! Undefined control sequence.
-l.104   available at: \url
-                          {https://github.com/huggingface/smolagents}, 2025.
+./main.bbl:104: Undefined control sequence.
+l.104   \url
+            {https://github.com/huggingface/smolagents}, 2025.
 The control sequence at the end of the top line
 of your error message was never \def'ed. If you have
 misspelled it (e.g., `\hobx'), type `I' and the correct
@@ -414,6 +500,9 @@ spelling (e.g., `I\hbox'). Otherwise just continue,
 and I'll forget about whatever was undefined.
 
 )
+Underfull \vbox (badness 3009) has occurred while \output is active []
+
+
 
 ** Conference Paper **
 Before submitting the final camera ready copy, remember to:
@@ -430,39 +519,22 @@ Before submitting the final camera ready copy, remember to:
 LaTeX Warning: There were undefined references.
 
 
-LaTeX Warning: There were multiply-defined labels.
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
 
  ) 
 Here is how much of TeX's memory you used:
- 3414 strings out of 480247
- 52513 string characters out of 5896151
- 366799 words of memory out of 5000000
- 21299 multiletter control sequences out of 15000+600000
+ 3398 strings out of 480247
+ 52113 string characters out of 5896151
+ 367623 words of memory out of 5000000
+ 21285 multiletter control sequences out of 15000+600000
  515886 words of font info for 121 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 55i,12n,62p,1450b,320s stack positions out of 5000i,500n,10000p,200000b,80000s
- </home/the2xman/.texlive2021/texmf-var/fonts/pk/ljfour/jknappen/ec/tcrm0800.
-600pk> </home/the2xman/.texlive2021/texmf-var/fonts/pk/ljfour/jknappen/ec/tcrm1
-000.600pk>{/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/shar
-e/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texl
-ive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/te
-xmf-dist/fonts/type1/public/amsfonts/cm/cmmi5.pfb></usr/share/texlive/texmf-dis
-t/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts
-/type1/public/amsfonts/cm/cmmi8.pfb></usr/share/texlive/texmf-dist/fonts/type1/
-public/amsfonts/cm/cmmib10.pfb></usr/share/texlive/texmf-dist/fonts/type1/publi
-c/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfo
-nts/cm/cmr7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/c
-msy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.p
-fb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></us
-r/share/texlive/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr
-/share/texlive/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texlive/
-texmf-dist/fonts/type1/urw/times/utmbi8a.pfb></usr/share/texlive/texmf-dist/fon
-ts/type1/urw/times/utmr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/ti
-mes/utmri8a.pfb>
-Output written on main.pdf (7 pages, 3074342 bytes).
+ 55i,12n,62p,1502b,320s stack positions out of 5000i,500n,10000p,200000b,80000s
+ </home/the2xman/.texlive2021/texmf-var/fonts/pk/ljfour/jknappen/ec/tcrm1000.600pk> </home/the2xman/.texlive2021/texmf-var/fonts/pk/ljfour/jknappen/ec/tcrm0800.600pk>{/usr/share/texlive/texmf-dist/fonts/enc/dvips/base/8r.enc}</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmex10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi5.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmmib10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/symbols/msbm10.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmb8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmbi8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmr8a.pfb></usr/share/texlive/texmf-dist/fonts/type1/urw/times/utmri8a.pfb>
+Output written on main.pdf (7 pages, 2773901 bytes).
 PDF statistics:
- 132 PDF objects out of 1000 (max. 8388607)
- 76 compressed objects within 1 object stream
+ 121 PDF objects out of 1000 (max. 8388607)
+ 73 compressed objects within 1 object stream
  0 named destinations out of 1000 (max. 500000)
- 36 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 21 words of extra memory for PDF output out of 10000 (max. 10000000)
 

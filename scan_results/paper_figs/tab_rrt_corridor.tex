@@ -1,13 +1,16 @@
 \begin{table}[!t]
-\caption{RRT vs.\ corridor planning comparison (avg.\ over successful plans).}
+\caption{Unconstrained RRT vs.\ corridor-constrained planning over 1\,000 random
+goal poses. RRT uses the no-area cost configuration selected in
+Section~\ref{sec:cost}. Averages are over successful plans only.
+\textbf{Bold} = best per column.}
 \label{tab:rrt-corridor}
 \centering
-\begin{tabular}{l ccccc}
+\begin{tabular}{l cccc}
 \toprule
-Strategy & SR (\%)$\uparrow$ & Plan (s)$\downarrow$ & Exec (s)$\downarrow$ & Path (m)$\downarrow$ & Eff.$\uparrow$ \\
+Strategy & SR (\%)$\uparrow$ & Plan (s)$\downarrow$ & Path (m)$\downarrow$ & Exec (s)$\downarrow$ \\
 \midrule
-Pure RRT & \textbf{99.0} & \textbf{0.21} & \textbf{3.97} & 1.67 & 0.750 \\
-Corridor & 90.4 & 41.41 & 7.44 & \textbf{1.23} & \textbf{0.889} \\
+Pure RRT  & \textbf{99.4} & \textbf{0.51} & 1.78          & \textbf{4.36} \\
+Corridor  & 93.4          & 47.4          & \textbf{1.26} & 7.12 \\
 \bottomrule
 \end{tabular}
 \end{table}

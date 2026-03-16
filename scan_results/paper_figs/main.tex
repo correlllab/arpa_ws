@@ -230,9 +230,44 @@ $$
 and standard subtour elimination constraints ensuring a single Hamiltonian circuit. This formulation decouples global task sequencing from local motion planning while incorporating realistic joint-space motion costs into the routing objective and can be solved using Google's OR tools \cite{cuvelier2023or}.
 
 \subsubsection{Analytical Inverse Kinematics}
-Standard MoveIt-compatible solvers such as KDL, TracIK, and PICK-IK treat the linear actuator as an additional joint in an over-actuated chain and return a single, seed-dependent solution per call. For our 7-DoF system this is insufficient: different gantry positions give rise to qualitatively different arm configurations, and a single iterative call cannot enumerate them. We therefore implement a custom closed-form solver that exploits the UR16e's spherical wrist to decouple the position and orientation subproblems, and explicitly sweeps candidate gantry positions to cover the full workspace.
+Standard iterative solvers such as KDL, TracIK, and PICK-IK return a single,
+seed-dependent solution per call when applied to a redundant system.
+For a 7-DoF manipulator this is insufficient: a single call cannot enumerate
+the qualitatively different configurations that arise from varying the gantry
+position or selecting a different elbow/shoulder family, leading to low
+planning success rates (Table~\ref{tab:ik_comparison}).
+Extending to multiple random restarts improves coverage but incurs significant
+per-call overhead without guaranteeing family coverage.
+We instead implement a closed-form solver that exploits the UR16e's spherical
+wrist to decouple position and orientation subproblems and explicitly
+enumerates all kinematic families.
 
-The 7-DoF system (6-DoF UR16e plus 1-DoF linear gantry) admits a closed-form IK solution for the arm at each fixed gantry position. We exploit the UR16e's spherical wrist to decompose the problem into five sequential subproblems: two shoulder-pan solutions from the horizontal wrist-center position, two wrist-2 solutions from the $z$-axis rotation constraint, and two elbow configurations from the resulting planar 2R inverse kinematics, yielding up to eight analytical solutions per gantry position. To cover the extended workspace, the analytical solver is evaluated at up to 21 candidate gantry positions, offset from the current position in 0.1\,m increments across $\pm 1.0$\,m and clamped to the actuator travel limits. Solutions are filtered by joint limits, a minimum end-effector clearance of 0.65\,m from the gantry plate, and a triangle-area validity check on the wrist--forearm--gantry triangle to reject near-singular configurations. This procedure typically generates 50--100 valid IK candidates per target pose.
+The 7-DoF system admits up to eight analytical arm solutions per fixed gantry
+position: two shoulder-pan solutions from the horizontal wrist-centre position,
+two wrist-2 solutions from the $z$-axis rotation constraint, and two elbow
+configurations from the resulting planar 2R inverse kinematics.
+The solver is evaluated at up to 21 candidate gantry positions offset from the
+current position in 0.1\,m increments across $\pm1.0$\,m, clamped to the
+actuator travel limits, yielding up to 168 candidates per target pose.
+Solutions are filtered by joint limits, a minimum end-effector clearance of
+0.65\,m from the gantry plate, and a triangle-area validity check on the
+wrist--forearm--gantry triangle to reject near-singular configurations.
+
+\begin{table}[!t]
+\caption{IK solver comparison over 1\,000 random goal poses with a 20\,s
+planning budget. \textbf{Bold} = best.}
+\label{tab:ik_comparison}
+\centering
+\begin{tabular}{l c c c}
+\toprule
+IK Method & Candidates & SR (\%)$\uparrow$ & Avg.\ Plan Time (s)$\downarrow$ \\
+\midrule
+KDL, 1 seed            & 1         & 25.7          & 1.47  \\
+KDL, 50 random seeds   & $\leq$50  & 73.0          & 10.46 \\
+Analytical (ours)      & $\leq$168 & \textbf{99.3} & \textbf{0.31} \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsubsection{Multi-Objective IK Seed Selection}
 To select the best IK solution for the motion planner, we define a composite cost function over three normalized objectives. Let $\bm{q}_c$ denote the current joint configuration and $\bm{q}_k$ a candidate IK solution. The raw cost components are:
@@ -266,40 +301,6 @@ We have also timed a disassembly sequence for the top cover, by performing disas
 \subsection{Planning}
 We evaluate the motion planner in two studies using 1{,}000 randomly sampled goal poses within the battery workspace, with a planning timeout of 20\,s. All metrics are averaged over successful plans only.
 
-\subsubsection{RRT vs.\ Corridor-Constrained Planning}
-We compare unconstrained RRT planning against corridor-constrained planning (Section~\ref{sec:planning}) using 1{,}000 randomly sampled goals at heights $z \in [1.0, 1.47]$\,m. Table~\ref{tab:rrt-corridor} summarizes the results.
-
-\input{tab_rrt_corridor}
-
-The two strategies represent a fundamental tradeoff between plan quality and planning speed. RRT is unconstrained: the sampling-based planner freely explores joint space to find a collision-free path, and does so very quickly (avg.\ 0.21\,s). The resulting paths are valid but indirect, averaging 1.67\,m of joint-space travel for goals separated by only $\sim$0.99\,m in Cartesian space (path efficiency 0.750). The corridor constraint forces the end-effector to travel inside a tight box aligned with the start-to-goal segment, producing geometrically straight, predictable motions (avg.\ 1.23\,m path length, efficiency 0.889). The cost is a 200$\times$ increase in planning time (41.41\,s on average, median 20.55\,s) as the constrained sampler must find a narrow feasible corridor, and a drop in success rate from 99.0\,\% to 90.4\,\% as some goals cannot be reached within the box. For a collaborative workspace where human workers are nearby, the corridor's straight, legible motions justify this cost.
-
-Figure~\ref{fig:plantime-hist} shows the plan time distributions on a logarithmic scale. RRT plan times cluster tightly around the 0.10\,s median, while corridor-constrained planning spans several decades with a median of 20.55\,s and a long tail of near-timeout plans.
-
-\begin{figure}[!t]
-\centering
-\includegraphics[width=\columnwidth]{fig_rrt_corridor_hist.png}
-\caption{Plan time distributions for unconstrained RRT (blue) vs.\ corridor-constrained planning (orange). Dashed lines indicate the median for each strategy.}
-\label{fig:plantime-hist}
-\end{figure}
-
-Figure~\ref{fig:plantime-scatter} shows a per-goal comparison of plan times. Nearly all points lie above the diagonal, confirming that the corridor constraint increases planning time at every goal. Blue points mark goals where only RRT succeeded, concentrated at the long-plan-time edge where the constrained planner timed out.
-
-\begin{figure}[!t]
-\centering
-\includegraphics[width=\columnwidth]{fig_plantime_scatter.png}
-\caption{Per-goal plan time comparison. Each point represents one of 1{,}000 goals. Points above the diagonal indicate corridor planning was slower than RRT.}
-\label{fig:plantime-scatter}
-\end{figure}
-
-Figure~\ref{fig:spatial-failures} shows the spatial distribution of failures. RRT failures (10 total) are scattered across the workspace with no clear spatial pattern, while corridor failures (96 total) cluster at the positive-$x$ boundary, where the corridor box extends into kinematically unreachable regions.
-
-\begin{figure*}[!t]
-\centering
-\includegraphics[width=\textwidth]{fig_spatial_failures.png}
-\caption{Spatial distribution of planning failures. Left: unconstrained RRT (10 failures, scattered). Right: corridor-constrained planning (96 failures), concentrated at the positive-$x$ workspace boundary.}
-\label{fig:spatial-failures}
-\end{figure*}
-
 \subsubsection{Cost Function Ablation Study}
 We evaluate the effect of the three IK seed selection cost components (joint distance, proximity penalty, area penalty) using eight weight configurations that span the space of the three costs: baseline (all weights zero), all equal, each cost ablated in turn, and each cost in isolation. Goals are sampled with varying heights ($z \in [1.0, 1.47]$\,m) and planned from a fixed home position. Table~\ref{tab:cost-ablation} summarizes the results.
 
@@ -318,6 +319,34 @@ Figure~\ref{fig:manip-bar} summarizes the mean manipulability score across all e
 
 To confirm that these differences are statistically significant rather than artefacts of sampling variability, we applied a Kruskal--Wallis test~\cite{kruskal1952use}---a non-parametric one-way analysis of variance on ranks---across all eight configurations. The test confirmed highly significant variation in manipulability score ($H(7)=2523.7$, $p<0.001$), plan time ($H(7)=1055.7$, $p<0.001$), and path length ($H(7)=448.7$, $p<0.001$). To isolate the contribution of the proximity term specifically, we performed pairwise Mann--Whitney U tests~\cite{mann1947test} between each of the four proximity-inclusive configurations (Prox, \texttildelow{}Area, \texttildelow{}Joint, Equal) and each of the four proximity-exclusive configurations (Base, Area, Joint, \texttildelow{}Prox), yielding 16 comparisons. After Bonferroni correction~\cite{dunn1961multiple}, all 16 pairs remain significant ($p<0.001$), confirming that the proximity term is the dominant and statistically reliable driver of dexterity in the IK seed selection cost function.
 
+\subsubsection{Path Safety: Unconstrained vs.\ Corridor-Constrained Planning}\label{sec:corridor-results}
+Using the no-area cost configuration selected above, we evaluate the tradeoff between
+planning speed and path predictability on the same 1\,000 goal poses
+(Table~\ref{tab:rrt-corridor}).
+
+\input{tab_rrt_corridor}
+
+Unconstrained RRT freely explores joint space to find any collision-free path.
+This is fast (avg.\ 0.51\,s) and nearly always succeeds (99.4\%), but the
+resulting trajectories are indirect: the sampler may swing the arm through
+unpredictable arcs that, while collision-free with the static environment model,
+can bring the end-effector close to battery components on the table or pass
+through regions that are difficult for a nearby human worker to anticipate.
+
+The corridor constraint addresses this by requiring the end-effector to remain
+inside a tight box aligned with the start-to-goal direction vector throughout
+the motion.
+This produces geometrically straight, legible paths that are 29\% shorter in
+end-effector travel (1.26\,m vs.\ 1.78\,m) and avoid lateral excursions over
+the work surface.
+The cost is a ${\sim}93{\times}$ increase in average planning time (47.4\,s
+vs.\ 0.51\,s), as the constrained sampler must find a feasible path within a
+narrow spatial tube, and a 6\,pp drop in success rate (93.4\% vs.\ 99.4\%) as
+some goals cannot be reached while keeping the end-effector inside the box.
+For an assembly disassembly scenario where human workers share the workspace and
+battery components occupy the table surface, the corridor's predictable,
+straight motions justify this planning overhead.
+
 \subsection{Vision}
 \subsection{Agentic AI}
 
@@ -327,6 +356,17 @@ To confirm that these differences are statistically significant rather than arte
 As in \cite{qu2024robotic}, we observe robots to work significantly slower than human workers. Similar to \cite{qu2024robotic}, we operate the robots far below their maximum speed, but we note that a robot does not necessarily need to be faster than a human to save labor. In this case study, we can reduce the time required to remove all the top-cover screws from 501 seconds with one worker to 400 seconds when the worker is supported by a robot. 
 
 \subsection{Planning}
+The dominant factor in planning success is exhaustive enumeration of kinematic
+families rather than iterative seed restarts. This is consistent with findings
+in redundant manipulator literature where seed diversity, not restart
+count, determines coverage of the solution space.
+
+The corridor constraint produces predictable, straight end-effector motions at
+the cost of longer planning times. For a fixed battery model this overhead is
+amortized by offline precomputation of the TSP weight matrix, making it
+practical in a production setting. More importantly, legible robot motion is a
+safety requirement in a shared workspace, where a co-worker must
+anticipate the robot's path rather than react to it.
 \subsection{Vision}
 \subsection{Agentic AI}
 

@@ -20,6 +20,7 @@ install(PROGRAMS
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
   scripts/generate_random_1000_all_axes.py
+  scripts/run_scan_battery_benchmark.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
