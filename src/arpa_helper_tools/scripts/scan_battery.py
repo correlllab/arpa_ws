@@ -203,6 +203,7 @@ def main(args=None):
 
     rclpy.init(args=args)
     node = CoreNode()
+    
 
     capture_client = node.create_client(Trigger, 'record_images/capture')
 
@@ -323,7 +324,9 @@ def main(args=None):
 
                 if capture_client.service_is_ready() and SAVE_IMAGES:
                     future = capture_client.call_async(Trigger.Request())
-                    rclpy.spin_until_future_complete(node, future, timeout_sec=2.0)
+                    deadline = time.time() + 2.0
+                    while not future.done() and time.time() < deadline:
+                        time.sleep(0.05)
                     if future.done():
                         node.get_logger().info(f"  Captured at orientation {j+1}: {future.result().message}")
                     else:

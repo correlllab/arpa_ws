@@ -17,7 +17,7 @@ def main(args=None):
     node.visualize_detections()
     node.add_collision_plane()
 
-    SECOND_LOOK = True
+    SECOND_LOOK = False
     
     # Get detections from vision node
     client = node.create_client(Trigger, '/arpa_vision_node/get_detections_json')

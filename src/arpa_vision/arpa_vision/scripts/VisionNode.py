@@ -434,6 +434,24 @@ class VisionNode(Node):
                 m.scale.z = float(max(size[2], 0.005))
                 m.color   = MARKER_COLORS[label_idx % len(MARKER_COLORS)]
                 markers.markers.append(m)
+
+
+                name = label + "_" + str(i)
+                if True:#f"{label}_{i}" in ["Nut_5", "Screw_10", "Screw_8", "Screw_7", "Screw_9"]:
+                    text_marker = Marker()
+                    text_marker.header.frame_id = BASE_FRAME
+                    text_marker.ns              = f"{label}_text"
+                    text_marker.id              = i
+                    text_marker.type            = Marker.TEXT_VIEW_FACING
+                    text_marker.action          = Marker.ADD
+                    text_marker.pose.position.x = float(center[0])
+                    text_marker.pose.position.y = float(center[1])
+                    text_marker.pose.position.z = float(mx[2]) + 0.02  # just above the box
+                    text_marker.pose.orientation.w = 1.0
+                    text_marker.scale.z         = 0.03  # text height in metres
+                    text_marker.color           = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
+                    text_marker.text            = f"{label}_{i}"
+                    markers.markers.append(text_marker)
         self.markers_pub.publish(markers)
         # self.get_logger().info(f'Published MarkerArray with {len(markers.markers)-1} markers')
 

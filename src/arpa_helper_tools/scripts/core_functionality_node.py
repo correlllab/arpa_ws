@@ -5,7 +5,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
-from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart
+from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart, GoHome
 from std_srvs.srv import Trigger
 from std_msgs.msg import Int8
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
@@ -59,9 +59,13 @@ class CoreNode(Node):
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
         self.create_service(RemovePart, 'remove_part', self._remove_part_cb, callback_group=self._reentrant_cb_group)
         self.remove_part_client = self.create_client(RemovePart, 'remove_part', callback_group=self._reentrant_cb_group)
+        self.create_service(GoHome, '/go_home', self._go_home_cb, callback_group=self._reentrant_cb_group)
+        self.go_home_client = self.create_client(GoHome, 'go_home', callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
         self.capture_client = self.create_client(Trigger, 'record_images/capture')
         self.save_imgs = False
+        self.already_removing = False
+        self.already_removing_part_name = ""
 
 
         self.latest_detection_bundle: DetectionBundle = None
@@ -115,7 +119,7 @@ class CoreNode(Node):
 
         # MultiThreadedExecutor so service callbacks (e.g. _remove_part_cb) can block on
         # nested service calls without starving the executor of threads to process responses.
-        self._executor = rclpy.executors.MultiThreadedExecutor()
+        self._executor = rclpy.executors.MultiThreadedExecutor(5)
         self._executor.add_node(self)
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
@@ -164,8 +168,9 @@ class CoreNode(Node):
         #visualization variables
         self.obj_bbox_point = None
         self.target_pixel = None
-        self.PIXEL_TOLERANCE = 100.0  # pixels
-        self.DIST_TOLERANCE = 0.05  # meters
+        self.ref_pixel = None
+        self.PIXEL_TOLERANCE = 128.0  # pixels
+        self.PIXEL_CONVERGENCE = 8.0
 
         # Wait for the first detection bundle so we have camera pose and intrinsics
         self.get_logger().info("Waiting for first detection bundle...")
@@ -202,14 +207,32 @@ class CoreNode(Node):
         return False
 
     def _remove_part_cb(self, request: RemovePart.Request, response: RemovePart.Response):
+        if self.already_removing:
+            self.get_logger().warn(f"System is already removing part {self.already_removing_part_name}. Not processing new request.")
+            response.success = False
+            response.message = "Currently in progress removing part = " + self.already_removing_part_name
+            return response
+
+        self.already_removing = True
+        self.already_removing_part_name = request.part_name
+        self.behavior_publisher.publish(String(data=f"Remove {self.already_removing_part_name}"))
         pose = request.target_pose
         x  = pose.pose.position.x
         y  = pose.pose.position.y
-        z  = 0.90
-        qx = pose.pose.orientation.x
-        qy = pose.pose.orientation.y
-        qz = pose.pose.orientation.z
-        qw = pose.pose.orientation.w
+        z  = 0.91
+        if pose.pose.orientation.w == 1.0:
+            z_hat = np.array([0.0, 0.0, -1.0])
+            toward_origin = np.array([-x, -y, 0.0])
+            norm = np.linalg.norm(toward_origin)
+            y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
+            x_hat = np.cross(y_hat, z_hat)
+            R = np.column_stack([x_hat, y_hat, z_hat])
+            qx, qy, qz, qw = Rotation.from_matrix(R).as_quat()
+        else:
+            qx = pose.pose.orientation.x
+            qy = pose.pose.orientation.y
+            qz = pose.pose.orientation.z
+            qw = pose.pose.orientation.w
         frame_id = pose.header.frame_id or BASE_FRAME
 
         plan_successful = False
@@ -227,6 +250,7 @@ class CoreNode(Node):
         if not plan_successful:
             response.success = False
             response.message = "Planning failed after 3 attempts"
+            self.already_removing = False
             return response
 
         self.behavior_publisher.publish(String(data="executing_plan"))
@@ -271,6 +295,8 @@ class CoreNode(Node):
 
         response.success = True
         response.message = "Remove Part complete"
+        self.already_removing = False
+        self.behavior_publisher.publish(String(data=f"Removed {self.already_removing_part_name}"))
         return response
 
     # def _start_servo(self) -> bool:
@@ -480,7 +506,7 @@ class CoreNode(Node):
         z = 0.87 if z is None else z
         size_x = 2.182 if size_x is None else size_x
         size_y = 1.574 if size_y is None else size_y
-        thickness = 0.02 if thickness is None else thickness
+        thickness = 0.04 if thickness is None else thickness
 
         collision_object = CollisionObject()
         collision_object.header.frame_id = frame_id
@@ -543,6 +569,12 @@ class CoreNode(Node):
         self.get_logger().error(f"go home {plan_success=}, {exec_success=}")
         return plan_success and exec_success
 
+    def _go_home_cb(self, request: GoHome.Request, response: GoHome.Response):
+        success = self.go_home(request.frame_kwrd)
+        response.success = success
+        response.message = "Go home complete" if success else "Go home failed"
+        return response
+
     def trigger_behavior(self, behavior):
         if not getattr(self, "_behavior_available", False):
             self.get_logger().warn(f"Behavior '{behavior}' requested but BehaviorTrigger service is unavailable (skipping)")
@@ -584,7 +616,7 @@ class CoreNode(Node):
         locked_quat = (cp.orientation.x, cp.orientation.y, cp.orientation.z, cp.orientation.w)
 
         alignment_in_progress = True
-        max_steps = 10
+        max_steps = 100
         current_step = 0
         while alignment_in_progress and max_steps > current_step:
             alignment_in_progress = self._one_step_align_to_screw_img(initial_screw_pose, locked_quat)
@@ -631,15 +663,15 @@ class CoreNode(Node):
             if p_cam[2] <= 0:
                 self.get_logger().error(f"Screw is behind the camera (p_cam_Z={p_cam[2]:.3f})")
                 return False
-            ref_pixel = np.array([ifx * p_cam[0] / p_cam[2] + icx,
+            self.ref_pixel = np.array([ifx * p_cam[0] / p_cam[2] + icx,
                                   ify * p_cam[1] / p_cam[2] + icy])
             self.get_logger().info(
-                f"ref_pixel=({ref_pixel[0]:.1f}, {ref_pixel[1]:.1f})  "
+                f"ref_pixel=({self.ref_pixel[0]:.1f}, {self.ref_pixel[1]:.1f})  "
                 f"screw_world=({p.x:.3f}, {p.y:.3f}, {p.z:.3f})"
             )
         else:
-            ref_pixel = self.target_pixel
-            self.get_logger().info(f"ref_pixel=target_pixel=({ref_pixel[0]:.1f}, {ref_pixel[1]:.1f})")
+            self.ref_pixel = self.target_pixel
+            self.get_logger().info(f"ref_pixel=target_pixel=({self.ref_pixel[0]:.1f}, {self.ref_pixel[1]:.1f})")
 
         self.get_logger().info(
             f"target_pixel=({self.target_pixel[0]:.1f}, {self.target_pixel[1]:.1f})  "
@@ -651,7 +683,7 @@ class CoreNode(Node):
         for det in detections:
             bbox_center = np.array([(det.bbox_min.x + det.bbox_max.x) / 2.0,
                                     (det.bbox_min.y + det.bbox_max.y) / 2.0])
-            dist = np.linalg.norm(bbox_center - ref_pixel)
+            dist = np.linalg.norm(bbox_center - self.ref_pixel)
             self.get_logger().info(f"  det '{det.cls}' bbox=({bbox_center[0]:.1f}, {bbox_center[1]:.1f}) dist={dist:.1f}px")
             if dist < best_dist:
                 best_dist, best_det, best_pixel = dist, det, bbox_center
@@ -666,8 +698,8 @@ class CoreNode(Node):
             f"dist_to_ref={best_dist:.1f}px  dist_to_target={dist_to_target:.1f}px"
         )
 
-        if dist_to_target < 10.0:
-            self.get_logger().info(f"Already aligned (dist_to_target={dist_to_target:.1f}px < 10px), skipping move.")
+        if dist_to_target < self.PIXEL_CONVERGENCE:
+            self.get_logger().info(f"Already aligned (dist_to_target={dist_to_target:.1f}px < {self.PIXEL_CONVERGENCE}px), skipping move.")
             return False
 
         # --- Z from mean of valid depth pixels in bbox ROI ---
@@ -889,6 +921,14 @@ class CoreNode(Node):
                             tp = (int(self.target_pixel[0]), int(self.target_pixel[1]))
                             cv2.drawMarker(img, tp, (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
                             cv2.putText(img, "target", (tp[0] + 6, tp[1] - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+                        if self.target_pixel is not None:
+                            tp = (int(self.target_pixel[0]), int(self.target_pixel[1]))
+                            cv2.circle(img, tp, int(self.PIXEL_CONVERGENCE), (0, 255, 255), 1)
+                            cv2.circle(img, tp, int(self.PIXEL_TOLERANCE), (0, 165, 255), 1)
+                        if self.ref_pixel is not None:
+                            rp = (int(self.ref_pixel[0]), int(self.ref_pixel[1]))
+                            cv2.circle(img, rp, 8, (0, 0, 255), 2)
+                            cv2.putText(img, "ref", (rp[0] + 10, rp[1]), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
                         if self.obj_bbox_point is not None:
                             cp = self.latest_detection_bundle.camera_pose.pose
                             R_cam_world = Rotation.from_quat([cp.orientation.x, cp.orientation.y,
@@ -903,11 +943,15 @@ class CoreNode(Node):
                             if p_cam[2] > 0:
                                 bu = int(fx * p_cam[0] / p_cam[2] + cx2)
                                 bv = int(fy * p_cam[1] / p_cam[2] + cy2)
-                                cv2.circle(img, (bu, bv), 8, (255, 0, 0), 2)
+                                cv2.circle(img, (bu, bv), 6, (255, 0, 0), -1)
                                 cv2.putText(img, "bbox", (bu + 10, bv), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 0), 1)
                     if rgb_img.shape[:2] != depth_color.shape[:2]:
                         depth_color = cv2.resize(depth_color, (rgb_img.shape[1], rgb_img.shape[0]))
                     combined = np.hstack([rgb_img, depth_color])
+                    # Resize combined to half desktop width (1920px)
+                    target_w = 1920
+                    target_h = int(combined.shape[0] * target_w / combined.shape[1])
+                    combined = cv2.resize(combined, (target_w, target_h))
                     cv2.imshow("Detections", combined)
                     cv2.waitKey(1)
                 else:
@@ -934,8 +978,8 @@ def print_menu():
 def main(args=None):
     rclpy.init(args=args)
     node = CoreNode()
-    # node.visualize_detections()
-    
+    node.visualize_detections()
+
     node.add_collision_plane()
 
     try:
@@ -950,15 +994,19 @@ def main(args=None):
                 print("3. Camera")
                 print("========================")
                 frame_choice = input("Select: ").strip()
-                if frame_choice == "1":
-                    node.go_home("wrist_3_link")
-                elif frame_choice == "2":
-                    node.go_home("test_ratchet_extension_link")
-                elif frame_choice == "3":
-                    node.go_home("ee_cam_color_optical_frame")
-                else:
-                    print("Invalid choice, going home to wrist_3_link")
-                    node.go_home("wrist_3_link")
+                frame_map = {
+                    "1": "wrist_3_link",
+                    "2": "test_ratchet_extension_link",
+                    "3": "ee_cam_color_optical_frame",
+                }
+                frame_kwrd = frame_map.get(frame_choice, "wrist_3_link")
+                req = GoHome.Request()
+                req.frame_kwrd = frame_kwrd
+                future = node.go_home_client.call_async(req)
+                while not future.done():
+                    time.sleep(0.05)
+                result = future.result()
+                print(f"GoHome result: {result.success} — {result.message}")
 
             elif choice == "2":
                 plane_id = input("Plane ID [battery_do_not_cross]: ").strip() or "battery_do_not_cross"

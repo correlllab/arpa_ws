@@ -61,10 +61,13 @@ def main(args=None):
         ps.pose.orientation.w = qw
         pose_stamped_list.append(ps)
 
-    ordered_poses = node.get_tsp_order(pose_stamped_list)
+    # ordered_poses = node.get_tsp_order(pose_stamped_list)
+    ordered_poses = pose_stamped_list
     node.get_logger().info(f"{len(ordered_poses)} poses TSP ordered.")
-
+    failures = []
+    successes = []
     try:
+        start_time = time.time()
         for i, pose in enumerate(ordered_poses):
             req = RemovePart.Request()
             req.visual_servo = False
@@ -75,8 +78,27 @@ def main(args=None):
                 time.sleep(0.05)
             result = future.result()
             print(f"RemovePart result: {result.success} — {result.message}")
+            result = ""
+            print(f"REMOVED {i}")
+            # while result not in ["s", "sucess", "f", "failure"]:
+            #     result = input(f"results: sucess (s) or failure (f): ")
+            # print(f"{result=}")
+            # if result in ["s", "sucess"]:
+            #     successes.append((i, pose))
+            # elif result in ["f", "failure"]:
+            #     failures.append((i,pose))
+            # else:
+            #     print(f"WTF {result=}")
             
-            
+            # print("sucesses:")
+            # for j, p in successes:
+            #     print(f"   {j}:{p}")
+            # print("failures:")
+            # for j, p in failures:
+            #     print(f"   {j}:{p}")
+        end_time = time.time()
+        total_time = end_time-start_time
+        print(f"{total_time=}")
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
     finally:
