@@ -11,6 +11,7 @@ from std_msgs.msg import Int8
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
 from custom_ros_messages.msg import DetectionBundle
 from moveit_msgs.action import ExecuteTrajectory
+from custom_ros_messages.action import ScanBattery
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from shape_msgs.msg import SolidPrimitive
 from scipy.spatial.transform import Rotation
@@ -971,6 +972,7 @@ def print_menu():
     print("7. Align to screw img")
     print("8. Remove Part Service")
     print("9. Motor test zforce then retract")
+    print("10. Scan battery")
     print("0. Quit")
     print("========================")
 
@@ -1078,6 +1080,33 @@ def main(args=None):
                 time.sleep(1)
                 node.trigger_behavior("ros2control")
                 node.motor_control(0)
+
+            elif choice == "10":
+                save_imgs = input("Save images? (y/n) [y]: ").strip().lower()
+                save_images = save_imgs != "n"
+                scan_client = ActionClient(node, ScanBattery, 'scan_battery')
+                if not scan_client.wait_for_server(timeout_sec=5.0):
+                    print("scan_battery action server not available")
+                else:
+                    goal = ScanBattery.Goal()
+                    goal.save_images = save_images
+                    future = scan_client.send_goal_async(
+                        goal,
+                        feedback_callback=lambda fb: print(
+                            f"  Scan progress: {fb.feedback.points_explored}/{fb.feedback.total_points}"))
+                    while not future.done():
+                        time.sleep(0.05)
+                    goal_handle = future.result()
+                    if not goal_handle.accepted:
+                        print("Goal rejected")
+                    else:
+                        print("Scan started — waiting for result...")
+                        result_future = goal_handle.get_result_async()
+                        while not result_future.done():
+                            time.sleep(0.1)
+                        r = result_future.result().result
+                        print(f"Scan complete: success={r.success}, "
+                              f"completed={r.completed}/{r.total_poses}, skipped={r.skipped}")
 
             elif choice == "0":
                 break

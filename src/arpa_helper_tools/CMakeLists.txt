@@ -16,6 +16,7 @@ install(PROGRAMS
   scripts/remove_screws_from_recorded_poses.py
   scripts/remove_screws_from_vision.py
   scripts/core_functionality_node.py
+  scripts/scan_battery_action_server.py
   scripts/scan_battery.py
   scripts/run_benchmark.py
   scripts/plot_benchmark.py

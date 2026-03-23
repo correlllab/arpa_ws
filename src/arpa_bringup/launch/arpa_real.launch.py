@@ -308,6 +308,12 @@ def launch_setup(context, *args, **kwargs):
         name="recorded_poses_publisher"
     )
 
+    scan_battery_server = Node(
+        package="arpa_helper_tools",
+        executable="scan_battery_action_server.py",
+        name="scan_battery_server"
+    )
+
     vision_node_delayed = TimerAction(
         period=10.0,
         actions=[vision_node]
@@ -353,7 +359,8 @@ def launch_setup(context, *args, **kwargs):
         # recorded_poses_publisher
         test_static_tf_ratchet_attatchemnt,
         test_static_tf_ratchet_ee,
-        rosbridge_mcp
+        rosbridge_mcp,
+        scan_battery_server
     ]
 
 
