@@ -20,6 +20,7 @@ install(PROGRAMS
   scripts/scan_battery.py
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
+  scripts/vla_data_collection_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

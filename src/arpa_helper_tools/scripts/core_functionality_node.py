@@ -19,6 +19,7 @@ import open3d as o3d
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
+import json
 import threading
 import time
 from cv_bridge import CvBridge
@@ -216,7 +217,10 @@ class CoreNode(Node):
 
         self.already_removing = True
         self.already_removing_part_name = request.part_name
-        self.behavior_publisher.publish(String(data=f"Remove {self.already_removing_part_name}"))
+        # Signal new trial to VLA data collection node
+        self.behavior_publisher.publish(String(
+            data=f"New Trial: Part Name {request.part_name}, Removal Strategy unscrew, Detection Confidence N/A"
+        ))
         pose = request.target_pose
         x  = pose.pose.position.x
         y  = pose.pose.position.y
@@ -238,7 +242,6 @@ class CoreNode(Node):
 
         plan_successful = False
         tries = 0
-        self.behavior_publisher.publish(String(data=f"planning_to_unscrew"))
         while not plan_successful and tries < 3:
             tries += 1
             success = self.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw, frame_id=frame_id)
@@ -254,12 +257,16 @@ class CoreNode(Node):
             self.already_removing = False
             return response
 
-        self.behavior_publisher.publish(String(data="executing_plan"))
         self.execute_plan()
-        time.sleep(1)
+        time.sleep(0.5)
+
+        # Image 1: before second sight (pre-servo position)
+        self.behavior_publisher.publish(String(data="capture_images:pre_servo"))
+        time.sleep(0.5)
 
         if request.visual_servo:
-            self.behavior_publisher.publish(String(data="second sight"))
+            self.behavior_publisher.publish(String(data="start_servo_loop"))
+            time.sleep(0.25)
             screw_pose = PoseStamped()
             screw_pose.header = pose.header
             screw_pose.pose.position.x = pose.pose.position.x
@@ -267,37 +274,43 @@ class CoreNode(Node):
             screw_pose.pose.position.z = pose.pose.position.z
             screw_pose.pose.orientation = pose.pose.orientation
             alignment_result = self.align_to_screw_img(initial_screw_pose=screw_pose)
+            if alignment_result:
+                self.behavior_publisher.publish(String(data="abort_servo_loop"))
+            else:
+                self.behavior_publisher.publish(String(data="stop_servo_loop"))
+            time.sleep(0.25)
             self.get_logger().info(f"Second sight done final result={alignment_result}. Proceeding with removal (screw may be occluded by EE when aligned).")
 
-        if self.capture_client.service_is_ready() and self.save_imgs:
-            future = self.capture_client.call_async(Trigger.Request())
-            rclpy.spin_until_future_complete(self, future, timeout_sec=2.0)
-            if future.done():
-                self.get_logger().info(f"  Captured img: {future.result().message}")
-            else:
-                self.get_logger().warn(f"  Capture timed out at orientation")
-        else:
-            self.get_logger().warn(f"  Capture service not available at orientation or self.save_imgs is false {self.save_imgs=}, skipping")
+        # Image 2: after second sight (post-servo aligned position, or same as image 1 if no servo)
+        self.behavior_publisher.publish(String(data="capture_images:post_servo"))
+        time.sleep(0.5)
 
-        self.behavior_publisher.publish(String(data="removal"))
+        # Start recording torque/robot state during removal
+        self.behavior_publisher.publish(String(data="start_recording"))
+        time.sleep(0.25)
+
         self.motor_control(100)
         self.trigger_with_retry("ZForce")
         self.trigger_with_retry("play")
         time.sleep(2)
 
-        self.behavior_publisher.publish(String(data="retracting"))
+        # Image 3: before retract (engaged position)
+        self.behavior_publisher.publish(String(data="capture_images:pre_retract"))
+        time.sleep(0.5)
+
         self.trigger_with_retry("retract")
         self.trigger_with_retry("play")
         time.sleep(2)
-        self.behavior_publisher.publish(String(data="retracted finishes"))
 
         self.motor_control(0)
         self.trigger_with_retry("ros2control")
 
+        # Stop recording — saves torque, robot state, and metadata row
+        self.behavior_publisher.publish(String(data="stop_recording"))
+
         response.success = True
         response.message = "Remove Part complete"
         self.already_removing = False
-        self.behavior_publisher.publish(String(data=f"Removed {self.already_removing_part_name}"))
         return response
 
     # def _start_servo(self) -> bool:
@@ -779,6 +792,16 @@ class CoreNode(Node):
                           1.0])
         p_world = T_cam_to_world @ p_cam
         self.obj_bbox_point = p_world[:3]
+
+        # Publish servo step data for VLA data collection
+        pixel_error = float(dist_to_target)
+        servo_payload = json.dumps({
+            "pixel_error": pixel_error,
+            "depth_Z": float(Z),
+            "velocity_cmd": [float(world_delta[0]), float(world_delta[1]), float(world_delta[2])],
+        })
+        self.behavior_publisher.publish(String(data=f"servo_step:{servo_payload}"))
+
         cam_z = T_cam_to_world[2, 3]  # maintain current height
         plan_success = self.plan_camera_to_pose(cx, cy, cam_z, qx, qy, qz, qw)
         if not plan_success:
