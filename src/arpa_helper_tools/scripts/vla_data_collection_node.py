@@ -21,10 +21,10 @@ from geometry_msgs.msg import WrenchStamped
 import tf2_ros
 
 BASE_FRAME = "floor_link"
-EE_FRAME = "tool0"
+EE_FRAME = " test_ratchet_attachment_link"
 
 # Placeholder — update to actual torque topic
-TORQUE_TOPIC = "/force_torque_sensor_broadcaster/wrench"
+TORQUE_TOPIC = "/motor_current"
 
 
 class VLADataCollectionNode(Node):
@@ -32,9 +32,7 @@ class VLADataCollectionNode(Node):
         super().__init__("vla_data_collection_node")
 
         self.declare_parameter("dataset_dir", "dataset")
-        self._dataset_dir = Path(
-            self.get_parameter("dataset_dir").get_parameter_value().string_value
-        )
+        self._dataset_dir = Path.cwd() / "dataset"
         self._trials_dir = self._dataset_dir / "trials"
         self._trials_dir.mkdir(parents=True, exist_ok=True)
         self._metadata_path = self._dataset_dir / "metadata.csv"
