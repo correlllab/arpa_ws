@@ -296,22 +296,28 @@ def launch_setup(context, *args, **kwargs):
         name="arpa_vision_node"
     )
 
-    record_images_node = Node(
-        package="arpa_vision",
-        executable="record_images",
-        name="record_images_node"
-    )
+    # record_images_node = Node(
+    #     package="arpa_vision",
+    #     executable="record_images",
+    #     name="record_images_node"
+    # )
 
-    recorded_poses_publisher = Node(
-        package="arpa_helper_tools",
-        executable="record_poses.py",
-        name="recorded_poses_publisher"
-    )
+    # recorded_poses_publisher = Node(
+    #     package="arpa_helper_tools",
+    #     executable="record_poses.py",
+    #     name="recorded_poses_publisher"
+    # )
 
     scan_battery_server = Node(
         package="arpa_helper_tools",
         executable="scan_battery_action_server.py",
         name="scan_battery_server"
+    )
+
+    vla_data_capture = Node(
+        package="arpa_helper_tools",
+        executable="vla_data_collection_node.py",
+        name="vla_data_collection_node"
     )
 
     vision_node_delayed = TimerAction(
@@ -355,12 +361,13 @@ def launch_setup(context, *args, **kwargs):
         static_tf_world_to_floor,
         vision_node,
         # vision_node_delayed,
-        record_images_node,
+        # record_images_node,
         # recorded_poses_publisher
         test_static_tf_ratchet_attatchemnt,
         test_static_tf_ratchet_ee,
-        rosbridge_mcp,
-        scan_battery_server
+        # rosbridge_mcp,
+        # scan_battery_server,
+        vla_data_capture
     ]
 
 

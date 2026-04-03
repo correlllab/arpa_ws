@@ -22,7 +22,7 @@ import open3d.t.geometry as o3tg
 import open3d.core as o3c
 from scipy.spatial.transform import Rotation
 
-from std_srvs.srv import Trigger
+from std_srvs.srv import Trigger, SetBool
 from custom_ros_messages.msg import Detection, DetectionBundle
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -96,6 +96,7 @@ class VisionNode(Node):
 
         # Persistent detections: dict of {label: 'pcd', 'bbox', 'prob'}
         self.detections = {}
+        self._pipeline_active = True
 
 
         # Latest data for bundle publishing
@@ -133,10 +134,11 @@ class VisionNode(Node):
 
         _default_save_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'object_detections.pkl')
         self.declare_parameter('detections_save_path', _default_save_path)
-        self.create_service(Trigger, '~/save_object_detection', self._save_detections_cb)
-        self.create_service(Trigger, '~/load_object_detection', self._load_detections_cb)
-        self.create_service(Trigger, '~/get_detections_json',   self._get_detections_json_cb)
-        self.create_service(Trigger, '~/clear_detections',      self._clear_detections_cb)
+        self.create_service(Trigger,  '~/save_object_detection',  self._save_detections_cb)
+        self.create_service(Trigger,  '~/load_object_detection',  self._load_detections_cb)
+        self.create_service(Trigger,  '~/get_detections_json',    self._get_detections_json_cb)
+        self.create_service(Trigger,  '~/clear_detections',       self._clear_detections_cb)
+        self.create_service(SetBool,  '~/set_pipeline_active',    self._set_pipeline_active_cb)
 
         _save_path = self.get_parameter('detections_save_path').get_parameter_value().string_value
         if os.path.exists(_save_path):
@@ -490,6 +492,14 @@ class VisionNode(Node):
         self.cloud_pub.publish(cloud_msg)
         # self.get_logger().info(f'Published PointCloud2 with {len(all_pts)} points')
 
+    def _set_pipeline_active_cb(self, request, response):
+        self._pipeline_active = request.data
+        state = "active" if request.data else "paused"
+        self.get_logger().info(f'Vision pipeline {state}.')
+        response.success = True
+        response.message = f'Pipeline {state}.'
+        return response
+
     def _clear_detections_cb(self, request, response):
         with self.lock:
             self.detections.clear()
@@ -507,7 +517,7 @@ class VisionNode(Node):
                         mn = det['bbox'].min_bound.numpy()
                         mx = det['bbox'].max_bound.numpy()
                         centroid = ((mn + mx) / 2.0).tolist()
-                        result[f'{label}_{i}'] = centroid
+                        result[f'{label}_{i}'] = (centroid, det['prob'])
             response.success = True
             response.message = json.dumps(result)
         except Exception as e:
@@ -604,8 +614,9 @@ def main(args=None):
 
     try:
         while rclpy.ok():
-            node.process_queue()
-            node.publish_detections()
+            if node._pipeline_active:
+                node.process_queue()
+                node.publish_detections()
             time.sleep(0.01)
     finally:
         node.destroy_node()

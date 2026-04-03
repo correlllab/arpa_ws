@@ -70,6 +70,8 @@ def main(args=None):
         start_time = time.time()
         for i, pose in enumerate(ordered_poses):
             req = RemovePart.Request()
+            req.part_name = f"screw_{i+1:03d}"
+            req.detection_confidence = 100.0
             req.visual_servo = False
             req.target_pose.header.frame_id = "floor_link"
             req.target_pose.pose = pose.pose

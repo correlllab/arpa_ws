@@ -39,7 +39,7 @@ def main(args=None):
     # Convert centroids to PoseStamped for TSP ordering
     pose_stamped_list = []
     label_list = []
-    for label, centroid in detections.items():
+    for label, (centroid, confidence) in detections.items():
         if not any(label.lower().split('_')[0] == k for k in ('nut', 'screw')):
             continue
         cx, cy, cz = centroid
@@ -87,6 +87,8 @@ def main(args=None):
 
 
             req = RemovePart.Request()
+            req.part_name = label
+            req.detection_confidence = confidence
             req.visual_servo = SECOND_LOOK
             req.target_pose.header.frame_id = "floor_link"
             req.target_pose.pose.position.x = x

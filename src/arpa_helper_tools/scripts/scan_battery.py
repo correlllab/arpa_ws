@@ -17,7 +17,7 @@ from core_functionality_node import CoreNode
 from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import ColorRGBA
 from geometry_msgs.msg import PoseStamped
-from std_srvs.srv import Trigger
+from std_srvs.srv import Trigger, SetBool
 import time
 import random
 
@@ -66,6 +66,7 @@ At time 1770252100.237171449
   0.000  0.000  0.000  1.000
 """
 SAVE_IMAGES = True
+STABLIZE_DEPTH_MODE = True
 
 # Scan area bounds (X, Y)
 LOWER_LEFT = [1.0, -0.75]   # Starting corner
@@ -206,6 +207,29 @@ def main(args=None):
     
 
     capture_client = node.create_client(Trigger, 'record_images/capture')
+    start_acc_client = node.create_client(Trigger, '/pointcloud_accumulator/start_acc')
+    stop_acc_client = node.create_client(Trigger, '/pointcloud_accumulator/stop_acc')
+    vision_pipeline_client = node.create_client(SetBool, '/arpa_vision_node/set_pipeline_active')
+
+    def set_vision_pipeline(active: bool):
+        if vision_pipeline_client.wait_for_service(timeout_sec=2.0):
+            future = vision_pipeline_client.call_async(SetBool.Request(data=active))
+            while not future.done():
+                time.sleep(0.05)
+            node.get_logger().info(f"Vision pipeline {'started' if active else 'stopped'}.")
+        else:
+            node.get_logger().warn("set_pipeline_active service not available, skipping.")
+
+    # Ensure accumulator and vision pipeline are stopped at startup
+    time.sleep(5.0)
+    if stop_acc_client.wait_for_service(timeout_sec=5.0):
+        future = stop_acc_client.call_async(Trigger.Request())
+        while not future.done():
+            time.sleep(0.05)
+        node.get_logger().info("Accumulator stopped at startup.")
+    else:
+        node.get_logger().warn("stop_acc service not available at startup.")
+    set_vision_pipeline(False)
 
     # Clear any existing detections before the scan begins
     clear_det_client = node.create_client(Trigger, '/arpa_vision_node/clear_detections')
@@ -333,6 +357,28 @@ def main(args=None):
                         node.get_logger().warn(f"  Capture timed out at orientation {j+1}")
                 else:
                     node.get_logger().warn(f"  Capture service not available at orientation or SAVE_IMAGES is false {SAVE_IMAGES=}, skipping")
+
+                if STABLIZE_DEPTH_MODE:
+                    set_vision_pipeline(True)
+                    if start_acc_client.service_is_ready():
+                        future = start_acc_client.call_async(Trigger.Request())
+                        while not future.done():
+                            time.sleep(0.05)
+                        node.get_logger().info("Accumulator started.")
+                    else:
+                        node.get_logger().warn("start_acc service not available, skipping.")
+                    time.sleep(5.0)
+                    if stop_acc_client.service_is_ready():
+                        future = stop_acc_client.call_async(Trigger.Request())
+                        while not future.done():
+                            time.sleep(0.05)
+                        node.get_logger().info("Accumulator stopped.")
+                    else:
+                        node.get_logger().warn("stop_acc service not available, skipping.")
+                    set_vision_pipeline(False)
+                    time.sleep(0.5)
+
+
 
             if orientation_successes == 0:
                 skipped_indices.append(i)

@@ -10,6 +10,7 @@ from std_srvs.srv import Trigger
 from std_msgs.msg import Int8
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
 from custom_ros_messages.msg import DetectionBundle
+from sensor_msgs.msg import CameraInfo
 from moveit_msgs.action import ExecuteTrajectory
 from custom_ros_messages.action import ScanBattery
 from moveit_msgs.msg import CollisionObject, PlanningScene
@@ -71,8 +72,10 @@ class CoreNode(Node):
 
 
         self.latest_detection_bundle: DetectionBundle = None
+        self.latest_camera_info: CameraInfo = None
         _det_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
         self.create_subscription(DetectionBundle, '/realsense/ee_cam/detections', self._detection_bundle_cb, _det_qos)
+        self.create_subscription(CameraInfo, '/realsense/ee_cam/color/camera_info', self._camera_info_cb, _det_qos)
 
         # self.remove_part_service = self.create_service(
         #     RemovePart, 'remove_part', self._handle_remove_part
@@ -174,19 +177,18 @@ class CoreNode(Node):
         self.PIXEL_TOLERANCE = 128.0  # pixels
         self.PIXEL_CONVERGENCE = 8.0
 
-        # Wait for the first detection bundle so we have camera pose and intrinsics
-        self.get_logger().info("Waiting for first detection bundle...")
-        while self.latest_detection_bundle is None:
+        # Wait for camera info to get intrinsics (published regardless of pipeline state)
+        self.get_logger().info("Waiting for camera info...")
+        while self.latest_camera_info is None:
             time.sleep(0.1)
-        self.get_logger().info("Detection bundle received.")
+        self.get_logger().info("Camera info received.")
 
         # Set target_pixel from the static camera→toolhead TF directly
-        bundle = self.latest_detection_bundle
         # toolhead origin expressed in camera optical frame
         T_toolhead_in_cam = self.T_wrist3_to_camera_optical @ self.T_toolhead_to_wrist3
         tx, ty, tz = T_toolhead_in_cam[:3, 3]
-        ifx, ify = bundle.camera_info.k[0], bundle.camera_info.k[4]
-        icx, icy = bundle.camera_info.k[2], bundle.camera_info.k[5]
+        ifx, ify = self.latest_camera_info.k[0], self.latest_camera_info.k[4]
+        icx, icy = self.latest_camera_info.k[2], self.latest_camera_info.k[5]
         TARGET_PIXEL_OFFSET = np.array([-30.0, -25.0])  # [left, up] in pixels
         self.target_pixel = np.array([ifx * tx / tz + icx,
                                       ify * ty / tz + icy]) + TARGET_PIXEL_OFFSET
@@ -195,6 +197,9 @@ class CoreNode(Node):
 
     def _detection_bundle_cb(self, msg: DetectionBundle):
         self.latest_detection_bundle = msg
+
+    def _camera_info_cb(self, msg: CameraInfo):
+        self.latest_camera_info = msg
 
     # def _servo_status_cb(self, msg: Int8):
     #     self._servo_status = msg.data
@@ -219,7 +224,7 @@ class CoreNode(Node):
         self.already_removing_part_name = request.part_name
         # Signal new trial to VLA data collection node
         self.behavior_publisher.publish(String(
-            data=f"New Trial: Part Name {request.part_name}, Removal Strategy unscrew, Detection Confidence N/A"
+            data=f"Remove: {request.part_name} with confidence = {request.detection_confidence}"
         ))
         pose = request.target_pose
         x  = pose.pose.position.x
@@ -307,6 +312,7 @@ class CoreNode(Node):
 
         # Stop recording — saves torque, robot state, and metadata row
         self.behavior_publisher.publish(String(data="stop_recording"))
+        self.behavior_publisher.publish(String(data=f"Removed: {request.part_name}"))
 
         response.success = True
         response.message = "Remove Part complete"
@@ -1078,6 +1084,7 @@ def main(args=None):
             elif choice == "8":
                 x, y, z, qx, qy, qz, qw = [1.026, -0.477, 0.857, -0.241, 0.971, 0.002, 0.000]
                 req = RemovePart.Request()
+                req = detection_confidence = 100.0
                 req.target_pose.header.frame_id = BASE_FRAME
                 req.visual_servo = True
                 req.target_pose.pose.position.x = x
