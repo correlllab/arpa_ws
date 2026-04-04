@@ -38,6 +38,8 @@
   <!-- Your packages -->
   <exec_depend>arpa_description</exec_depend>
   <exec_depend>arpa_behavior_trees</exec_depend>
+  <exec_depend>arpa_humanoid</exec_depend>
+  <exec_depend>h12_ros2_model</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

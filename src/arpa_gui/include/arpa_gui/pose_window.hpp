@@ -19,6 +19,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/pose.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
@@ -57,6 +59,9 @@ private slots:
     void goto_screw1();
     void onCreateSequenceClicked();
     void onBtStatusReceived(const QString &status);
+    void humanoidTeleport();
+    void humanoidMoveAway();
+    void humanoidRandomPose();
 
 private:
     void setupUI();
@@ -150,6 +155,17 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_bt_feedback_sub;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_run_screw_sequence_client;
     rclcpp::AsyncParametersClient::SharedPtr m_bt_param_client;
+
+    // ============ HUMANOID SECTION ============
+    QGroupBox *m_humanoid_group;
+    QLineEdit *m_humanoid_dx, *m_humanoid_dy, *m_humanoid_dz;
+    QPushButton *m_humanoid_teleport_btn;
+    QPushButton *m_humanoid_random_btn;
+    QLineEdit *m_humanoid_offset_dist;
+    QPushButton *m_humanoid_move_away_btn;
+    QLabel *m_humanoid_pos_label;
+    rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr m_humanoid_teleport_pub;
+    rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr m_humanoid_pose_pub;
 };
 
 #endif // __ARPA_GUI_POSE_WINDOW_HPP__

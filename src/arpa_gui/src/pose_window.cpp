@@ -1,6 +1,8 @@
 #include "arpa_gui/pose_window.hpp"
 #include <QDateTime>
 #include <QScrollBar>
+#include <cmath>
+#include <random>
 #include <fstream>
 #include <sstream>
 #include <chrono>
@@ -50,6 +52,10 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     m_stop_client = m_node->create_client<arpa_control::srv::StopMotion>("stop_motion");
     // Linear actuator controller - supports both manual slider control and MoveIt 7-DOF planning
     m_linear_actuator_pub = m_node->create_publisher<std_msgs::msg::Float64MultiArray>("/linear_actuator_controller/commands", 10);
+
+    // Humanoid teleport publishers
+    m_humanoid_teleport_pub = m_node->create_publisher<geometry_msgs::msg::Point>("/humanoid/teleport_delta", 10);
+    m_humanoid_pose_pub = m_node->create_publisher<geometry_msgs::msg::Pose>("/humanoid/teleport_pose", 10);
 
     // Subscribe to joint states
     m_joint_state_sub = m_node->create_subscription<sensor_msgs::msg::JointState>(
@@ -206,8 +212,8 @@ void PoseWindow::setupUI()
     auto *frameLayout = new QHBoxLayout;
     m_source_frame_selector = new QComboBox;
     m_target_frame_selector = new QComboBox;
-    m_source_frame_selector->addItems({"base_link", "tool0", "floor_link"});
-    m_target_frame_selector->addItems({"base_link", "tool0", "floor_link"});
+    m_source_frame_selector->addItems({"base_link", "tool0", "floor_link", "pelvis"});
+    m_target_frame_selector->addItems({"base_link", "tool0", "floor_link", "pelvis"});
     m_target_frame_selector->setCurrentIndex(1); // default to tool0
 
     frameLayout->addWidget(new QLabel("From:"));
@@ -301,6 +307,54 @@ void PoseWindow::setupUI()
     m_status_group->setLayout(statusLayout);
     leftLayout->addWidget(m_status_group);
 
+    // ============ HUMANOID CONTROL GROUP ============
+    m_humanoid_group = new QGroupBox("Humanoid (H12 / pelvis)");
+    auto *humanoidLayout = new QVBoxLayout;
+
+    // Current humanoid position label
+    m_humanoid_pos_label = new QLabel("Humanoid (pelvis): unknown");
+    humanoidLayout->addWidget(m_humanoid_pos_label);
+
+    // Teleport delta controls
+    auto *teleportLayout = new QHBoxLayout;
+    teleportLayout->addWidget(new QLabel("ΔX:"));
+    m_humanoid_dx = new QLineEdit("0.0");
+    m_humanoid_dx->setFixedWidth(60);
+    teleportLayout->addWidget(m_humanoid_dx);
+    teleportLayout->addWidget(new QLabel("ΔY:"));
+    m_humanoid_dy = new QLineEdit("0.0");
+    m_humanoid_dy->setFixedWidth(60);
+    teleportLayout->addWidget(m_humanoid_dy);
+    teleportLayout->addWidget(new QLabel("ΔZ:"));
+    m_humanoid_dz = new QLineEdit("0.0");
+    m_humanoid_dz->setFixedWidth(60);
+    teleportLayout->addWidget(m_humanoid_dz);
+    humanoidLayout->addLayout(teleportLayout);
+
+    auto *teleportBtnLayout = new QHBoxLayout;
+    m_humanoid_teleport_btn = new QPushButton("Teleport humanoid");
+    m_humanoid_teleport_btn->setMinimumHeight(35);
+    m_humanoid_random_btn = new QPushButton("Random humanoid pose");
+    m_humanoid_random_btn->setMinimumHeight(35);
+    teleportBtnLayout->addWidget(m_humanoid_teleport_btn);
+    teleportBtnLayout->addWidget(m_humanoid_random_btn);
+    humanoidLayout->addLayout(teleportBtnLayout);
+
+    // Move-away controls
+    auto *moveAwayLayout = new QHBoxLayout;
+    moveAwayLayout->addWidget(new QLabel("Move farther from pelvis by (m):"));
+    m_humanoid_offset_dist = new QLineEdit("0.30");
+    m_humanoid_offset_dist->setFixedWidth(60);
+    moveAwayLayout->addWidget(m_humanoid_offset_dist);
+    humanoidLayout->addLayout(moveAwayLayout);
+
+    m_humanoid_move_away_btn = new QPushButton("Plan: Move EE away from humanoid");
+    m_humanoid_move_away_btn->setMinimumHeight(40);
+    humanoidLayout->addWidget(m_humanoid_move_away_btn);
+
+    m_humanoid_group->setLayout(humanoidLayout);
+    leftLayout->addWidget(m_humanoid_group);
+
     leftLayout->addStretch();
 
     // Put left content in scroll area
@@ -365,6 +419,10 @@ void PoseWindow::setupConnections()
     connect(m_test_btn, &QPushButton::clicked, this, &PoseWindow::testMoveUp);
     connect(m_goto_screw1_btn, &QPushButton::clicked, this, &PoseWindow::goto_screw1);
     connect(m_create_sequence_btn, &QPushButton::clicked, this, &PoseWindow::onCreateSequenceClicked);
+
+    connect(m_humanoid_teleport_btn, &QPushButton::clicked, this, &PoseWindow::humanoidTeleport);
+    connect(m_humanoid_random_btn, &QPushButton::clicked, this, &PoseWindow::humanoidRandomPose);
+    connect(m_humanoid_move_away_btn, &QPushButton::clicked, this, &PoseWindow::humanoidMoveAway);
 
     // Use lambda to avoid calling onFrameChanged during startup when TF isn't ready
     connect(m_source_frame_selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -560,6 +618,16 @@ void PoseWindow::updateCurrentPose()
 
     } catch (const tf2::TransformException &ex) {
         // Silently ignore - TF may not be available yet
+    }
+
+    // Update humanoid position display
+    try {
+        auto tf_g1 = m_tf_buffer.lookupTransform("floor_link", "pelvis", tf2::TimePointZero);
+        const auto &g = tf_g1.transform.translation;
+        m_humanoid_pos_label->setText(QString("Humanoid pelvis: (%1, %2, %3)")
+            .arg(g.x, 0, 'f', 3).arg(g.y, 0, 'f', 3).arg(g.z, 0, 'f', 3));
+    } catch (const tf2::TransformException &) {
+        m_humanoid_pos_label->setText("Humanoid (pelvis): not available");
     }
 }
 
@@ -1015,4 +1083,133 @@ void PoseWindow::onCreateSequenceClicked()
                     }, Qt::QueuedConnection);
                 });
         });
+}
+
+void PoseWindow::humanoidTeleport()
+{
+    geometry_msgs::msg::Point delta;
+    delta.x = m_humanoid_dx->text().toDouble();
+    delta.y = m_humanoid_dy->text().toDouble();
+    delta.z = m_humanoid_dz->text().toDouble();
+    m_humanoid_teleport_pub->publish(delta);
+    logStatus(QString("Teleporting humanoid by (%1, %2, %3)")
+        .arg(delta.x, 0, 'f', 3).arg(delta.y, 0, 'f', 3).arg(delta.z, 0, 'f', 3));
+}
+
+void PoseWindow::humanoidMoveAway()
+{
+    double offset_m = m_humanoid_offset_dist->text().toDouble();
+    if (offset_m <= 0.0) {
+        logStatus("Offset must be positive", true);
+        return;
+    }
+
+    try {
+        auto tf_ee = m_tf_buffer.lookupTransform("floor_link", "tool0", tf2::TimePointZero);
+        auto tf_g1 = m_tf_buffer.lookupTransform("floor_link", "pelvis", tf2::TimePointZero);
+
+        double ee_x = tf_ee.transform.translation.x;
+        double ee_y = tf_ee.transform.translation.y;
+        double ee_z = tf_ee.transform.translation.z;
+        double g1_x = tf_g1.transform.translation.x;
+        double g1_y = tf_g1.transform.translation.y;
+        double g1_z = tf_g1.transform.translation.z;
+
+        double dx = ee_x - g1_x;
+        double dy = ee_y - g1_y;
+        double dz = ee_z - g1_z;
+        double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (dist < 1e-4) {
+            logStatus("EE is at humanoid position, cannot compute direction", true);
+            return;
+        }
+
+        double ux = dx / dist;
+        double uy = dy / dist;
+        double uz = dz / dist;
+
+        double target_x = ee_x + ux * offset_m;
+        double target_y = ee_y + uy * offset_m;
+        double target_z = ee_z + uz * offset_m;
+
+        logStatus(QString("Planning EE %1m farther from pelvis -> (%2, %3, %4) in floor_link")
+            .arg(offset_m, 0, 'f', 2)
+            .arg(target_x, 0, 'f', 3).arg(target_y, 0, 'f', 3).arg(target_z, 0, 'f', 3));
+
+        auto req = std::make_shared<arpa_control::srv::PlanToPose::Request>();
+        req->target_pose.header.frame_id = "floor_link";
+        req->target_pose.pose.position.x = target_x;
+        req->target_pose.pose.position.y = target_y;
+        req->target_pose.pose.position.z = target_z;
+
+        req->target_pose.pose.orientation = tf_ee.transform.rotation;
+
+        m_plan_client->async_send_request(req,
+            [this](rclcpp::Client<arpa_control::srv::PlanToPose>::SharedFuture future) {
+                auto result = future.get();
+                if (result->success) {
+                    QMetaObject::invokeMethod(this, [this]() {
+                        logStatus("Move-away plan succeeded! Executing...");
+                        executePlan();
+                    }, Qt::QueuedConnection);
+                } else {
+                    QMetaObject::invokeMethod(this, [this, result]() {
+                        logStatus("Move-away plan failed: " + QString::fromStdString(result->message), true);
+                    }, Qt::QueuedConnection);
+                }
+            });
+    } catch (const tf2::TransformException &ex) {
+        logStatus(QString("TF lookup failed (is humanoid spawned?): %1").arg(ex.what()), true);
+    }
+}
+
+void PoseWindow::humanoidRandomPose()
+{
+    // Workspace layout in floor_link (= world):
+    //   Battery/table: X ~ [-0.87, 1.11], Y ~ [-0.74, 0.63], Z ~ 0.5m
+    //   Left pillar + foot:  center (1.47, 0), foot 1.0x1.0m → X [0.97, 1.97], Y [-0.5, 0.5]
+    //   Right pillar + foot: center (-1.47, 0), foot 1.0x1.0m → X [-1.97, -0.97], Y [-0.5, 0.5]
+    //
+    // Safe perimeter zones for the humanoid (standing on floor, pelvis Z=0.78):
+    //   Front (+Y side): X [-1.0, 1.0], Y [1.0, 1.6]   — facing -Y toward table
+    //   Back  (-Y side): X [-1.0, 1.0], Y [-1.6, -1.0]  — facing +Y toward table
+
+    static std::mt19937 rng(std::random_device{}());
+    std::uniform_int_distribution<int> side_dist(0, 1);  // 0 = front, 1 = back
+    std::uniform_real_distribution<double> x_dist(-1.0, 1.0);
+
+    int side = side_dist(rng);
+    double px = x_dist(rng);
+    double py, yaw;
+
+    if (side == 0) {
+        // Front (+Y side)
+        std::uniform_real_distribution<double> y_dist(1.0, 1.6);
+        py = y_dist(rng);
+        yaw = -M_PI / 2.0;  // facing -Y toward table
+    } else {
+        // Back (-Y side)
+        std::uniform_real_distribution<double> y_dist(-1.6, -1.0);
+        py = y_dist(rng);
+        yaw = M_PI / 2.0;   // facing +Y toward table
+    }
+
+    double pz = 0.78;  // pelvis height (H12 / G1 similar)
+
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = px;
+    pose.position.y = py;
+    pose.position.z = pz;
+    pose.orientation.x = 0.0;
+    pose.orientation.y = 0.0;
+    pose.orientation.z = std::sin(yaw / 2.0);
+    pose.orientation.w = std::cos(yaw / 2.0);
+
+    m_humanoid_pose_pub->publish(pose);
+
+    QString side_str = (side == 0) ? "front (+Y)" : "back (-Y)";
+    logStatus(QString("Random humanoid pose: %1 side -> (%2, %3, %4)")
+        .arg(side_str)
+        .arg(px, 0, 'f', 3).arg(py, 0, 'f', 3).arg(pz, 0, 'f', 3));
 }
