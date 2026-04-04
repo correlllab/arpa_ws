@@ -73,8 +73,10 @@ UPPER_RIGHT = [-0.873, 0.631]  # Opposite corner
 _Z_HEIGHT = 1.253
 
 # Grid configuration
-N_X_STEPS = 8 # Number of positions along X
+N_X_STEPS = 8  # Number of positions along X
 N_Y_STEPS = 8  # Number of positions along Y
+N_Z_LAYERS = 3  # Number of height layers (stacked above _Z_HEIGHT)
+_Z_STEP = 0.15  # Vertical spacing between layers (m)
 
 # When True, only visit the three outermost rows and columns (border band of depth 3)
 only_outside_points = False
@@ -105,24 +107,26 @@ for _pitch, _roll in _tilt_pairs:
 _X_POSITIONS = [LOWER_LEFT[0] + i * (UPPER_RIGHT[0] - LOWER_LEFT[0]) / (N_X_STEPS - 1) for i in range(N_X_STEPS)]
 _Y_POSITIONS = [LOWER_LEFT[1] + i * (UPPER_RIGHT[1] - LOWER_LEFT[1]) / (N_Y_STEPS - 1) for i in range(N_Y_STEPS)]
 
-# Generate poses in zigzag pattern (scan along Y at each X row, alternating Y direction)
+# Generate poses across all Z layers, then all X/Y positions within each layer
 _OUTSIDE_DEPTH = 2  # Number of outermost rows/columns to include when only_outside_points is True
+_Z_HEIGHTS = [_Z_HEIGHT + i * _Z_STEP for i in range(N_Z_LAYERS)]
 scan_points = []
-for row_idx, x_pos in enumerate(_X_POSITIONS):
-    y_range = _Y_POSITIONS# if row_idx % 2 == 0 else list(reversed(_Y_POSITIONS))
-    for col_idx, y_pos in enumerate(y_range):
-        if only_outside_points:
-            row_is_outside = row_idx < _OUTSIDE_DEPTH or row_idx >= N_X_STEPS - _OUTSIDE_DEPTH
-            col_is_outside = col_idx < _OUTSIDE_DEPTH or col_idx >= N_Y_STEPS - _OUTSIDE_DEPTH
-            if not (row_is_outside or col_is_outside):
-                continue
-        scan_points.append((x_pos, y_pos))
+for z_pos in _Z_HEIGHTS:
+    for row_idx, x_pos in enumerate(_X_POSITIONS):
+        y_range = _Y_POSITIONS
+        for col_idx, y_pos in enumerate(y_range):
+            if only_outside_points:
+                row_is_outside = row_idx < _OUTSIDE_DEPTH or row_idx >= N_X_STEPS - _OUTSIDE_DEPTH
+                col_is_outside = col_idx < _OUTSIDE_DEPTH or col_idx >= N_Y_STEPS - _OUTSIDE_DEPTH
+                if not (row_is_outside or col_is_outside):
+                    continue
+            scan_points.append((x_pos, y_pos, z_pos))
 
 
 VARIABLE_ORIENTATION = False
 def scan_points_to_pose_stamped(points, frame_id):
     pose_stamped_list = []
-    for x, y in points:
+    for x, y, z in points:
         # Build orientation: tool Z down, tool Y toward origin in XY plane
         qx,qy,qz,qw = _QX, _QY, _QZ, _QW
         is_edge =(x in _X_POSITIONS[:_OUTSIDE_DEPTH]) or (x in _X_POSITIONS[-_OUTSIDE_DEPTH:]) or (y in _Y_POSITIONS[:_OUTSIDE_DEPTH]) or (y in _Y_POSITIONS[-_OUTSIDE_DEPTH:])
@@ -139,7 +143,7 @@ def scan_points_to_pose_stamped(points, frame_id):
         ps.header.frame_id = frame_id
         ps.pose.position.x = x
         ps.pose.position.y = y
-        ps.pose.position.z = _Z_HEIGHT
+        ps.pose.position.z = z
         ps.pose.orientation.x = qx
         ps.pose.orientation.y = qy
         ps.pose.orientation.z = qz

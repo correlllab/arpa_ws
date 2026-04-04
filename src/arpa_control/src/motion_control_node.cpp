@@ -1034,36 +1034,43 @@ void MotionControlNode::getPoseCostMatrixCallback(
   response->size = static_cast<uint32_t>(N);
 
   const size_t total_pairs = N * N;
-  RCLCPP_INFO(get_logger(), "getPoseCostMatrix: computing %zu pairwise costs (parallel)", total_pairs);
+  const size_t off_diagonal_pairs = N * (N - 1);
+  static const size_t kMaxConcurrent = 32;  // cap concurrent threads to avoid "Resource temporarily unavailable"
+  RCLCPP_INFO(get_logger(), "getPoseCostMatrix: computing %zu pairwise costs (parallel, batch size %zu)",
+      off_diagonal_pairs, kMaxConcurrent);
 
-  // Launch all off-diagonal pairs in parallel
-  struct PairResult {
-    size_t i, j;
-    std::future<double> future;
-  };
-  std::vector<PairResult> futures;
-  futures.reserve(N * (N - 1));
-
-  //TODO use only MAX_THREADS
-  for (size_t i = 0; i < N; ++i) {
-    for (size_t j = 0; j < N; ++j) {
-      if (i == j) continue;
-      futures.push_back({i, j, std::async(std::launch::async,
-          &MotionControlNode::computePairwiseCost, this,
-          std::cref(planning_poses[i]), std::cref(planning_poses[j]), jmg, ee_link, request->euclidean)});
-    }
-  }
-
-  // Collect results
-  size_t successful_entries = N;  // diagonal entries
+  // Diagonal: zero cost
   for (size_t i = 0; i < N; ++i) {
     response->cost_matrix[i * N + i] = 0.0;
   }
-  for (auto& pr : futures) {
-    double cost = pr.future.get();
-    response->cost_matrix[pr.i * N + pr.j] = cost;
-    if (!std::isinf(cost)) {
-      ++successful_entries;
+
+  // Off-diagonal: run in batches to limit concurrent threads
+  std::vector<std::pair<size_t, size_t>> pairs;
+  pairs.reserve(off_diagonal_pairs);
+  for (size_t i = 0; i < N; ++i) {
+    for (size_t j = 0; j < N; ++j) {
+      if (i != j) pairs.emplace_back(i, j);
+    }
+  }
+
+  size_t successful_entries = N;
+  for (size_t b = 0; b < pairs.size(); b += kMaxConcurrent) {
+    size_t batch_end = std::min(b + kMaxConcurrent, pairs.size());
+    std::vector<std::future<double>> batch_futures;
+    batch_futures.reserve(batch_end - b);
+    for (size_t k = b; k < batch_end; ++k) {
+      size_t i = pairs[k].first, j = pairs[k].second;
+      batch_futures.push_back(std::async(std::launch::async,
+          &MotionControlNode::computePairwiseCost, this,
+          std::cref(planning_poses[i]), std::cref(planning_poses[j]), jmg, ee_link, request->euclidean));
+    }
+    for (size_t k = b; k < batch_end; ++k) {
+      double cost = batch_futures[k - b].get();
+      size_t i = pairs[k].first, j = pairs[k].second;
+      response->cost_matrix[i * N + j] = cost;
+      if (!std::isinf(cost)) {
+        ++successful_entries;
+      }
     }
   }
   RCLCPP_INFO(get_logger(), "getPoseCostMatrix: all pairs computed");

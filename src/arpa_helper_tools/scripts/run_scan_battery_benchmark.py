@@ -44,7 +44,7 @@ COST_CONFIGS = {
     'equal':    {'cost_w_joint': '1.0', 'cost_w_proximity': '1.0', 'cost_w_area': '1.0'},
 }
 
-ALL_CONFIGS = list(COST_CONFIGS.keys())
+ALL_CONFIGS = ['area', 'joint', 'prox', 'equal', 'base', 'no_area', 'no_joint', 'no_prox']
 
 
 def set_params(config_name: str) -> bool:
@@ -54,7 +54,7 @@ def set_params(config_name: str) -> bool:
     for name, value in params.items():
         cmd = ['ros2', 'param', 'set', MOTION_CONTROL_NODE, name, value]
         print(f"  {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             print(f"  ERROR setting {name}={value}: {result.stderr.strip()}")
             return False
@@ -88,7 +88,7 @@ def parse_benchmark_line(line: str) -> dict | None:
 def run_scan(config_name: str) -> dict | None:
     """Run scan_battery.py --benchmark and return parsed results."""
     cmd = [
-        'ros2', 'run', 'arpa_helper_tools', 'scan_battery',
+        'ros2', 'run', 'arpa_helper_tools', 'scan_battery.py',
         '--benchmark',
     ]
     print(f"Running: {' '.join(cmd)}")
@@ -162,6 +162,19 @@ def write_results(output_dir: str, config_name: str, parsed: dict) -> None:
     print(f"  Wrote detail: {detail_csv}")
 
 
+def check_motion_control_node() -> bool:
+    """Return True if motion_control_node is running (required for param set / scan_battery)."""
+    r = subprocess.run(
+        ['ros2', 'param', 'get', MOTION_CONTROL_NODE, 'use_corridor_constraint'],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if r.returncode != 0 and ('Node not found' in (r.stderr or '') or 'Unknown node' in (r.stderr or '')):
+        return False
+    return r.returncode == 0
+
+
 def main():
     parser = argparse.ArgumentParser(description='Scan battery benchmark across all 8 cost configs (pure RRT)')
     parser.add_argument('--config', choices=ALL_CONFIGS,
@@ -169,6 +182,13 @@ def main():
     parser.add_argument('--output-dir', default='scan_results/with_noik',
                         help='Output directory for CSV files')
     args = parser.parse_args()
+
+    if not check_motion_control_node():
+        print("ERROR: motion_control_node is not running.")
+        print("Start the ARPA stack first in another terminal, e.g.:")
+        print("  ros2 launch arpa_bringup arpa_sim.launch.py")
+        print("Wait until the stack is fully up, then run this benchmark again.")
+        sys.exit(1)
 
     configs = [args.config] if args.config else ALL_CONFIGS
 

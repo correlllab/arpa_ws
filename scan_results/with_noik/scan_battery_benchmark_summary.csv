@@ -1,0 +1,4 @@
+config,completed,skipped,total,success_rate,wall_s,avg_plan_time_s
+area,187,5,192,0.974,655.16,0.3403
+joint,186,6,192,0.9688,557.11,0.5421
+prox,187,5,192,0.974,953.04,2.3511
