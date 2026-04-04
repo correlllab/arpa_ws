@@ -35,6 +35,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     OpaqueFunction,
     RegisterEventHandler,
+    TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
@@ -287,10 +288,18 @@ def launch_setup(context, *args, **kwargs):
 
     # Run spawners only after the entity is spawned so controller_manager exists and we avoid
     # "already loaded" / "can not be configured from active state" races with the Gazebo plugin.
+    # Extra 10s delay lets the Gazebo-hosted controller_manager finish initializing
+    # hardware interfaces; without it, the load_controller service response may exceed
+    # the spawner's 10s call timeout and crash before configure/activate.
     event_spawners_after_spawn = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=gazebo_spawn_robot,
-            on_exit=[joint_state_broadcaster_spawner],
+            on_exit=[
+                TimerAction(
+                    period=10.0,
+                    actions=[joint_state_broadcaster_spawner],
+                ),
+            ],
         ),
     )
     event_after_joint_state = RegisterEventHandler(
