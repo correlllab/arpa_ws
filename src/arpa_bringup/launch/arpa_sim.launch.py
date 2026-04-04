@@ -4,6 +4,7 @@ import subprocess
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, LogInfo, OpaqueFunction, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -366,11 +367,24 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
+    spawn_humanoid = LaunchConfiguration("spawn_humanoid")
+    humanoid_model = LaunchConfiguration("humanoid_model")
+    humanoid_spawn_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            get_package_share_directory("arpa_humanoid") + "/launch/spawn_humanoid.launch.py"
+        ),
+        launch_arguments={
+            "humanoid_model": humanoid_model,
+        }.items(),
+        condition=IfCondition(spawn_humanoid),
+    )
+
     to_return = [
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
         rosbridge_mcp,
         static_tf_world_to_floor,
+        humanoid_spawn_launch,
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":
         to_return.append(rviz_node)
@@ -699,6 +713,21 @@ def generate_launch_description():
             "use_special_logic",
             default_value="true",
             description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
+        )
+    )
+
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "spawn_humanoid",
+            default_value="false",
+            description="If true, spawn H12 humanoid (h12_ros2_model) in sim; use humanoid_model:=g1 for legacy G1.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "humanoid_model",
+            default_value="h12",
+            description="When spawn_humanoid is true: h12 (correlllab) or g1 (g1_description).",
         )
     )
 
