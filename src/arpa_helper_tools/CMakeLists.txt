@@ -21,7 +21,13 @@ install(PROGRAMS
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
   scripts/vla_data_collection_node.py
+  scripts/parts_visualizer_node.py
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install resource files (parts lists, schemas)
+install(DIRECTORY resources/
+  DESTINATION share/${PROJECT_NAME}/resources
 )
 
 if(BUILD_TESTING)

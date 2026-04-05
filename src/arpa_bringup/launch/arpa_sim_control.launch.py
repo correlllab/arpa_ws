@@ -240,10 +240,15 @@ def launch_setup(context, *args, **kwargs):
         condition=IfCondition(launch_rviz),
     )
 
+    # Use a robust spawner that handles the "already loaded" race condition
+    # in the Gazebo-hosted controller_manager (standard spawner crashes with
+    # FATAL when load_controller response is slow and the retry sees the
+    # controller already loaded).
     joint_state_broadcaster_spawner = Node(
-        package="controller_manager",
-        executable="spawner",
-        arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
+        package="arpa_bringup",
+        executable="robust_jsb_spawner.py",
+        name="spawner_joint_state_broadcaster",
+        output="screen",
     )
 
     # There may be other controllers of the joints, but this is the initially-started one
@@ -286,20 +291,13 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
-    # Run spawners only after the entity is spawned so controller_manager exists and we avoid
-    # "already loaded" / "can not be configured from active state" races with the Gazebo plugin.
-    # Extra 10s delay lets the Gazebo-hosted controller_manager finish initializing
-    # hardware interfaces; without it, the load_controller service response may exceed
-    # the spawner's 10s call timeout and crash before configure/activate.
+    # Start the robust JSB spawner after entity spawn completes.
+    # It waits for the controller_manager internally and handles the
+    # "already loaded" race gracefully (no timer delay needed).
     event_spawners_after_spawn = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=gazebo_spawn_robot,
-            on_exit=[
-                TimerAction(
-                    period=10.0,
-                    actions=[joint_state_broadcaster_spawner],
-                ),
-            ],
+            on_exit=[joint_state_broadcaster_spawner],
         ),
     )
     event_after_joint_state = RegisterEventHandler(

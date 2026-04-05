@@ -609,6 +609,18 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /scan_poses_markers
       Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: PartsMarkers
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /parts_list_markers
+      Value: true
     - Attached Body Color: 0; 170; 0
       Class: moveit_rviz_plugin/RobotState
       Collision Enabled: false

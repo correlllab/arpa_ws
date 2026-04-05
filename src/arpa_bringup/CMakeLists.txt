@@ -18,4 +18,9 @@ install(
   DESTINATION share/${PROJECT_NAME}/config
 )
 
+install(PROGRAMS
+  scripts/robust_jsb_spawner.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

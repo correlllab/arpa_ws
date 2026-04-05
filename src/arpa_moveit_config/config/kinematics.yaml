@@ -13,6 +13,7 @@
         kinematics_solver_attempts: 3
       ur16e_on_gantry:
         kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+        
         kinematics_solver_search_resolution: 0.005
         kinematics_solver_timeout: 0.5
         kinematics_solver_attempts: 30

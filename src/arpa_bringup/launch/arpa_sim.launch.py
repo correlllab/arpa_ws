@@ -379,12 +379,20 @@ def launch_setup(context, *args, **kwargs):
         condition=IfCondition(spawn_humanoid),
     )
 
+    parts_visualizer_node = Node(
+        package="arpa_helper_tools",
+        executable="parts_visualizer_node.py",
+        name="parts_visualizer_node",
+        output="screen",
+    )
+
     to_return = [
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
         rosbridge_mcp,
         static_tf_world_to_floor,
         humanoid_spawn_launch,
+        parts_visualizer_node,
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":
         to_return.append(rviz_node)
@@ -719,7 +727,7 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "spawn_humanoid",
-            default_value="false",
+            default_value="true",
             description="If true, spawn H12 humanoid (h12_ros2_model) in sim; use humanoid_model:=g1 for legacy G1.",
         )
     )
