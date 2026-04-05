@@ -324,6 +324,18 @@ def main(args=None):
 
         node.get_logger().info("Battery scan complete.")
 
+        # Trigger parts list visualization in RViz
+        parts_client = node.create_client(Trigger, '/show_parts_markers')
+        if parts_client.wait_for_service(timeout_sec=5.0):
+            future = parts_client.call_async(Trigger.Request())
+            rclpy.spin_until_future_complete(node, future, timeout_sec=5.0)
+            if future.done() and future.result().success:
+                node.get_logger().info(f"Parts markers: {future.result().message}")
+            else:
+                node.get_logger().warn("Parts marker publish did not complete")
+        else:
+            node.get_logger().warn("Parts visualizer service not available, skipping")
+
         if benchmark_mode and scan_start_time is not None:
             wall_s = time.time() - scan_start_time
             completed = len(completed_indices)

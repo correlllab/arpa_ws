@@ -19,7 +19,13 @@ install(PROGRAMS
   scripts/scan_battery.py
   scripts/run_benchmark.py
   scripts/plot_benchmark.py
+  scripts/parts_visualizer_node.py
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install resource files (parts lists, schemas)
+install(DIRECTORY resources/
+  DESTINATION share/${PROJECT_NAME}/resources
 )
 
 if(BUILD_TESTING)

@@ -73,6 +73,9 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     // Client for screw sequence service
     m_run_screw_sequence_client = m_node->create_client<std_srvs::srv::Trigger>("run_screw_sequence");
 
+    // Client for parts visualizer
+    m_show_parts_client = m_node->create_client<std_srvs::srv::Trigger>("/show_parts_markers");
+
     // Parameter client for bt_executor_node (to set transfer_strategy)
     m_bt_param_client = std::make_shared<rclcpp::AsyncParametersClient>(m_node, "bt_executor_node");
 
@@ -307,6 +310,11 @@ void PoseWindow::setupUI()
     m_status_group->setLayout(statusLayout);
     leftLayout->addWidget(m_status_group);
 
+    // ============ PARTS VISUALIZATION ============
+    m_show_parts_btn = new QPushButton("Show Parts in RViz");
+    m_show_parts_btn->setMinimumHeight(35);
+    leftLayout->addWidget(m_show_parts_btn);
+
     // ============ HUMANOID CONTROL GROUP ============
     m_humanoid_group = new QGroupBox("Humanoid (H12 / pelvis)");
     auto *humanoidLayout = new QVBoxLayout;
@@ -419,6 +427,8 @@ void PoseWindow::setupConnections()
     connect(m_test_btn, &QPushButton::clicked, this, &PoseWindow::testMoveUp);
     connect(m_goto_screw1_btn, &QPushButton::clicked, this, &PoseWindow::goto_screw1);
     connect(m_create_sequence_btn, &QPushButton::clicked, this, &PoseWindow::onCreateSequenceClicked);
+
+    connect(m_show_parts_btn, &QPushButton::clicked, this, &PoseWindow::showPartsInRviz);
 
     connect(m_humanoid_teleport_btn, &QPushButton::clicked, this, &PoseWindow::humanoidTeleport);
     connect(m_humanoid_random_btn, &QPushButton::clicked, this, &PoseWindow::humanoidRandomPose);
@@ -1082,6 +1092,29 @@ void PoseWindow::onCreateSequenceClicked()
                         }
                     }, Qt::QueuedConnection);
                 });
+        });
+}
+
+void PoseWindow::showPartsInRviz()
+{
+    if (!m_show_parts_client->wait_for_service(std::chrono::seconds(2))) {
+        logStatus("Parts visualizer service not available", true);
+        return;
+    }
+    logStatus("Requesting parts markers...");
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    m_show_parts_client->async_send_request(request,
+        [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+            auto result = future.get();
+            if (result->success) {
+                QMetaObject::invokeMethod(this, [this, msg = result->message]() {
+                    logStatus(QString::fromStdString("Parts: " + msg));
+                });
+            } else {
+                QMetaObject::invokeMethod(this, [this, msg = result->message]() {
+                    logStatus(QString::fromStdString("Parts error: " + msg), true);
+                });
+            }
         });
 }
 

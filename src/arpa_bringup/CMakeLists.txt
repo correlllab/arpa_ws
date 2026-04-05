@@ -13,4 +13,9 @@ install(
   DESTINATION share/${PROJECT_NAME}/worlds
 )
 
+install(PROGRAMS
+  scripts/robust_jsb_spawner.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

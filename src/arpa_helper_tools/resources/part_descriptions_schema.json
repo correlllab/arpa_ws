@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PartsList",
+  "description": "Schema for parts list used in robotic assembly",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["name", "weight_g", "quantity", "tool_needed", "nut_size"],
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "The name of the part"
+      },
+      "weight_g": {
+        "type": "number",
+        "minimum": 0,
+        "description": "Weight of the part in grams"
+      },
+      "quantity": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "How many of this part are needed"
+      },
+      "tool_needed": {
+        "type": "string",
+        "enum": ["drill", "screwdriver", "nutdriver", "clippers", "gripper"],
+        "description": "Tool required to handle or install the part"
+      },
+      "nut_size": {
+        "type": "string",
+        "description": "Nut size if applicable, else 'NA'",
+        "enum": ["NA", "small", "medium", "big"]
+      },
+      "category": {
+        "type": "string",
+        "description": "Optional category of the part, e.g. fastener, busbar, cover, cable"
+      }
+    },
+    "additionalProperties": false
+  }
+}
