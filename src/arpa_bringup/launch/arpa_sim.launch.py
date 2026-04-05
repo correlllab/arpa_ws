@@ -386,6 +386,13 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    battery_pc_publisher = Node(
+        package="arpa_helper_tools",
+        executable="battery_pointcloud_publisher.py",
+        name="battery_pointcloud_publisher",
+        output="screen",
+    )
+
     to_return = [
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
@@ -393,6 +400,7 @@ def launch_setup(context, *args, **kwargs):
         static_tf_world_to_floor,
         humanoid_spawn_launch,
         parts_visualizer_node,
+        battery_pc_publisher,
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":
         to_return.append(rviz_node)

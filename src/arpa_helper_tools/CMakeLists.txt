@@ -22,6 +22,7 @@ install(PROGRAMS
   scripts/plot_benchmark.py
   scripts/vla_data_collection_node.py
   scripts/parts_visualizer_node.py
+  scripts/battery_pointcloud_publisher.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

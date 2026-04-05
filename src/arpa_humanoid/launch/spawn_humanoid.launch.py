@@ -11,19 +11,35 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
-def _inject_gazebo_static(urdf_xml: str) -> str:
-    """Insert Gazebo static model (no gravity / dynamics) before closing robot tag."""
-    if "<gazebo>" in urdf_xml and "static" in urdf_xml:
-        return urdf_xml
-    block = (
-        "  <!-- arpa_humanoid: static in Gazebo — teleport only, no physics -->\n"
-        "  <gazebo>\n"
-        "    <static>true</static>\n"
-        "  </gazebo>\n"
+def _inject_gazebo_tags(urdf_xml: str) -> str:
+    """Inject Gazebo static tag and per-link material so meshes render in Gazebo Classic.
+
+    Also strips non-URDF elements (<mujoco>, <compiler>) that confuse Gazebo's
+    URDF-to-SDF converter.
+    """
+    root = ET.fromstring(urdf_xml)
+
+    # Remove MuJoCo-specific elements that break Gazebo's URDF parser
+    for tag in ("mujoco", "compiler"):
+        for elem in root.findall(tag):
+            root.remove(elem)
+
+    has_static = any(
+        gz.find("static") is not None for gz in root.findall("gazebo") if gz.get("reference") is None
     )
-    if "</robot>" in urdf_xml:
-        return urdf_xml.replace("</robot>", block + "</robot>")
-    return urdf_xml + "\n" + block
+    if not has_static:
+        gz_static = ET.SubElement(root, "gazebo")
+        ET.SubElement(gz_static, "static").text = "true"
+
+    existing_refs = {gz.get("reference") for gz in root.findall("gazebo") if gz.get("reference")}
+    for link in root.findall("link"):
+        link_name = link.attrib.get("name", "")
+        if link_name and link.find("visual") is not None and link_name not in existing_refs:
+            gz = ET.SubElement(root, "gazebo")
+            gz.set("reference", link_name)
+            ET.SubElement(gz, "material").text = "Gazebo/DarkGrey"
+
+    return ET.tostring(root, encoding="unicode", xml_declaration=False)
 
 
 def launch_setup(context, *args, **kwargs):
@@ -44,7 +60,7 @@ def launch_setup(context, *args, **kwargs):
         collision_id = "h12_humanoid_bbox"
 
     with open(urdf_path, "r") as f:
-        robot_description_content = _inject_gazebo_static(f.read())
+        robot_description_content = _inject_gazebo_tags(f.read())
 
     root = ET.fromstring(robot_description_content)
     joint_names = []
