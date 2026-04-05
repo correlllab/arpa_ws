@@ -62,7 +62,8 @@ private slots:
     void humanoidTeleport();
     void humanoidMoveAway();
     void humanoidRandomPose();
-    void showPartsInRviz();
+    void togglePartsInRviz();
+    void togglePointCloud();
 
 private:
     void setupUI();
@@ -157,9 +158,14 @@ private:
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_run_screw_sequence_client;
     rclcpp::AsyncParametersClient::SharedPtr m_bt_param_client;
 
-    // ============ PARTS VISUALIZATION ============
-    QPushButton *m_show_parts_btn;
+    // ============ PARTS & POINT CLOUD VISUALIZATION ============
+    QPushButton *m_toggle_parts_btn;
+    QPushButton *m_toggle_pc_btn;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_toggle_parts_client;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_toggle_pc_client;
     rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_show_parts_client;
+    bool m_parts_visible{false};
+    bool m_pc_visible{true};
 
     // ============ HUMANOID SECTION ============
     QGroupBox *m_humanoid_group;

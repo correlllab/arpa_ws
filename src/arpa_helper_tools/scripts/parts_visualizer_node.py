@@ -2,9 +2,11 @@
 """
 Parts Visualizer Node
 
-Advertises /show_parts_markers (std_srvs/Trigger).  When called, reads the
-Hyundai Ioniq parts list JSON and publishes a latched MarkerArray on
+Advertises /toggle_parts_markers (std_srvs/Trigger).  Each call toggles
+between showing and hiding the Hyundai Ioniq parts list on
 /parts_list_markers (sphere per part + text label).
+
+Also keeps the legacy /show_parts_markers service that always forces show.
 """
 
 import json
@@ -56,14 +58,18 @@ class PartsVisualizerNode(Node):
             MarkerArray, "/parts_list_markers", latched_qos
         )
 
-        self._srv = self.create_service(
+        self._toggle_srv = self.create_service(
+            Trigger, "/toggle_parts_markers", self._handle_toggle
+        )
+        self._show_srv = self.create_service(
             Trigger, "/show_parts_markers", self._handle_show
         )
 
         self._parts = self._load_parts()
+        self._visible = False
         self.get_logger().info(
             f"Parts visualizer ready — {len(self._parts)} parts loaded. "
-            "Call /show_parts_markers to publish."
+            "Call /toggle_parts_markers or /show_parts_markers."
         )
 
     def _load_parts(self) -> dict:
@@ -128,17 +134,48 @@ class PartsVisualizerNode(Node):
 
         return ma
 
-    def _handle_show(self, _request, response):
+    def _build_delete_all(self) -> MarkerArray:
+        ma = MarkerArray()
+        m = Marker()
+        m.action = Marker.DELETEALL
+        ma.markers.append(m)
+        return ma
+
+    def _publish_show(self):
+        ma = self._build_markers()
+        self._marker_pub.publish(ma)
+        self._visible = True
+        self.get_logger().info(
+            f"Published {len(self._parts)} part markers on /parts_list_markers"
+        )
+
+    def _publish_hide(self):
+        self._marker_pub.publish(self._build_delete_all())
+        self._visible = False
+        self.get_logger().info("Cleared part markers")
+
+    def _handle_toggle(self, _request, response):
         if not self._parts:
             response.success = False
             response.message = "No parts loaded"
             return response
 
-        ma = self._build_markers()
-        self._marker_pub.publish(ma)
-        self.get_logger().info(
-            f"Published {len(self._parts)} part markers on /parts_list_markers"
-        )
+        if self._visible:
+            self._publish_hide()
+            response.success = True
+            response.message = "hidden"
+        else:
+            self._publish_show()
+            response.success = True
+            response.message = f"shown {len(self._parts)} parts"
+        return response
+
+    def _handle_show(self, _request, response):
+        if not self._parts:
+            response.success = False
+            response.message = "No parts loaded"
+            return response
+        self._publish_show()
         response.success = True
         response.message = f"Published {len(self._parts)} parts"
         return response

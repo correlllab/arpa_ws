@@ -73,7 +73,9 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     // Client for screw sequence service
     m_run_screw_sequence_client = m_node->create_client<std_srvs::srv::Trigger>("run_screw_sequence");
 
-    // Client for parts visualizer
+    // Clients for parts & point cloud toggle
+    m_toggle_parts_client = m_node->create_client<std_srvs::srv::Trigger>("/toggle_parts_markers");
+    m_toggle_pc_client = m_node->create_client<std_srvs::srv::Trigger>("/toggle_battery_pointcloud");
     m_show_parts_client = m_node->create_client<std_srvs::srv::Trigger>("/show_parts_markers");
 
     // Parameter client for bt_executor_node (to set transfer_strategy)
@@ -310,10 +312,15 @@ void PoseWindow::setupUI()
     m_status_group->setLayout(statusLayout);
     leftLayout->addWidget(m_status_group);
 
-    // ============ PARTS VISUALIZATION ============
-    m_show_parts_btn = new QPushButton("Show Parts in RViz");
-    m_show_parts_btn->setMinimumHeight(35);
-    leftLayout->addWidget(m_show_parts_btn);
+    // ============ PARTS & POINT CLOUD VISUALIZATION ============
+    auto *vizLayout = new QHBoxLayout();
+    m_toggle_parts_btn = new QPushButton("Show Parts");
+    m_toggle_parts_btn->setMinimumHeight(35);
+    m_toggle_pc_btn = new QPushButton("Hide Point Cloud");
+    m_toggle_pc_btn->setMinimumHeight(35);
+    vizLayout->addWidget(m_toggle_parts_btn);
+    vizLayout->addWidget(m_toggle_pc_btn);
+    leftLayout->addLayout(vizLayout);
 
     // ============ HUMANOID CONTROL GROUP ============
     m_humanoid_group = new QGroupBox("Humanoid (H12 / pelvis)");
@@ -428,7 +435,8 @@ void PoseWindow::setupConnections()
     connect(m_goto_screw1_btn, &QPushButton::clicked, this, &PoseWindow::goto_screw1);
     connect(m_create_sequence_btn, &QPushButton::clicked, this, &PoseWindow::onCreateSequenceClicked);
 
-    connect(m_show_parts_btn, &QPushButton::clicked, this, &PoseWindow::showPartsInRviz);
+    connect(m_toggle_parts_btn, &QPushButton::clicked, this, &PoseWindow::togglePartsInRviz);
+    connect(m_toggle_pc_btn, &QPushButton::clicked, this, &PoseWindow::togglePointCloud);
 
     connect(m_humanoid_teleport_btn, &QPushButton::clicked, this, &PoseWindow::humanoidTeleport);
     connect(m_humanoid_random_btn, &QPushButton::clicked, this, &PoseWindow::humanoidRandomPose);
@@ -1095,26 +1103,59 @@ void PoseWindow::onCreateSequenceClicked()
         });
 }
 
-void PoseWindow::showPartsInRviz()
+void PoseWindow::togglePartsInRviz()
 {
-    if (!m_show_parts_client->wait_for_service(std::chrono::seconds(2))) {
+    if (!m_toggle_parts_client->wait_for_service(std::chrono::seconds(2))) {
         logStatus("Parts visualizer service not available", true);
         return;
     }
-    logStatus("Requesting parts markers...");
     auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
-    m_show_parts_client->async_send_request(request,
+    m_toggle_parts_client->async_send_request(request,
         [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
             auto result = future.get();
-            if (result->success) {
-                QMetaObject::invokeMethod(this, [this, msg = result->message]() {
-                    logStatus(QString::fromStdString("Parts: " + msg));
-                });
-            } else {
-                QMetaObject::invokeMethod(this, [this, msg = result->message]() {
+            QMetaObject::invokeMethod(this, [this, ok = result->success, msg = result->message]() {
+                if (!ok) {
                     logStatus(QString::fromStdString("Parts error: " + msg), true);
-                });
-            }
+                    return;
+                }
+                if (msg.find("hidden") != std::string::npos) {
+                    m_parts_visible = false;
+                    m_toggle_parts_btn->setText("Show Parts");
+                    logStatus("Parts markers hidden");
+                } else {
+                    m_parts_visible = true;
+                    m_toggle_parts_btn->setText("Hide Parts");
+                    logStatus(QString::fromStdString("Parts: " + msg));
+                }
+            });
+        });
+}
+
+void PoseWindow::togglePointCloud()
+{
+    if (!m_toggle_pc_client->wait_for_service(std::chrono::seconds(2))) {
+        logStatus("Battery point cloud service not available", true);
+        return;
+    }
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    m_toggle_pc_client->async_send_request(request,
+        [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+            auto result = future.get();
+            QMetaObject::invokeMethod(this, [this, ok = result->success, msg = result->message]() {
+                if (!ok) {
+                    logStatus(QString::fromStdString("PC error: " + msg), true);
+                    return;
+                }
+                if (msg.find("hidden") != std::string::npos) {
+                    m_pc_visible = false;
+                    m_toggle_pc_btn->setText("Show Point Cloud");
+                    logStatus("Battery point cloud hidden");
+                } else {
+                    m_pc_visible = true;
+                    m_toggle_pc_btn->setText("Hide Point Cloud");
+                    logStatus("Battery point cloud shown");
+                }
+            });
         });
 }
 
