@@ -37,6 +37,7 @@ def launch_setup(context, *args, **kwargs):
     start_joint_controller = LaunchConfiguration("start_joint_controller")
     initial_joint_controller = LaunchConfiguration("initial_joint_controller")
     launch_rviz = LaunchConfiguration("launch_rviz")
+    launch_arpa_gui = LaunchConfiguration("launch_arpa_gui")
     gazebo_gui = LaunchConfiguration("gazebo_gui")
 
     # Additional xacro arguments
@@ -86,6 +87,7 @@ def launch_setup(context, *args, **kwargs):
     print(f"  start_joint_controller:   {start_joint_controller.perform(context)}")
     print(f"  initial_joint_controller: {initial_joint_controller.perform(context)}")
     print(f"  launch_rviz:              {launch_rviz.perform(context)}")
+    print(f"  launch_arpa_gui:          {launch_arpa_gui.perform(context)}")
     print(f"  gazebo_gui:               {gazebo_gui.perform(context)}")
     print("-" * 80)
     print("Hardware/Simulation arguments:")
@@ -393,6 +395,13 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    arpa_gui_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(arpa_gui_pkg_share, "launch", "arpa_gui.launch.py")
+        ),
+        condition=IfCondition(launch_arpa_gui),
+    )
+
     to_return = [
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
@@ -401,6 +410,7 @@ def launch_setup(context, *args, **kwargs):
         humanoid_spawn_launch,
         parts_visualizer_node,
         battery_pc_publisher,
+        arpa_gui_launch,
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":
         to_return.append(rviz_node)
@@ -535,6 +545,13 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument("launch_rviz", default_value="true", description="Launch RViz?")
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "launch_arpa_gui",
+            default_value="true",
+            description="Launch ARPA Qt control panel (arpa_gui)?",
+        )
     )
     declared_arguments.append(
         DeclareLaunchArgument(

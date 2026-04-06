@@ -1,8 +1,11 @@
 #include <QApplication>
 #include <rclcpp/rclcpp.hpp>
 #include "arpa_gui/pose_window.hpp"
-#include <iostream>
+#include <atomic>
+#include <chrono>
 #include <csignal>
+#include <iostream>
+#include <thread>
 
 // Global flag for clean shutdown
 static std::atomic<bool> g_shutdown_requested{false};

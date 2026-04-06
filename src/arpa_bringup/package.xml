@@ -37,6 +37,7 @@
   <exec_depend>moveit_ros_visualization</exec_depend>
 
   <!-- Your packages -->
+  <exec_depend>arpa_gui</exec_depend>
   <exec_depend>arpa_description</exec_depend>
   <exec_depend>arpa_behavior_trees</exec_depend>
   <exec_depend>arpa_humanoid</exec_depend>
