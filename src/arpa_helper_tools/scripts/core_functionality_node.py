@@ -70,7 +70,7 @@ class CoreNode(Node):
         self.already_removing = False
         self.already_removing_part_name = ""
 
-
+ 
         self.latest_detection_bundle: DetectionBundle = None
         self.latest_camera_info: CameraInfo = None
         _det_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
