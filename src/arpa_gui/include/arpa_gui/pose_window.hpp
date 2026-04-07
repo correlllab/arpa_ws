@@ -64,6 +64,7 @@ private slots:
     void humanoidRandomPose();
     void togglePartsInRviz();
     void togglePointCloud();
+    void runSimRemoveSequence();
 
 private:
     void setupUI();
@@ -177,6 +178,12 @@ private:
     QLabel *m_humanoid_pos_label;
     rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr m_humanoid_teleport_pub;
     rclcpp::Publisher<geometry_msgs::msg::Pose>::SharedPtr m_humanoid_pose_pub;
+
+    // ============ SIM REMOVE SEQUENCE ============
+    QGroupBox *m_sim_remove_group;
+    QPushButton *m_sim_remove_btn;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr m_sim_remove_client;
+    bool m_sim_remove_running{false};
 };
 
 #endif // __ARPA_GUI_POSE_WINDOW_HPP__

@@ -57,6 +57,9 @@ PoseWindow::PoseWindow(rclcpp::Node::SharedPtr node)
     m_humanoid_teleport_pub = m_node->create_publisher<geometry_msgs::msg::Point>("/humanoid/teleport_delta", 10);
     m_humanoid_pose_pub = m_node->create_publisher<geometry_msgs::msg::Pose>("/humanoid/teleport_pose", 10);
 
+    // Sim remove sequence client
+    m_sim_remove_client = m_node->create_client<std_srvs::srv::Trigger>("run_sim_remove_sequence");
+
     // Subscribe to joint states
     m_joint_state_sub = m_node->create_subscription<sensor_msgs::msg::JointState>(
         "/joint_states", 10,
@@ -370,6 +373,18 @@ void PoseWindow::setupUI()
     m_humanoid_group->setLayout(humanoidLayout);
     leftLayout->addWidget(m_humanoid_group);
 
+    // ============ SIM REMOVE SEQUENCE ============
+    m_sim_remove_group = new QGroupBox("Sim Remove Sequence");
+    auto *simRemoveLayout = new QVBoxLayout;
+
+    m_sim_remove_btn = new QPushButton("Run Sim Remove Sequence");
+    m_sim_remove_btn->setMinimumHeight(45);
+    m_sim_remove_btn->setToolTip("Iterate all parts: hover 3cm above, descend, wait 4s (unscrewing), retract. Sim only.");
+    simRemoveLayout->addWidget(m_sim_remove_btn);
+
+    m_sim_remove_group->setLayout(simRemoveLayout);
+    leftLayout->addWidget(m_sim_remove_group);
+
     leftLayout->addStretch();
 
     // Put left content in scroll area
@@ -441,6 +456,7 @@ void PoseWindow::setupConnections()
     connect(m_humanoid_teleport_btn, &QPushButton::clicked, this, &PoseWindow::humanoidTeleport);
     connect(m_humanoid_random_btn, &QPushButton::clicked, this, &PoseWindow::humanoidRandomPose);
     connect(m_humanoid_move_away_btn, &QPushButton::clicked, this, &PoseWindow::humanoidMoveAway);
+    connect(m_sim_remove_btn, &QPushButton::clicked, this, &PoseWindow::runSimRemoveSequence);
 
     // Use lambda to avoid calling onFrameChanged during startup when TF isn't ready
     connect(m_source_frame_selector, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -1286,4 +1302,43 @@ void PoseWindow::humanoidRandomPose()
     logStatus(QString("Random humanoid pose: %1 side -> (%2, %3, %4)")
         .arg(side_str)
         .arg(px, 0, 'f', 3).arg(py, 0, 'f', 3).arg(pz, 0, 'f', 3));
+}
+
+void PoseWindow::runSimRemoveSequence()
+{
+    if (m_sim_remove_running) {
+        logStatus("Sim remove sequence already running", true);
+        return;
+    }
+
+    if (!m_sim_remove_client->wait_for_service(std::chrono::seconds(2))) {
+        logStatus("run_sim_remove_sequence service not available — is sim_remove_sequence_node running?", true);
+        logBtStatus("Sim remove service not available", true);
+        return;
+    }
+
+    m_sim_remove_running = true;
+    m_sim_remove_btn->setEnabled(false);
+    m_sim_remove_btn->setText("Running...");
+    logStatus("Starting sim remove sequence (all parts)...");
+    logBtStatus("Sim remove sequence started — iterating all parts");
+
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    m_sim_remove_client->async_send_request(request,
+        [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+            auto result = future.get();
+            QMetaObject::invokeMethod(this, [this, result]() {
+                m_sim_remove_running = false;
+                m_sim_remove_btn->setEnabled(true);
+                m_sim_remove_btn->setText("Run Sim Remove Sequence");
+
+                if (result->success) {
+                    logStatus("Sim remove sequence done: " + QString::fromStdString(result->message));
+                    logBtStatus("Sim remove: " + QString::fromStdString(result->message));
+                } else {
+                    logStatus("Sim remove sequence failed: " + QString::fromStdString(result->message), true);
+                    logBtStatus("Sim remove failed: " + QString::fromStdString(result->message), true);
+                }
+            }, Qt::QueuedConnection);
+        });
 }
