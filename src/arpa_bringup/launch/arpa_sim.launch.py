@@ -395,6 +395,13 @@ def launch_setup(context, *args, **kwargs):
         output="screen",
     )
 
+    sim_remove_sequence_node = Node(
+        package="arpa_helper_tools",
+        executable="sim_remove_sequence_node.py",
+        name="sim_remove_sequence_node",
+        output="screen",
+    )
+
     arpa_gui_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(arpa_gui_pkg_share, "launch", "arpa_gui.launch.py")
@@ -410,6 +417,7 @@ def launch_setup(context, *args, **kwargs):
         humanoid_spawn_launch,
         parts_visualizer_node,
         battery_pc_publisher,
+        sim_remove_sequence_node,
         arpa_gui_launch,
     ]
     if context.perform_substitution(launch_rviz).lower() == "true":
