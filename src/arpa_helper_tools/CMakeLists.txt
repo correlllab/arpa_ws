@@ -23,6 +23,7 @@ install(PROGRAMS
   scripts/vla_data_collection_node.py
   scripts/parts_visualizer_node.py
   scripts/battery_pointcloud_publisher.py
+  scripts/sim_remove_sequence_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
