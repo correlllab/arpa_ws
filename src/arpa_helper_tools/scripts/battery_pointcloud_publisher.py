@@ -13,10 +13,18 @@ Services:
 import os
 import struct
 import threading
+from typing import Any
 
 import numpy as np
-import open3d as o3d
 import rclpy
+
+try:
+    import open3d as o3d
+except Exception as e:
+    o3d = None  # type: Any
+    _O3D_IMPORT_ERROR = e
+else:
+    _O3D_IMPORT_ERROR = None
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2, PointField
@@ -55,7 +63,7 @@ def _find_ply() -> str | None:
     return None
 
 
-def _pcd_to_msg(pcd: o3d.geometry.PointCloud, stamp) -> PointCloud2:
+def _pcd_to_msg(pcd: Any, stamp) -> PointCloud2:
     points = np.asarray(pcd.points, dtype=np.float32)
     header = Header()
     header.stamp = stamp
@@ -103,6 +111,14 @@ class BatteryPointCloudPublisher(Node):
 
         self._cloud_msg = None
         self._visible = False
+
+        if o3d is None:
+            self.get_logger().error(
+                "open3d failed to import (often NumPy/scipy mismatch). "
+                "Battery point cloud disabled. Try: pip install 'numpy<2'. "
+                f"Import error: {_O3D_IMPORT_ERROR}"
+            )
+            return
 
         ply_path = _find_ply()
         if ply_path is None:

@@ -1,6 +1,6 @@
 import os
 import yaml
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -37,41 +37,6 @@ def launch_setup(context, *args, **kwargs):
         services_glob = ros_params.get("services_glob", services_glob)
         params_glob   = ros_params.get("params_glob",   params_glob)
         actions_glob  = ros_params.get("actions_glob",  actions_glob)
-        
-        rosbridge_node = Node(
-            package="rosbridge_server",
-            executable="rosbridge_websocket",
-            name="rosbridge_websocket",
-            output="screen",
-            parameters=[{
-                "port":                            LaunchConfiguration("port"),
-                "address":                         LaunchConfiguration("address"),
-                "topics_glob":                     str(topics_glob),
-                "services_glob":                   str(services_glob),
-                "params_glob":                     str(params_glob),
-                "max_message_size":                10000000,
-                "use_compression":                 False,
-                "send_action_goals_in_new_thread": True,
-                "call_services_in_new_thread":     False,
-                "default_call_service_timeout":    120.0,
-                "retry_startup_delay":             10.0,
-                "fragment_timeout":                600,
-                "delay_between_messages":          5.0,
-                "unregister_timeout":              120.0,
-            }]
-        )
-
-        rosapi_node = Node(
-            package="rosapi",
-            executable="rosapi_node",
-            name="rosapi",
-            parameters=[{
-                "topics_glob":   str(topics_glob),
-                "services_glob": str(services_glob),
-                "params_glob":   str(params_glob),
-                "params_timeout": 5.0,
-            }]
-        )
 
     log_info = LogInfo(
         msg=[
@@ -83,6 +48,69 @@ def launch_setup(context, *args, **kwargs):
             "\n  ├─ params_glob:   ", str(params_glob),
             "\n  └─ actions_glob:  ", str(actions_glob),
         ]
+    )
+
+    missing = []
+    try:
+        get_package_share_directory("rosbridge_server")
+    except PackageNotFoundError:
+        missing.append("rosbridge_server")
+    try:
+        get_package_share_directory("rosapi")
+    except PackageNotFoundError:
+        missing.append("rosapi")
+
+    if missing:
+        return [
+            log_info,
+            LogInfo(
+                msg=(
+                    "[rosbridge_mcp] Skipping rosbridge (missing: "
+                    + ", ".join(missing)
+                    + "). Install e.g. `ros-humble-rosbridge-suite` to enable."
+                )
+            ),
+        ]
+
+    if not params_file:
+        return [
+            log_info,
+            LogInfo(msg="[rosbridge_mcp] params_file is empty; skipping rosbridge nodes."),
+        ]
+
+    rosbridge_node = Node(
+        package="rosbridge_server",
+        executable="rosbridge_websocket",
+        name="rosbridge_websocket",
+        output="screen",
+        parameters=[{
+            "port":                            LaunchConfiguration("port"),
+            "address":                         LaunchConfiguration("address"),
+            "topics_glob":                     str(topics_glob),
+            "services_glob":                   str(services_glob),
+            "params_glob":                     str(params_glob),
+            "max_message_size":                10000000,
+            "use_compression":                 False,
+            "send_action_goals_in_new_thread": True,
+            "call_services_in_new_thread":     False,
+            "default_call_service_timeout":    120.0,
+            "retry_startup_delay":             10.0,
+            "fragment_timeout":                600,
+            "delay_between_messages":          5.0,
+            "unregister_timeout":              120.0,
+        }]
+    )
+
+    rosapi_node = Node(
+        package="rosapi",
+        executable="rosapi_node",
+        name="rosapi",
+        parameters=[{
+            "topics_glob":   str(topics_glob),
+            "services_glob": str(services_glob),
+            "params_glob":   str(params_glob),
+            "params_timeout": 5.0,
+        }]
     )
 
     return [log_info, rosbridge_node, rosapi_node]
