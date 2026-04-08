@@ -19,6 +19,12 @@
 [submodule "src/ur16e_rest"]
 	path = src/ur16e_rest
 	url = https://github.com/correlllab/ur16e_rest.git
+[submodule "src/h12_ros2_controller"]
+	path = src/h12_ros2_controller
+	url = https://github.com/correlllab/h12_ros2_controller.git
+[submodule "src/h12_ros2_model"]
+	path = src/h12_ros2_model
+	url = https://github.com/correlllab/h12_ros2_model.git
 [submodule "src/ros-mcp-server"]
 	path = src/ros-mcp-server
 	url = git@github.com:robotmcp/ros-mcp-server.git

@@ -25,6 +25,9 @@ Z_HEIGHT = 0.91
 Z_OFFSET_M = 0.03
 WAIT_SECONDS = 4
 FRAME_ID = "floor_link"
+SERVICE_WAIT_SEC = 10.0
+PLAN_TIMEOUT_SEC = 60.0
+EXEC_TIMEOUT_SEC = 60.0
 
 
 def compute_tool_down_quaternion(x, y):
@@ -111,22 +114,49 @@ class SimRemoveSequenceNode(Node):
         req.use_cartesian = bool(use_cartesian)
         req.path_constraints = Constraints()
 
-        if not self._plan_client.wait_for_service(timeout_sec=5.0):
-            raise RuntimeError('plan_to_pose service not available')
+        if not self._plan_client.wait_for_service(timeout_sec=SERVICE_WAIT_SEC):
+            raise RuntimeError(f'plan_to_pose service not available after {SERVICE_WAIT_SEC:.0f}s')
+
+        self.get_logger().info(f'  -> calling plan_to_pose (cartesian={use_cartesian})')
         future = self._plan_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=30.0)
+        start = time.time()
+        last_log = start
+        while rclpy.ok() and not future.done():
+            now = time.time()
+            if now - start > PLAN_TIMEOUT_SEC:
+                raise RuntimeError(f'plan_to_pose timed out after {PLAN_TIMEOUT_SEC:.0f}s')
+            if now - last_log >= 5.0:
+                self.get_logger().warn(f'  -> still waiting for plan_to_pose ({now - start:.0f}s)...')
+                last_log = now
+            time.sleep(0.05)
+
         if not future.done():
-            raise RuntimeError('plan_to_pose timed out')
+            raise RuntimeError('plan_to_pose did not complete (shutdown?)')
+
         result = future.result()
+        self.get_logger().info(f'  -> plan_to_pose result: success={result.success}')
         if not result.success:
             raise RuntimeError(f'plan_to_pose failed: {result.message}')
 
-        if not self._exec_client.wait_for_service(timeout_sec=2.0):
-            raise RuntimeError('execute_plan service not available')
+        if not self._exec_client.wait_for_service(timeout_sec=SERVICE_WAIT_SEC):
+            raise RuntimeError(f'execute_plan service not available after {SERVICE_WAIT_SEC:.0f}s')
+
+        self.get_logger().info('  -> calling execute_plan')
         exec_future = self._exec_client.call_async(ExecutePlan.Request())
-        rclpy.spin_until_future_complete(self, exec_future, timeout_sec=60.0)
+        start = time.time()
+        last_log = start
+        while rclpy.ok() and not exec_future.done():
+            now = time.time()
+            if now - start > EXEC_TIMEOUT_SEC:
+                raise RuntimeError(f'execute_plan timed out after {EXEC_TIMEOUT_SEC:.0f}s')
+            if now - last_log >= 5.0:
+                self.get_logger().warn(f'  -> still waiting for execute_plan ({now - start:.0f}s)...')
+                last_log = now
+            time.sleep(0.05)
+
         if not exec_future.done():
-            raise RuntimeError('execute_plan timed out')
+            raise RuntimeError('execute_plan did not complete (shutdown?)')
+
         exec_result = exec_future.result()
         if not exec_result.success:
             raise RuntimeError(f'execute_plan failed: {exec_result.message}')
@@ -138,9 +168,9 @@ class SimRemoveSequenceNode(Node):
             response.message = 'No parts loaded'
             return response
 
-        if not self._plan_client.wait_for_service(timeout_sec=5.0):
+        if not self._plan_client.wait_for_service(timeout_sec=SERVICE_WAIT_SEC):
             response.success = False
-            response.message = 'plan_to_pose service not available'
+            response.message = f'plan_to_pose service not available (waited {SERVICE_WAIT_SEC:.0f}s)'
             return response
 
         n = len(self._parts)

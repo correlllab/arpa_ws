@@ -1121,15 +1121,18 @@ void PoseWindow::onCreateSequenceClicked()
 
 void PoseWindow::togglePartsInRviz()
 {
+    if (!m_toggle_parts_btn->isEnabled()) return;
     if (!m_toggle_parts_client->wait_for_service(std::chrono::seconds(2))) {
         logStatus("Parts visualizer service not available", true);
         return;
     }
+    m_toggle_parts_btn->setEnabled(false);
     auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
     m_toggle_parts_client->async_send_request(request,
         [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
             auto result = future.get();
             QMetaObject::invokeMethod(this, [this, ok = result->success, msg = result->message]() {
+                m_toggle_parts_btn->setEnabled(true);
                 if (!ok) {
                     logStatus(QString::fromStdString("Parts error: " + msg), true);
                     return;
@@ -1149,15 +1152,18 @@ void PoseWindow::togglePartsInRviz()
 
 void PoseWindow::togglePointCloud()
 {
+    if (!m_toggle_pc_btn->isEnabled()) return;
     if (!m_toggle_pc_client->wait_for_service(std::chrono::seconds(2))) {
         logStatus("Battery point cloud service not available", true);
         return;
     }
+    m_toggle_pc_btn->setEnabled(false);
     auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
     m_toggle_pc_client->async_send_request(request,
         [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
             auto result = future.get();
             QMetaObject::invokeMethod(this, [this, ok = result->success, msg = result->message]() {
+                m_toggle_pc_btn->setEnabled(true);
                 if (!ok) {
                     logStatus(QString::fromStdString("PC error: " + msg), true);
                     return;
