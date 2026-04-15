@@ -13,7 +13,6 @@ from launch_ros.substitutions import FindPackageShare
 
 def launch_setup(context, *args, **kwargs):
     # ARPA Launch Files
-    ur_sim_pkg_share = get_package_share_directory("ur_simulation_gazebo")
     arpa_gui_pkg_share = get_package_share_directory("arpa_gui")
 
     # Initialize Arguments
@@ -141,7 +140,7 @@ def launch_setup(context, *args, **kwargs):
             "initial_positions_file": initial_positions_file,
             "start_joint_controller": start_joint_controller,
             "initial_joint_controller": initial_joint_controller,
-            "gazebo_gui": "true",
+            "gazebo_gui": gazebo_gui,
         }.items(),
     )
 
@@ -387,18 +386,11 @@ def launch_setup(context, *args, **kwargs):
         name="parts_visualizer_node",
         output="screen",
     )
-
+            
     battery_pc_publisher = Node(
         package="arpa_helper_tools",
         executable="battery_pointcloud_publisher.py",
         name="battery_pointcloud_publisher",
-        output="screen",
-    )
-
-    sim_remove_sequence_node = Node(
-        package="arpa_helper_tools",
-        executable="sim_remove_sequence_node.py",
-        name="sim_remove_sequence_node",
         output="screen",
     )
 
@@ -409,6 +401,19 @@ def launch_setup(context, *args, **kwargs):
         condition=IfCondition(launch_arpa_gui),
     )
 
+    test_static_tf_ratchet_attatchemnt = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_attachment",
+        arguments=["-0.0018", "-0.1488", "0.0922", "0", "0", "-3.14159", "wrist_3_link", "test_ratchet_attachment"]
+    )
+    test_static_tf_ratchet_ee = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_tf_ratchet_ee",
+        arguments=["0", "0", "-0.165", "0", "0", "-3.14159", "test_ratchet_attachment", "test_ratchet_extension_link"]
+    )
+
     to_return = [
         arpa_sim_control_launch,
         delayed_moveit_and_motion,
@@ -417,9 +422,11 @@ def launch_setup(context, *args, **kwargs):
         humanoid_spawn_launch,
         parts_visualizer_node,
         battery_pc_publisher,
-        sim_remove_sequence_node,
         arpa_gui_launch,
+        test_static_tf_ratchet_attatchemnt,
+        test_static_tf_ratchet_ee,
     ]
+
     if context.perform_substitution(launch_rviz).lower() == "true":
         to_return.append(rviz_node)
     if _srdf_warn is not None:
@@ -563,7 +570,7 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "gazebo_gui", default_value="true", description="Start gazebo with GUI?"
+            "gazebo_gui", default_value="false", description="Start gazebo with GUI?"
         )
     )
     # Additional xacro arguments
@@ -738,21 +745,21 @@ def generate_launch_description():
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_corridor_constraint",
-            default_value="true",
+            default_value="false",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
             "constrain_corridor_orientation",
-            default_value="true",
+            default_value="false",
             description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
             "use_special_logic",
-            default_value="true",
+            default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
         )
     )

@@ -79,7 +79,7 @@
           <geometry>
             <mesh filename="file://$(find arpa_description)/meshes/battery.stl" scale="1.0 1.0 1.0"/>
           </geometry>
-          <origin xyz="0 0 0" rpy="0 0 0"/>
+          <origin xyz="0.0 0.0 0" rpy="0 0 0"/>
           <material name="gantry_gray"/>
         </visual>
         <collision>
@@ -99,7 +99,7 @@
       <joint name="gantry_to_battery" type="fixed">
         <parent link="gantry_link"/>
         <child link="battery_link"/>
-        <origin xyz="0 0 -1.2119" rpy="0 0 1.5708"/>
+        <origin xyz="0.067 -0.0235 -1.2119" rpy="0 0 1.5418"/>
       </joint>
 
       <xacro:linear_actuator/>

@@ -272,14 +272,17 @@ def launch_setup(context, *args, **kwargs):
         arguments=["linear_actuator_controller", "-c", "/controller_manager"],
     )
 
-    # Gazebo nodes
+    # Gazebo nodes — server always runs; client only when gazebo_gui:=true
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            [FindPackageShare("gazebo_ros"), "/launch", "/gazebo.launch.py"]
+            [FindPackageShare("gazebo_ros"), "/launch", "/gzserver.launch.py"]
         ),
-        launch_arguments={
-            "gui": gazebo_gui,
-        }.items(),
+    )
+    gazebo_client = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [FindPackageShare("gazebo_ros"), "/launch", "/gzclient.launch.py"]
+        ),
+        condition=IfCondition(gazebo_gui),
     )
 
     # Spawn robot
@@ -315,6 +318,7 @@ def launch_setup(context, *args, **kwargs):
     nodes_to_start = [
         robot_state_publisher_node,
         gazebo,
+        gazebo_client,
         gazebo_spawn_robot,
         event_spawners_after_spawn,
         event_after_joint_state,
@@ -610,7 +614,7 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "gazebo_gui", default_value="true", description="Start gazebo with GUI?"
+            "gazebo_gui", default_value="false", description="Start gazebo with GUI?"
         )
     )
     declared_arguments.append(
