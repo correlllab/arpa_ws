@@ -22,6 +22,7 @@
 #include <shape_msgs/msg/mesh.hpp>
 #include <geometric_shapes/shape_operations.h>
 #include <geometric_shapes/mesh_operations.h>
+#include <memory>
 
 static moveit_msgs::msg::AttachedCollisionObject buildAttachedMesh(
     const std::string & mesh_path,
@@ -30,19 +31,24 @@ static moveit_msgs::msg::AttachedCollisionObject buildAttachedMesh(
 {
   moveit_msgs::msg::AttachedCollisionObject aco;
   aco.link_name = link_name;
-  aco.object.id = "picked_object";
+  aco.object.id = "picked_object";  // TODO(plan04): support multiple concurrent object ids
   aco.object.header.frame_id = link_name;
   aco.object.operation = moveit_msgs::msg::CollisionObject::ADD;
 
-  shapes::Mesh * m = shapes::createMeshFromResource("file://" + mesh_path);
-  if (m == nullptr) {
-    return aco;  // caller will see empty meshes vector and skip apply
+  auto m = std::unique_ptr<shapes::Mesh>(shapes::createMeshFromResource("file://" + mesh_path));
+  if (!m) {
+    return aco;  // caller checks meshes.empty()
   }
   shapes::ShapeMsg shape_msg;
-  shapes::constructMsgFromShape(m, shape_msg);
-  aco.object.meshes.push_back(boost::get<shape_msgs::msg::Mesh>(shape_msg));
+  if (!shapes::constructMsgFromShape(m.get(), shape_msg)) {
+    return aco;
+  }
+  const auto * mesh_msg = boost::get<shape_msgs::msg::Mesh>(&shape_msg);
+  if (!mesh_msg) {
+    return aco;  // wrong variant alternative — defensive, should not happen for Mesh*
+  }
+  aco.object.meshes.push_back(*mesh_msg);
   aco.object.mesh_poses.push_back(mesh_pose);
-  delete m;
   return aco;
 }
 
@@ -538,14 +544,24 @@ void MotionControlNode::planToPoseCallback(
   if (!request->mesh_to_attach.empty()) {
     const std::string link = request->attach_link.empty() ? std::string("tool0") : request->attach_link;
     auto aco = buildAttachedMesh(request->mesh_to_attach, request->mesh_to_attach_pose, link);
-    if (!aco.object.meshes.empty()) {
-      m_planning_scene_interface->applyAttachedCollisionObject(aco);
-      RCLCPP_INFO(get_logger(), "[planToPoseCallback] Attached mesh '%s' to link '%s'",
-                  request->mesh_to_attach.c_str(), link.c_str());
-    } else {
-      RCLCPP_WARN(get_logger(), "[planToPoseCallback] Failed to load mesh '%s'; skipping attach",
-                  request->mesh_to_attach.c_str());
+    if (aco.object.meshes.empty()) {
+      RCLCPP_ERROR(get_logger(),
+                   "[planToPoseCallback] Failed to load mesh '%s' (createMeshFromResource or constructMsgFromShape failed); aborting plan",
+                   request->mesh_to_attach.c_str());
+      response->success = false;
+      response->message = "Failed to load mesh for attached collision object.";
+      return;
     }
+    if (!m_planning_scene_interface->applyAttachedCollisionObject(aco)) {
+      RCLCPP_ERROR(get_logger(),
+                   "[planToPoseCallback] applyAttachedCollisionObject failed for '%s'; aborting plan",
+                   request->mesh_to_attach.c_str());
+      response->success = false;
+      response->message = "Failed to apply attached collision object to planning scene.";
+      return;
+    }
+    RCLCPP_INFO(get_logger(), "[planToPoseCallback] Attached mesh '%s' to link '%s'",
+                request->mesh_to_attach.c_str(), link.c_str());
   }
 
   // Transform pose to the MoveIt planning frame (use current time for lookup to avoid sim/wall clock mismatch)
