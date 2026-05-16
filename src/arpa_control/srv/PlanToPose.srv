@@ -1,6 +1,15 @@
+# Target pose for end-effector
 geometry_msgs/PoseStamped target_pose
+
+# TODO(plan-server-wiring): motion_control_node.cpp currently ignores
+# use_cartesian and path_constraints. bt_executor sets these expecting
+# the server to honor them. A future task must add computeCartesianPath()
+# branch in planToPoseCallback when use_cartesian=true and feed
+# path_constraints into setPathConstraints().
 bool use_cartesian
-string path_constraints
+moveit_msgs/Constraints path_constraints
+
+# Attached collision object (Plan 01 Task 10) — empty mesh_to_attach skips.
 string mesh_to_attach
 geometry_msgs/Pose mesh_to_attach_pose
 string attach_link
