@@ -390,19 +390,38 @@ class VisionNode(Node):
         # DetectionBundle
         if self.last_rgb_msg is not None and self.last_depth_msg is not None and self.last_info_msg is not None and self.last_camera_pose is not None and self.latest_candidates is not None:
             bundle = DetectionBundle()
+            bundle.header = self.last_rgb_msg.header
             bundle.rgb_image = self.last_rgb_msg
             bundle.depth_image = self.last_depth_msg
             bundle.camera_info = self.last_info_msg
             bundle.camera_pose = self.last_camera_pose
 
+            # Build per-label lookup of (cloud_msg, centroid) from persistent detections.
+            cloud_by_label = {}
+            for label, dets in detections.items():
+                for det in dets:
+                    bbox = det['bbox']
+                    centroid = bbox.get_center().numpy()
+                    cloud_msg = self._o3d_pcd_to_ros(det['pcd'], frame_id=BASE_FRAME, stamp=self.last_rgb_msg.header.stamp)
+                    cloud_by_label.setdefault(label, []).append((cloud_msg, centroid))
+
             for label, pred in self.latest_candidates.items():
-                for box, prob in zip(pred['boxes'], pred['probs']):
+                clouds_for_label = cloud_by_label.get(label, [])
+                for idx, (box, prob) in enumerate(zip(pred['boxes'], pred['probs'])):
                     x1, y1, x2, y2 = map(int, box)
                     d = Detection()
                     d.cls = label
                     d.bbox_min = Point(x=float(x1), y=float(y1), z=0.0)
                     d.bbox_max = Point(x=float(x2), y=float(y2), z=0.0)
                     d.prob = float(prob)
+                    if idx < len(clouds_for_label):
+                        cloud_msg, centroid = clouds_for_label[idx]
+                        d.object_cloud = cloud_msg
+                        d.centroid_world = Point(
+                            x=float(centroid[0]),
+                            y=float(centroid[1]),
+                            z=float(centroid[2]),
+                        )
                     bundle.detections.append(d)
             self.detection_pub.publish(bundle)
 
@@ -603,6 +622,26 @@ class VisionNode(Node):
                 cv2.putText(out, f'{label} {prob:.2f}', (x1, max(y1 - 6, 12)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         return out
+
+    def _o3d_pcd_to_ros(self, pcd, frame_id, stamp):
+        """Convert open3d.t.geometry.PointCloud (xyz) to sensor_msgs/PointCloud2."""
+        pts = pcd.point['positions'].numpy().astype(np.float32)
+        cloud = PointCloud2()
+        cloud.header.frame_id = frame_id
+        cloud.header.stamp = stamp
+        cloud.height = 1
+        cloud.width = int(pts.shape[0])
+        cloud.is_dense = True
+        cloud.is_bigendian = False
+        cloud.point_step = 12
+        cloud.row_step = cloud.point_step * cloud.width
+        cloud.fields = [
+            PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+            PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+            PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+        ]
+        cloud.data = pts.tobytes()
+        return cloud
 
 
 def main(args=None):
