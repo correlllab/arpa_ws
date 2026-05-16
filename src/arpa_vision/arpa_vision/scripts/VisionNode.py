@@ -383,6 +383,9 @@ class VisionNode(Node):
             self.annotated_pub.publish(self.last_annotated)
 
         with self.lock:
+            # Shallow snapshot of outer dict. Safe because all mutators of self.detections
+            # (process_queue, _update_detections, _clear_detections_cb, _load_detections_cb)
+            # take self.lock before assigning/replacing entries; we only read inner dicts.
             detections = dict(self.detections)
         if not detections:
             return
@@ -396,6 +399,9 @@ class VisionNode(Node):
             bundle.camera_info = self.last_info_msg
             bundle.camera_pose = self.last_camera_pose
 
+            # TODO(perf): cache `cloud_msg` on the `det` dict and invalidate only when
+            # `_update_detections` mutates det['pcd']. Currently re-serialized every
+            # publish cycle (~6 Hz × N tracked detections × 12 bytes/point).
             # Build per-label lookup of (cloud_msg, centroid) from persistent detections.
             cloud_by_label = {}
             for label, dets in detections.items():
@@ -407,6 +413,10 @@ class VisionNode(Node):
 
             for label, pred in self.latest_candidates.items():
                 clouds_for_label = cloud_by_label.get(label, [])
+                # Positional alignment: cloud N from tracker pairs with YOLO bbox N.
+                # Imperfect (tracker merges duplicates) — missing pairs leave object_cloud
+                # and centroid_world at their zero defaults. Plan 03 will replace with
+                # nearest-bbox matching by projecting tracker centroid into image space.
                 for idx, (box, prob) in enumerate(zip(pred['boxes'], pred['probs'])):
                     x1, y1, x2, y2 = map(int, box)
                     d = Detection()
