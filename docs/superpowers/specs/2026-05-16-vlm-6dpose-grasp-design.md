@@ -117,8 +117,8 @@ arpa_grasp_planning/models/
 ### 7.1 `DetectionBundle.msg`
 ```
 std_msgs/Header header
-sensor_msgs/CompressedImage rgb
-sensor_msgs/CompressedImage depth
+sensor_msgs/CompressedImage rgb_image
+sensor_msgs/CompressedImage depth_image
 sensor_msgs/CameraInfo camera_info
 geometry_msgs/PoseStamped camera_pose
 Detection[] detections
@@ -126,12 +126,14 @@ Detection[] detections
 
 ### 7.2 `Detection.msg`
 ```
-string label
-float32 confidence
-uint16[4] bbox_xyxy
-sensor_msgs/PointCloud2 object_cloud
-geometry_msgs/Point centroid_world
+string cls                                  # YOLO class label
+float32 prob                                # confidence in [0, 1]
+geometry_msgs/Point bbox_min                # pixel-space top-left (z=0)
+geometry_msgs/Point bbox_max                # pixel-space bottom-right (z=0)
+geometry_msgs/Point centroid_world          # populated by VisionNode publish loop
+sensor_msgs/PointCloud2 object_cloud        # in 'world' frame, segmented
 ```
+Field names follow the pre-existing `arpa_vision/VisionNode.py` publisher (`cls`/`prob`/`bbox_min`/`bbox_max`) to avoid breaking the working detection path. `centroid_world` and `object_cloud` are added by Plan 01 Task 8.
 
 ### 7.3 `ObjectPose.msg`
 ```
