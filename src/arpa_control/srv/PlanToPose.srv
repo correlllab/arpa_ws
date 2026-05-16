@@ -1,4 +1,9 @@
 geometry_msgs/PoseStamped target_pose
+bool use_cartesian
+string path_constraints
+string mesh_to_attach
+geometry_msgs/Pose mesh_to_attach_pose
+string attach_link
 ---
 bool success
 string message
