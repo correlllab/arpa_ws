@@ -8,6 +8,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
+find_package(geometric_shapes REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(shape_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -46,6 +47,7 @@ ament_target_dependencies(motion_control_node
   rosidl_default_runtime
   tf2_ros
   visualization_msgs
+  geometric_shapes
 )
 target_link_libraries(motion_control_node
   ${PROJECT_NAME}__rosidl_typesupport_cpp

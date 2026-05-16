@@ -18,6 +18,33 @@
 #include <numeric>
 #include <random>
 #include <moveit/robot_state/conversions.h>
+#include <moveit_msgs/msg/attached_collision_object.hpp>
+#include <shape_msgs/msg/mesh.hpp>
+#include <geometric_shapes/shape_operations.h>
+#include <geometric_shapes/mesh_operations.h>
+
+static moveit_msgs::msg::AttachedCollisionObject buildAttachedMesh(
+    const std::string & mesh_path,
+    const geometry_msgs::msg::Pose & mesh_pose,
+    const std::string & link_name)
+{
+  moveit_msgs::msg::AttachedCollisionObject aco;
+  aco.link_name = link_name;
+  aco.object.id = "picked_object";
+  aco.object.header.frame_id = link_name;
+  aco.object.operation = moveit_msgs::msg::CollisionObject::ADD;
+
+  shapes::Mesh * m = shapes::createMeshFromResource("file://" + mesh_path);
+  if (m == nullptr) {
+    return aco;  // caller will see empty meshes vector and skip apply
+  }
+  shapes::ShapeMsg shape_msg;
+  shapes::constructMsgFromShape(m, shape_msg);
+  aco.object.meshes.push_back(boost::get<shape_msgs::msg::Mesh>(shape_msg));
+  aco.object.mesh_poses.push_back(mesh_pose);
+  delete m;
+  return aco;
+}
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -505,6 +532,19 @@ void MotionControlNode::planToPoseCallback(
       response->success = false;
       response->message = "Depth update failed.";
       return;
+    }
+  }
+
+  if (!request->mesh_to_attach.empty()) {
+    const std::string link = request->attach_link.empty() ? std::string("tool0") : request->attach_link;
+    auto aco = buildAttachedMesh(request->mesh_to_attach, request->mesh_to_attach_pose, link);
+    if (!aco.object.meshes.empty()) {
+      m_planning_scene_interface->applyAttachedCollisionObject(aco);
+      RCLCPP_INFO(get_logger(), "[planToPoseCallback] Attached mesh '%s' to link '%s'",
+                  request->mesh_to_attach.c_str(), link.c_str());
+    } else {
+      RCLCPP_WARN(get_logger(), "[planToPoseCallback] Failed to load mesh '%s'; skipping attach",
+                  request->mesh_to_attach.c_str());
     }
   }
 
