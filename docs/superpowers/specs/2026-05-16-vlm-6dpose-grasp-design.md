@@ -277,9 +277,11 @@ Mitigation if OOM: run `pose_estimator_node` in separate process so YOLO can be 
 - `test_mesh_decomposition.py`: CoACD on busbar mesh → ≤16 hulls, total volume within 5%.
 - `test_msg_roundtrip.py`: serialize/deserialize all new msgs.
 
-### 15.2 Integration (Gazebo)
+### 15.2 Integration (Isaac Sim)
+- Target simulator: NVIDIA Isaac Sim (replaces earlier Gazebo plan; user has Isaac Sim configured on the deployment laptop).
 - Spawn busbar at known ground-truth pose; run full pipeline; assert pose error <5 mm / 5° at 30 cm range.
 - Pick-success rate over 50 randomized busbar poses ≥ 90 %.
+- Plan 01 (foundation msgs/srvs) does **not** require any sim — runtime verification of `VisionNode` publish and `motion_control_node` mesh-attach behaviour is deferred to the laptop where camera + MoveIt + Isaac Sim are running.
 
 ### 15.3 Hardware bring-up
 - ArUco fiducial at known location for FoundationPose ground-truth.
