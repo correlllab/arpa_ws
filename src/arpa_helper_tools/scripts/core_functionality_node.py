@@ -37,7 +37,8 @@ from std_msgs.msg import String
 BASE_FRAME = "floor_link"
 EE_FRAME = "tool0"
 
-Z_OFFSET_M = 0.03
+Z_HEIGHT = 0.85
+Z_OFFSET_M = 0.075
 REMOVE_WAIT_SECONDS = 4
 MOTOR_SPEED = 100
 
@@ -66,6 +67,7 @@ class CoreNode(Node):
         self.go_home_client = self.create_client(GoHome, 'go_home', callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
         self.capture_client = self.create_client(Trigger, 'record_images/capture')
+        self.is_sim = self.get_parameter_or('use_sim_time', False).value
         self.save_imgs = False
         self.already_removing = False
         self.already_removing_part_name = ""
@@ -132,10 +134,10 @@ class CoreNode(Node):
         self.get_logger().info("Looking up wrist_3_link -> tool frame transform...")
         self.T_wrist3_to_toolhead = None
         self.T_wrist3_to_camera_optical = None
-        while self.T_wrist3_to_toolhead is None or self.T_wrist3_to_camera_optical is None:
+        while self.T_wrist3_to_toolhead is None:
             try:
                 tf = self.tf_buffer.lookup_transform(
-                    'test_ratchet_extension_link', 'wrist_3_link',
+                    'tool_head_link', 'wrist_3_link',
                     rclpy.time.Time(),
                     timeout=rclpy.duration.Duration(seconds=1.0)
                 )
@@ -149,27 +151,43 @@ class CoreNode(Node):
                 self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
 
 
-                tf = self.tf_buffer.lookup_transform(
-                    'ee_cam_color_optical_frame', 'wrist_3_link',
-                    rclpy.time.Time(),
-                    timeout=rclpy.duration.Duration(seconds=1.0)
-                )
-                t = tf.transform.translation
-                r = tf.transform.rotation
-                rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
-                mat = np.eye(4)
-                mat[:3, :3] = rot
-                mat[:3,  3] = [t.x, t.y, t.z]
-                self.T_wrist3_to_camera_optical = mat
-                self.get_logger().info(f"wrist_3_link -> camera_optical_frame:\n{mat}")
+                # tf = self.tf_buffer.lookup_transform(
+                #     'ee_cam_color_optical_frame', 'wrist_3_link',
+                #     rclpy.time.Time(),
+                #     timeout=rclpy.duration.Duration(seconds=1.0)
+                # )
+                # t = tf.transform.translation
+                # r = tf.transform.rotation
+                # rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
+                # mat = np.eye(4)
+                # mat[:3, :3] = rot
+                # mat[:3,  3] = [t.x, t.y, t.z]
+                # self.T_wrist3_to_camera_optical = mat
+                # self.get_logger().info(f"wrist_3_link -> camera_optical_frame:\n{mat}")
 
 
             except (LookupException, ConnectivityException, ExtrapolationException) as e:
                 self.get_logger().warn(f"TF not ready yet: {e}. Retrying...")
                 time.sleep(0.5)
         self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
-        self.T_camera_optical_to_wrist3 = np.linalg.inv(self.T_wrist3_to_camera_optical)
+        # self.T_camera_optical_to_wrist3 = np.linalg.inv(self.T_wrist3_to_camera_optical)
 
+        # Set target_pixel from the static camera→toolhead TF directly
+        # toolhead origin expressed in camera optical frame
+        # T_toolhead_in_cam = self.T_wrist3_to_camera_optical @ self.T_toolhead_to_wrist3
+        # tx, ty, tz = T_toolhead_in_cam[:3, 3]
+        # ifx, ify = self.latest_camera_info.k[0], self.latest_camera_info.k[4]
+        # icx, icy = self.latest_camera_info.k[2], self.latest_camera_info.k[5]
+        # TARGET_PIXEL_OFFSET = np.array([-30.0, -25.0])  # [left, up] in pixels
+        # self.target_pixel = np.array([ifx * tx / tz + icx,
+        #                             ify * ty / tz + icy]) + TARGET_PIXEL_OFFSET
+        
+        # Wait for camera info to get intrinsics (published regardless of pipeline state)
+        # self.get_logger().info("Waiting for camera info...")
+        # while self.latest_camera_info is None:
+        #     time.sleep(0.1)
+        # self.get_logger().info("Camera info received.")
+            
         #visualization variables
         self.obj_bbox_point = None
         self.target_pixel = None
@@ -177,21 +195,7 @@ class CoreNode(Node):
         self.PIXEL_TOLERANCE = 128.0  # pixels
         self.PIXEL_CONVERGENCE = 8.0
 
-        # Wait for camera info to get intrinsics (published regardless of pipeline state)
-        self.get_logger().info("Waiting for camera info...")
-        while self.latest_camera_info is None:
-            time.sleep(0.1)
-        self.get_logger().info("Camera info received.")
 
-        # Set target_pixel from the static camera→toolhead TF directly
-        # toolhead origin expressed in camera optical frame
-        T_toolhead_in_cam = self.T_wrist3_to_camera_optical @ self.T_toolhead_to_wrist3
-        tx, ty, tz = T_toolhead_in_cam[:3, 3]
-        ifx, ify = self.latest_camera_info.k[0], self.latest_camera_info.k[4]
-        icx, icy = self.latest_camera_info.k[2], self.latest_camera_info.k[5]
-        TARGET_PIXEL_OFFSET = np.array([-30.0, -25.0])  # [left, up] in pixels
-        self.target_pixel = np.array([ifx * tx / tz + icx,
-                                      ify * ty / tz + icy]) + TARGET_PIXEL_OFFSET
                 
         self.get_logger().info(f"target_pixel set to toolhead projection: {self.target_pixel}")
 
@@ -212,6 +216,37 @@ class CoreNode(Node):
             time.sleep(1)
         self.get_logger().error(f"Behavior '{behavior}' failed after {retries} attempts.")
         return False
+    
+    def make_pose_stamped(self, frame_id, x, y, z, qx, qy, qz, qw):
+        ps = PoseStamped()
+        ps.header.frame_id = frame_id
+        ps.header.stamp.sec = 0
+        ps.header.stamp.nanosec = 0
+        ps.pose.position.x = x
+        ps.pose.position.y = y
+        ps.pose.position.z = z
+        ps.pose.orientation.x = qx
+        ps.pose.orientation.y = qy
+        ps.pose.orientation.z = qz
+        ps.pose.orientation.w = qw
+        return ps
+    
+
+    def _plan_and_execute(self, pose_stamped, use_cartesian=False):
+        req = PlanToPose.Request()
+        req.target_pose = pose_stamped
+        req.use_cartesian = bool(use_cartesian)
+
+        result = self.plan_toolhead_to_pose(req.target_pose.pose.position.x, req.target_pose.pose.position.y, req.target_pose.pose.position.z, req.target_pose.pose.orientation.x, req.target_pose.pose.orientation.y, req.target_pose.pose.orientation.z, req.target_pose.pose.orientation.w)
+
+        self.get_logger().info(f'  -> plan_to_pose result: success={result}')
+        if not result:
+            raise RuntimeError(f'plan_to_pose failed')
+
+        exec_result = self.execute_plan()
+        if not exec_result:
+            raise RuntimeError(f'execute_plan failed')
+
 
     def _remove_part_cb(self, request: RemovePart.Request, response: RemovePart.Response):
         if self.already_removing:
@@ -219,103 +254,153 @@ class CoreNode(Node):
             response.success = False
             response.message = "Currently in progress removing part = " + self.already_removing_part_name
             return response
-
+        
         self.already_removing = True
-        self.already_removing_part_name = request.part_name
-        # Signal new trial to VLA data collection node
-        self.behavior_publisher.publish(String(
-            data=f"Remove: {request.part_name} with confidence = {request.detection_confidence}"
-        ))
-        pose = request.target_pose
-        x  = pose.pose.position.x
-        y  = pose.pose.position.y
-        z  = 0.91
-        if pose.pose.orientation.w == 1.0:
-            z_hat = np.array([0.0, 0.0, -1.0])
-            toward_origin = np.array([-x, -y, 0.0])
-            norm = np.linalg.norm(toward_origin)
-            y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
-            x_hat = np.cross(y_hat, z_hat)
-            R = np.column_stack([x_hat, y_hat, z_hat])
-            qx, qy, qz, qw = Rotation.from_matrix(R).as_quat()
-        else:
-            qx = pose.pose.orientation.x
-            qy = pose.pose.orientation.y
-            qz = pose.pose.orientation.z
-            qw = pose.pose.orientation.w
-        frame_id = pose.header.frame_id or BASE_FRAME
-
-        plan_successful = False
-        tries = 0
-        while not plan_successful and tries < 3:
-            tries += 1
-            success = self.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw, frame_id=frame_id)
-            if success:
-                plan_successful = True
-                self.get_logger().info("Planning succeeded!")
+        if not self.is_sim:
+            self.get_logger().info(f"Received request to remove part '{request.part_name}' with confidence {request.detection_confidence:.2f}. Proceeding with real robot execution.")
+            self.already_removing_part_name = request.part_name
+            # Signal new trial to VLA data collection node
+            self.behavior_publisher.publish(String(
+                data=f"Remove: {request.part_name} with confidence = {request.detection_confidence}"
+            ))
+            pose = request.target_pose
+            x  = pose.pose.position.x
+            y  = pose.pose.position.y
+            z  = 0.91
+            if pose.pose.orientation.w == 1.0:
+                z_hat = np.array([0.0, 0.0, -1.0])
+                toward_origin = np.array([-x, -y, 0.0])
+                norm = np.linalg.norm(toward_origin)
+                y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
+                x_hat = np.cross(y_hat, z_hat)
+                R = np.column_stack([x_hat, y_hat, z_hat])
+                qx, qy, qz, qw = Rotation.from_matrix(R).as_quat()
             else:
-                self.get_logger().warn("Planning failed, retrying...")
+                qx = pose.pose.orientation.x
+                qy = pose.pose.orientation.y
+                qz = pose.pose.orientation.z
+                qw = pose.pose.orientation.w
+            frame_id = pose.header.frame_id or BASE_FRAME
 
-        if not plan_successful:
-            response.success = False
-            response.message = "Planning failed after 3 attempts"
+            plan_successful = False
+            tries = 0
+            while not plan_successful and tries < 3:
+                tries += 1
+                success = self.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw, frame_id=frame_id)
+                if success:
+                    plan_successful = True
+                    self.get_logger().info("Planning succeeded!")
+                else:
+                    self.get_logger().warn("Planning failed, retrying...")
+
+            if not plan_successful:
+                response.success = False
+                response.message = "Planning failed after 3 attempts"
+                self.already_removing = False
+                return response
+
+            self.execute_plan()
+            time.sleep(0.5)
+
+            # Image 1: before second sight (pre-servo position)
+            self.behavior_publisher.publish(String(data="capture_images:pre_servo"))
+            time.sleep(0.5)
+
+            if request.visual_servo:
+                self.behavior_publisher.publish(String(data="start_servo_loop"))
+                time.sleep(0.25)
+                screw_pose = PoseStamped()
+                screw_pose.header = pose.header
+                screw_pose.pose.position.x = pose.pose.position.x
+                screw_pose.pose.position.y = pose.pose.position.y
+                screw_pose.pose.position.z = pose.pose.position.z
+                screw_pose.pose.orientation = pose.pose.orientation
+                alignment_result = self.align_to_screw_img(initial_screw_pose=screw_pose)
+                if alignment_result:
+                    self.behavior_publisher.publish(String(data="abort_servo_loop"))
+                else:
+                    self.behavior_publisher.publish(String(data="stop_servo_loop"))
+                time.sleep(0.25)
+                self.get_logger().info(f"Second sight done final result={alignment_result}. Proceeding with removal (screw may be occluded by EE when aligned).")
+
+            # Image 2: after second sight (post-servo aligned position, or same as image 1 if no servo)
+            self.behavior_publisher.publish(String(data="capture_images:post_servo"))
+            time.sleep(0.5)
+
+            # Start recording torque/robot state during removal
+            self.behavior_publisher.publish(String(data="start_recording"))
+            time.sleep(0.25)
+
+            self.motor_control(100)
+            self.trigger_with_retry("ZForce")
+            self.trigger_with_retry("play")
+            time.sleep(2)
+
+            # Image 3: before retract (engaged position)
+            self.behavior_publisher.publish(String(data="capture_images:pre_retract"))
+            time.sleep(0.5)
+
+            self.trigger_with_retry("retract")
+            self.trigger_with_retry("play")
+            time.sleep(2)
+
+            self.motor_control(0)
+            self.trigger_with_retry("ros2control")
+
+            # Stop recording — saves torque, robot state, and metadata row
+            self.behavior_publisher.publish(String(data="stop_recording"))
+            self.behavior_publisher.publish(String(data=f"Removed: {request.part_name}"))
+
+            response.success = True
+            response.message = "Remove Part complete"
             self.already_removing = False
-            return response
+        else:
+            self.get_logger().info(f"Received request to remove part '{request.part_name}' with confidence {request.detection_confidence:.2f}, but currently in simulation mode. Skipping real robot execution and returning success.")
+            response.success = True
+            response.message = "Simulated remove part complete (no real robot action taken)"
+            hover_z = Z_HEIGHT + Z_OFFSET_M
+            at_z = Z_HEIGHT + .02
+            try:
+                pose = request.target_pose
+                x  = pose.pose.position.x
+                y  = pose.pose.position.y
+                z  = hover_z
+                # if pose.pose.orientation.w == 1.0:
+                z_hat = np.array([0.0, 0.0, -1.0])
+                toward_origin = np.array([-x, -y, 0.0])
+                norm = np.linalg.norm(toward_origin)
+                y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
+                x_hat = np.cross(y_hat, z_hat)
+                R = np.column_stack([x_hat, y_hat, z_hat])
+                qx, qy, qz, qw = Rotation.from_matrix(R).as_quat()
+                # else:
+                #     qx, qy, qz, qw = self.compute_tool_down_quaternion(x, y)
+                #     pose.pose.orientation.x = qx
+                #     pose.pose.orientation.y = qy
+                #     pose.pose.orientation.z = qz
+                #     pose.pose.orientation.w = qw
+                pose.pose.orientation.x = qx
+                pose.pose.orientation.y = qy
+                pose.pose.orientation.z = qz
+                pose.pose.orientation.w = qw
+                frame_id = pose.header.frame_id or BASE_FRAME
+                pose.pose.position.z = hover_z
 
-        self.execute_plan()
-        time.sleep(0.5)
+                self._plan_and_execute(pose, use_cartesian=False)
 
-        # Image 1: before second sight (pre-servo position)
-        self.behavior_publisher.publish(String(data="capture_images:pre_servo"))
-        time.sleep(0.5)
 
-        if request.visual_servo:
-            self.behavior_publisher.publish(String(data="start_servo_loop"))
-            time.sleep(0.25)
-            screw_pose = PoseStamped()
-            screw_pose.header = pose.header
-            screw_pose.pose.position.x = pose.pose.position.x
-            screw_pose.pose.position.y = pose.pose.position.y
-            screw_pose.pose.position.z = pose.pose.position.z
-            screw_pose.pose.orientation = pose.pose.orientation
-            alignment_result = self.align_to_screw_img(initial_screw_pose=screw_pose)
-            if alignment_result:
-                self.behavior_publisher.publish(String(data="abort_servo_loop"))
-            else:
-                self.behavior_publisher.publish(String(data="stop_servo_loop"))
-            time.sleep(0.25)
-            self.get_logger().info(f"Second sight done final result={alignment_result}. Proceeding with removal (screw may be occluded by EE when aligned).")
 
-        # Image 2: after second sight (post-servo aligned position, or same as image 1 if no servo)
-        self.behavior_publisher.publish(String(data="capture_images:post_servo"))
-        time.sleep(0.5)
+                hover_pose = self.make_pose_stamped(frame_id, x, y, hover_z, qx, qy, qz, qw)
+                at_pose = self.make_pose_stamped(frame_id, x, y, at_z, qx, qy, qz, qw)
 
-        # Start recording torque/robot state during removal
-        self.behavior_publisher.publish(String(data="start_recording"))
-        time.sleep(0.25)
+                self._plan_and_execute(at_pose, use_cartesian=False)
 
-        self.motor_control(100)
-        self.trigger_with_retry("ZForce")
-        self.trigger_with_retry("play")
-        time.sleep(2)
+                self._plan_and_execute(hover_pose, use_cartesian=False)
 
-        # Image 3: before retract (engaged position)
-        self.behavior_publisher.publish(String(data="capture_images:pre_retract"))
-        time.sleep(0.5)
-
-        self.trigger_with_retry("retract")
-        self.trigger_with_retry("play")
-        time.sleep(2)
-
-        self.motor_control(0)
-        self.trigger_with_retry("ros2control")
-
-        # Stop recording — saves torque, robot state, and metadata row
-        self.behavior_publisher.publish(String(data="stop_recording"))
-        self.behavior_publisher.publish(String(data=f"Removed: {request.part_name}"))
-
-        response.success = True
-        response.message = "Remove Part complete"
+            except RuntimeError as e:
+                self.get_logger().warn(
+                    f'FAILED TO REMOVE PART'
+                )
         self.already_removing = False
         return response
 
@@ -1011,7 +1096,7 @@ def main(args=None):
     node = CoreNode()
     node.visualize_detections()
 
-    node.add_collision_plane()
+    # node.add_collision_plane()
 
     try:
         while True:
