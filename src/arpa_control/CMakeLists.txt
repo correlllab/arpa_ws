@@ -7,6 +7,7 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(moveit_core REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(shape_msgs REQUIRED)
@@ -14,7 +15,10 @@ find_package(geometry_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(rosidl_default_runtime REQUIRED)
 
@@ -37,6 +41,7 @@ include_directories(
 add_executable(motion_control_node src/motion_control_node.cpp)
 ament_target_dependencies(motion_control_node
   rclcpp
+  moveit_core
   moveit_ros_planning_interface
   moveit_msgs
   shape_msgs
@@ -45,11 +50,15 @@ ament_target_dependencies(motion_control_node
   std_srvs
   rosidl_default_runtime
   tf2_ros
+  tf2_geometry_msgs
   visualization_msgs
+  octomap_msgs
 )
 target_link_libraries(motion_control_node
   ${PROJECT_NAME}__rosidl_typesupport_cpp
+  ${OCTOMAP_LIBRARIES}
 )
+target_include_directories(motion_control_node PRIVATE ${OCTOMAP_INCLUDE_DIRS})
 add_dependencies(motion_control_node 
   ${PROJECT_NAME}__rosidl_generator_cpp
   ${PROJECT_NAME}__rosidl_typesupport_cpp
