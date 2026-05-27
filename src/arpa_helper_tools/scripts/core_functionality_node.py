@@ -37,8 +37,6 @@ from std_msgs.msg import String
 BASE_FRAME = "floor_link"
 EE_FRAME = "tool0"
 
-Z_HEIGHT = 0.85
-Z_OFFSET_M = 0.075
 REMOVE_WAIT_SECONDS = 4
 MOTOR_SPEED = 100
 
@@ -67,7 +65,21 @@ class CoreNode(Node):
         self.go_home_client = self.create_client(GoHome, 'go_home', callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
         self.capture_client = self.create_client(Trigger, 'record_images/capture')
-        self.is_sim = self.get_parameter_or('use_sim_time', False).value
+
+        # Declared parameters. Defaults work on the real robot; sim launches can
+        # override (e.g. set use_collision_plane:=false if the battery plane
+        # interferes with sim planning).
+        self.declare_parameter('toolhead_frame', 'test_ratchet_extension_link')
+        self.declare_parameter('camera_optical_frame', 'ee_cam_color_optical_frame')
+        self.declare_parameter('use_collision_plane', True)
+        self.declare_parameter('hover_offset_m', 0.06)
+        self.declare_parameter('engage_offset_m', 0.02)
+        self.toolhead_frame = self.get_parameter('toolhead_frame').value
+        self.camera_optical_frame = self.get_parameter('camera_optical_frame').value
+        self.use_collision_plane = self.get_parameter('use_collision_plane').value
+        self.hover_offset_m = self.get_parameter('hover_offset_m').value
+        self.engage_offset_m = self.get_parameter('engage_offset_m').value
+
         self.save_imgs = False
         self.already_removing = False
         self.already_removing_part_name = ""
@@ -131,13 +143,13 @@ class CoreNode(Node):
         self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
         self._spin_thread.start()
 
-        self.get_logger().info("Looking up wrist_3_link -> tool frame transform...")
+        self.get_logger().info(f"Looking up wrist_3_link -> {self.toolhead_frame} transform...")
         self.T_wrist3_to_toolhead = None
         self.T_wrist3_to_camera_optical = None
         while self.T_wrist3_to_toolhead is None:
             try:
                 tf = self.tf_buffer.lookup_transform(
-                    'tool_head_link', 'wrist_3_link',
+                    self.toolhead_frame, 'wrist_3_link',
                     rclpy.time.Time(),
                     timeout=rclpy.duration.Duration(seconds=1.0)
                 )
@@ -148,56 +160,77 @@ class CoreNode(Node):
                 mat[:3, :3] = rot
                 mat[:3,  3] = [t.x, t.y, t.z]
                 self.T_wrist3_to_toolhead = mat
-                self.get_logger().info(f"wrist_3_link -> tool_head_link:\n{mat}")
-
-
-                # tf = self.tf_buffer.lookup_transform(
-                #     'ee_cam_color_optical_frame', 'wrist_3_link',
-                #     rclpy.time.Time(),
-                #     timeout=rclpy.duration.Duration(seconds=1.0)
-                # )
-                # t = tf.transform.translation
-                # r = tf.transform.rotation
-                # rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
-                # mat = np.eye(4)
-                # mat[:3, :3] = rot
-                # mat[:3,  3] = [t.x, t.y, t.z]
-                # self.T_wrist3_to_camera_optical = mat
-                # self.get_logger().info(f"wrist_3_link -> camera_optical_frame:\n{mat}")
-
-
+                self.get_logger().info(f"wrist_3_link -> {self.toolhead_frame}:\n{mat}")
             except (LookupException, ConnectivityException, ExtrapolationException) as e:
                 self.get_logger().warn(f"TF not ready yet: {e}. Retrying...")
                 time.sleep(0.5)
         self.T_toolhead_to_wrist3 = np.linalg.inv(self.T_wrist3_to_toolhead)
-        # self.T_camera_optical_to_wrist3 = np.linalg.inv(self.T_wrist3_to_camera_optical)
 
-        # Set target_pixel from the static camera→toolhead TF directly
-        # toolhead origin expressed in camera optical frame
-        # T_toolhead_in_cam = self.T_wrist3_to_camera_optical @ self.T_toolhead_to_wrist3
-        # tx, ty, tz = T_toolhead_in_cam[:3, 3]
-        # ifx, ify = self.latest_camera_info.k[0], self.latest_camera_info.k[4]
-        # icx, icy = self.latest_camera_info.k[2], self.latest_camera_info.k[5]
-        # TARGET_PIXEL_OFFSET = np.array([-30.0, -25.0])  # [left, up] in pixels
-        # self.target_pixel = np.array([ifx * tx / tz + icx,
-        #                             ify * ty / tz + icy]) + TARGET_PIXEL_OFFSET
-        
-        # Wait for camera info to get intrinsics (published regardless of pipeline state)
-        # self.get_logger().info("Waiting for camera info...")
-        # while self.latest_camera_info is None:
-        #     time.sleep(0.1)
-        # self.get_logger().info("Camera info received.")
-            
-        #visualization variables
+        # Camera optical frame is optional: present on the real robot (EE RealSense)
+        # but absent in sim. Try briefly, then continue without it on miss.
+        self.get_logger().info(
+            f"Looking up wrist_3_link -> {self.camera_optical_frame} transform (optional)..."
+        )
+        camera_lookup_deadline = time.time() + 5.0
+        while self.T_wrist3_to_camera_optical is None and time.time() < camera_lookup_deadline:
+            try:
+                tf = self.tf_buffer.lookup_transform(
+                    self.camera_optical_frame, 'wrist_3_link',
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=1.0)
+                )
+                t = tf.transform.translation
+                r = tf.transform.rotation
+                rot = Rotation.from_quat([r.x, r.y, r.z, r.w]).as_matrix()
+                mat = np.eye(4)
+                mat[:3, :3] = rot
+                mat[:3,  3] = [t.x, t.y, t.z]
+                self.T_wrist3_to_camera_optical = mat
+                self.get_logger().info(f"wrist_3_link -> {self.camera_optical_frame}:\n{mat}")
+            except (LookupException, ConnectivityException, ExtrapolationException):
+                time.sleep(0.5)
+
+        if self.T_wrist3_to_camera_optical is not None:
+            self.T_camera_optical_to_wrist3 = np.linalg.inv(self.T_wrist3_to_camera_optical)
+        else:
+            self.T_camera_optical_to_wrist3 = None
+            self.get_logger().warn(
+                f"Camera frame '{self.camera_optical_frame}' unavailable — "
+                f"visual servo will be skipped."
+            )
+
+        # Visualization / servo state
         self.obj_bbox_point = None
         self.target_pixel = None
         self.ref_pixel = None
         self.PIXEL_TOLERANCE = 128.0  # pixels
         self.PIXEL_CONVERGENCE = 8.0
 
-
-                
-        self.get_logger().info(f"target_pixel set to toolhead projection: {self.target_pixel}")
+        # target_pixel is the projection of the toolhead origin into the camera image,
+        # used as the alignment goal for IBVS. Only computable when both camera TF
+        # and intrinsics are available.
+        if self.T_wrist3_to_camera_optical is not None:
+            self.get_logger().info("Waiting briefly for camera info...")
+            camera_info_deadline = time.time() + 5.0
+            while self.latest_camera_info is None and time.time() < camera_info_deadline:
+                time.sleep(0.1)
+            if self.latest_camera_info is not None:
+                T_toolhead_in_cam = self.T_wrist3_to_camera_optical @ self.T_toolhead_to_wrist3
+                tx, ty, tz = T_toolhead_in_cam[:3, 3]
+                ifx, ify = self.latest_camera_info.k[0], self.latest_camera_info.k[4]
+                icx, icy = self.latest_camera_info.k[2], self.latest_camera_info.k[5]
+                TARGET_PIXEL_OFFSET = np.array([-30.0, -25.0])  # [left, up] in pixels
+                self.target_pixel = np.array([ifx * tx / tz + icx,
+                                              ify * ty / tz + icy]) + TARGET_PIXEL_OFFSET
+                self.get_logger().info(
+                    f"target_pixel set to toolhead projection: {self.target_pixel}"
+                )
+            else:
+                self.get_logger().warn(
+                    "Camera info not received within timeout — target_pixel left as None."
+                )
+        else:
+            self.get_logger().info("Camera frame unavailable — target_pixel left as None.")
 
     def _detection_bundle_cb(self, msg: DetectionBundle):
         self.latest_detection_bundle = msg
@@ -209,6 +242,13 @@ class CoreNode(Node):
     #     self._servo_status = msg.data
 
     def trigger_with_retry(self, behavior, retries=3):
+        # Early bail when no rest controller is in the system (sim) — avoids
+        # 3× (timeout + sleep) wasted log spam per behavior call.
+        if not getattr(self, "_behavior_available", False):
+            self.get_logger().debug(
+                f"Behavior '{behavior}' skipped (no BehaviorTrigger service)"
+            )
+            return False
         for attempt in range(1, retries + 1):
             if self.trigger_behavior(behavior):
                 return True
@@ -232,41 +272,54 @@ class CoreNode(Node):
         return ps
     
 
-    def _plan_and_execute(self, pose_stamped, use_cartesian=False):
-        req = PlanToPose.Request()
-        req.target_pose = pose_stamped
-        req.use_cartesian = bool(use_cartesian)
-
-        result = self.plan_toolhead_to_pose(req.target_pose.pose.position.x, req.target_pose.pose.position.y, req.target_pose.pose.position.z, req.target_pose.pose.orientation.x, req.target_pose.pose.orientation.y, req.target_pose.pose.orientation.z, req.target_pose.pose.orientation.w)
-
-        self.get_logger().info(f'  -> plan_to_pose result: success={result}')
-        if not result:
-            raise RuntimeError(f'plan_to_pose failed')
-
-        exec_result = self.execute_plan()
-        if not exec_result:
-            raise RuntimeError(f'execute_plan failed')
+    def _plan_and_execute(self, pose_stamped, retries=3):
+        """Plan toolhead to pose_stamped (with up to `retries` planning attempts),
+        then execute the plan. Returns True on full success, False otherwise."""
+        p = pose_stamped.pose.position
+        q = pose_stamped.pose.orientation
+        frame_id = pose_stamped.header.frame_id or BASE_FRAME
+        for attempt in range(1, retries + 1):
+            if self.plan_toolhead_to_pose(p.x, p.y, p.z, q.x, q.y, q.z, q.w, frame_id=frame_id):
+                return self.execute_plan()
+            self.get_logger().warn(
+                f"Planning to ({p.x:.3f}, {p.y:.3f}, {p.z:.3f}) failed (attempt {attempt}/{retries})"
+            )
+        return False
 
 
     def _remove_part_cb(self, request: RemovePart.Request, response: RemovePart.Response):
         if self.already_removing:
-            self.get_logger().warn(f"System is already removing part {self.already_removing_part_name}. Not processing new request.")
+            self.get_logger().warn(
+                f"System is already removing part {self.already_removing_part_name}. "
+                f"Not processing new request."
+            )
             response.success = False
             response.message = "Currently in progress removing part = " + self.already_removing_part_name
             return response
-        
+
         self.already_removing = True
-        if not self.is_sim:
-            self.get_logger().info(f"Received request to remove part '{request.part_name}' with confidence {request.detection_confidence:.2f}. Proceeding with real robot execution.")
-            self.already_removing_part_name = request.part_name
-            # Signal new trial to VLA data collection node
-            self.behavior_publisher.publish(String(
-                data=f"Remove: {request.part_name} with confidence = {request.detection_confidence}"
-            ))
+        self.already_removing_part_name = request.part_name
+        self.get_logger().info(
+            f"Received request to remove part '{request.part_name}' "
+            f"with confidence {request.detection_confidence:.2f}."
+        )
+        # Signal new trial (no-op when no /triggered_behavior subscribers)
+        self.behavior_publisher.publish(String(
+            data=f"Remove: {request.part_name} with confidence = {request.detection_confidence}"
+        ))
+
+        try:
             pose = request.target_pose
-            x  = pose.pose.position.x
-            y  = pose.pose.position.y
-            z  = 0.91
+            x = pose.pose.position.x
+            y = pose.pose.position.y
+            screw_z = pose.pose.position.z
+            hover_z = screw_z + self.hover_offset_m
+            at_z = screw_z + self.engage_offset_m
+            frame_id = pose.header.frame_id or BASE_FRAME
+
+            # Orientation: if the caller left it at identity (w=1.0), synthesize a
+            # tool-down quaternion pointing toward the gantry origin; otherwise
+            # honor the caller's orientation.
             if pose.pose.orientation.w == 1.0:
                 z_hat = np.array([0.0, 0.0, -1.0])
                 toward_origin = np.array([-x, -y, 0.0])
@@ -280,128 +333,103 @@ class CoreNode(Node):
                 qy = pose.pose.orientation.y
                 qz = pose.pose.orientation.z
                 qw = pose.pose.orientation.w
-            frame_id = pose.header.frame_id or BASE_FRAME
 
-            plan_successful = False
-            tries = 0
-            while not plan_successful and tries < 3:
-                tries += 1
-                success = self.plan_toolhead_to_pose(x, y, z, qx, qy, qz, qw, frame_id=frame_id)
-                if success:
-                    plan_successful = True
-                    self.get_logger().info("Planning succeeded!")
-                else:
-                    self.get_logger().warn("Planning failed, retrying...")
+            hover_pose = self.make_pose_stamped(frame_id, x, y, hover_z, qx, qy, qz, qw)
+            engage_pose = self.make_pose_stamped(frame_id, x, y, at_z, qx, qy, qz, qw)
 
-            if not plan_successful:
+            # ── Stage 1: plan + execute to hover above the screw ──
+            if not self._plan_and_execute(hover_pose, retries=3):
                 response.success = False
-                response.message = "Planning failed after 3 attempts"
-                self.already_removing = False
+                response.message = "Planning to hover failed after 3 attempts"
                 return response
-
-            self.execute_plan()
             time.sleep(0.5)
 
-            # Image 1: before second sight (pre-servo position)
+            # ── Stage 2: pre-servo image capture (no-op without subscriber) ──
             self.behavior_publisher.publish(String(data="capture_images:pre_servo"))
             time.sleep(0.5)
 
-            if request.visual_servo:
+            # ── Stage 3: optional visual servo (needs EE camera + intrinsics) ──
+            servo_capable = (
+                request.visual_servo
+                and self.T_wrist3_to_camera_optical is not None
+                and self.target_pixel is not None
+            )
+            if servo_capable:
                 self.behavior_publisher.publish(String(data="start_servo_loop"))
                 time.sleep(0.25)
-                screw_pose = PoseStamped()
+                screw_pose = self.make_pose_stamped(frame_id, x, y, screw_z, qx, qy, qz, qw)
                 screw_pose.header = pose.header
-                screw_pose.pose.position.x = pose.pose.position.x
-                screw_pose.pose.position.y = pose.pose.position.y
-                screw_pose.pose.position.z = pose.pose.position.z
-                screw_pose.pose.orientation = pose.pose.orientation
                 alignment_result = self.align_to_screw_img(initial_screw_pose=screw_pose)
                 if alignment_result:
                     self.behavior_publisher.publish(String(data="abort_servo_loop"))
                 else:
                     self.behavior_publisher.publish(String(data="stop_servo_loop"))
                 time.sleep(0.25)
-                self.get_logger().info(f"Second sight done final result={alignment_result}. Proceeding with removal (screw may be occluded by EE when aligned).")
+                self.get_logger().info(
+                    f"Visual servo done, alignment_result={alignment_result}. "
+                    f"Proceeding with removal (screw may be occluded when aligned)."
+                )
+            elif request.visual_servo:
+                self.get_logger().warn(
+                    "Visual servo requested but EE camera unavailable — skipping."
+                )
 
-            # Image 2: after second sight (post-servo aligned position, or same as image 1 if no servo)
+            # ── Stage 4: post-servo image capture ──
             self.behavior_publisher.publish(String(data="capture_images:post_servo"))
             time.sleep(0.5)
 
-            # Start recording torque/robot state during removal
+            # ── Stage 5: start recording torque / robot state ──
             self.behavior_publisher.publish(String(data="start_recording"))
             time.sleep(0.25)
 
-            self.motor_control(100)
-            self.trigger_with_retry("ZForce")
-            self.trigger_with_retry("play")
-            time.sleep(2)
+            # ── Stage 6: engage. On real, the rest tool descends under force
+            # control via ZForce/play; without rest behaviors (sim), we descend
+            # cartesianly to at_z so motion is still observable.
+            self.motor_control(MOTOR_SPEED)  # no-op if motor service unavailable
+            if self._behavior_available:
+                self.trigger_with_retry("ZForce")
+                self.trigger_with_retry("play")
+                time.sleep(REMOVE_WAIT_SECONDS)
+            else:
+                self.get_logger().info("No rest behaviors — cartesian descent to engage")
+                if not self._plan_and_execute(engage_pose, retries=3):
+                    self.get_logger().warn("Engage descent failed; continuing to retract")
+                time.sleep(REMOVE_WAIT_SECONDS)
 
-            # Image 3: before retract (engaged position)
+            # ── Stage 7: pre-retract image capture ──
             self.behavior_publisher.publish(String(data="capture_images:pre_retract"))
             time.sleep(0.5)
 
-            self.trigger_with_retry("retract")
-            self.trigger_with_retry("play")
-            time.sleep(2)
+            # ── Stage 8: retract. On real: retract/play via rest tool. Sim:
+            # cartesian retreat back to hover.
+            if self._behavior_available:
+                self.trigger_with_retry("retract")
+                self.trigger_with_retry("play")
+                time.sleep(REMOVE_WAIT_SECONDS)
+            else:
+                self.get_logger().info("No rest behaviors — cartesian retreat to hover")
+                if not self._plan_and_execute(hover_pose, retries=3):
+                    self.get_logger().warn("Retreat to hover failed")
 
-            self.motor_control(0)
-            self.trigger_with_retry("ros2control")
+            self.motor_control(0)  # no-op if motor service unavailable
+            if self._behavior_available:
+                self.trigger_with_retry("ros2control")
 
-            # Stop recording — saves torque, robot state, and metadata row
+            # ── Stage 9: stop recording, announce completion ──
             self.behavior_publisher.publish(String(data="stop_recording"))
             self.behavior_publisher.publish(String(data=f"Removed: {request.part_name}"))
 
             response.success = True
             response.message = "Remove Part complete"
+
+        except Exception as e:
+            self.get_logger().error(f"FAILED TO REMOVE PART: {e}")
+            response.success = False
+            response.message = f"Remove part failed: {e}"
+        finally:
             self.already_removing = False
-        else:
-            self.get_logger().info(f"Received request to remove part '{request.part_name}' with confidence {request.detection_confidence:.2f}, but currently in simulation mode. Skipping real robot execution and returning success.")
-            response.success = True
-            response.message = "Simulated remove part complete (no real robot action taken)"
-            hover_z = Z_HEIGHT + Z_OFFSET_M
-            at_z = Z_HEIGHT + .02
-            try:
-                pose = request.target_pose
-                x  = pose.pose.position.x
-                y  = pose.pose.position.y
-                z  = hover_z
-                # if pose.pose.orientation.w == 1.0:
-                z_hat = np.array([0.0, 0.0, -1.0])
-                toward_origin = np.array([-x, -y, 0.0])
-                norm = np.linalg.norm(toward_origin)
-                y_hat = toward_origin / norm if norm > 1e-6 else np.array([1.0, 0.0, 0.0])
-                x_hat = np.cross(y_hat, z_hat)
-                R = np.column_stack([x_hat, y_hat, z_hat])
-                qx, qy, qz, qw = Rotation.from_matrix(R).as_quat()
-                # else:
-                #     qx, qy, qz, qw = self.compute_tool_down_quaternion(x, y)
-                #     pose.pose.orientation.x = qx
-                #     pose.pose.orientation.y = qy
-                #     pose.pose.orientation.z = qz
-                #     pose.pose.orientation.w = qw
-                pose.pose.orientation.x = qx
-                pose.pose.orientation.y = qy
-                pose.pose.orientation.z = qz
-                pose.pose.orientation.w = qw
-                frame_id = pose.header.frame_id or BASE_FRAME
-                pose.pose.position.z = hover_z
+            self.already_removing_part_name = ""
 
-                self._plan_and_execute(pose, use_cartesian=False)
-
-
-
-                hover_pose = self.make_pose_stamped(frame_id, x, y, hover_z, qx, qy, qz, qw)
-                at_pose = self.make_pose_stamped(frame_id, x, y, at_z, qx, qy, qz, qw)
-
-                self._plan_and_execute(at_pose, use_cartesian=False)
-
-                self._plan_and_execute(hover_pose, use_cartesian=False)
-
-            except RuntimeError as e:
-                self.get_logger().warn(
-                    f'FAILED TO REMOVE PART'
-                )
-        self.already_removing = False
         return response
 
     # def _start_servo(self) -> bool:
@@ -1096,7 +1124,8 @@ def main(args=None):
     node = CoreNode()
     node.visualize_detections()
 
-    # node.add_collision_plane()
+    if node.use_collision_plane:
+        node.add_collision_plane()
 
     try:
         while True:
