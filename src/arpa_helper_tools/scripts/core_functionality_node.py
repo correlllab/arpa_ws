@@ -5,18 +5,24 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
-from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart, GoHome
+from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart
 from std_srvs.srv import Trigger
 from std_msgs.msg import Int8
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
 from custom_ros_messages.msg import DetectionBundle
 from sensor_msgs.msg import CameraInfo
 from moveit_msgs.action import ExecuteTrajectory
-from custom_ros_messages.action import ScanBattery
+try:
+    from custom_ros_messages.action import ScanBattery
+except ImportError:
+    ScanBattery = None
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from shape_msgs.msg import SolidPrimitive
 from scipy.spatial.transform import Rotation
-import open3d as o3d
+try:
+    import open3d as o3d
+except ImportError:
+    o3d = None
 
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
@@ -61,8 +67,7 @@ class CoreNode(Node):
         self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
         self.create_service(RemovePart, 'remove_part', self._remove_part_cb, callback_group=self._reentrant_cb_group)
         self.remove_part_client = self.create_client(RemovePart, 'remove_part', callback_group=self._reentrant_cb_group)
-        self.create_service(GoHome, '/go_home', self._go_home_cb, callback_group=self._reentrant_cb_group)
-        self.go_home_client = self.create_client(GoHome, 'go_home', callback_group=self._reentrant_cb_group)
+        self.create_service(Trigger, '/go_home', self._go_home_cb, callback_group=self._reentrant_cb_group)
         self.behavior_publisher = self.create_publisher(String, '/triggered_behavior', 10)
         self.capture_client = self.create_client(Trigger, 'record_images/capture')
 
@@ -702,8 +707,9 @@ class CoreNode(Node):
         self.get_logger().error(f"go home {plan_success=}, {exec_success=}")
         return plan_success and exec_success
 
-    def _go_home_cb(self, request: GoHome.Request, response: GoHome.Response):
-        success = self.go_home(request.frame_kwrd)
+    def _go_home_cb(self, request: Trigger.Request, response: Trigger.Response):
+        self.get_logger().warn("/go_home Trigger uses default frame 'wrist_3_link'")
+        success = self.go_home("wrist_3_link")
         response.success = success
         response.message = "Go home complete" if success else "Go home failed"
         return response
@@ -1145,13 +1151,8 @@ def main(args=None):
                     "3": "ee_cam_color_optical_frame",
                 }
                 frame_kwrd = frame_map.get(frame_choice, "wrist_3_link")
-                req = GoHome.Request()
-                req.frame_kwrd = frame_kwrd
-                future = node.go_home_client.call_async(req)
-                while not future.done():
-                    time.sleep(0.05)
-                result = future.result()
-                print(f"GoHome result: {result.success} — {result.message}")
+                success = node.go_home(frame_kwrd)
+                print(f"GoHome result: {success}")
 
             elif choice == "2":
                 plane_id = input("Plane ID [battery_do_not_cross]: ").strip() or "battery_do_not_cross"
@@ -1228,6 +1229,9 @@ def main(args=None):
             elif choice == "10":
                 save_imgs = input("Save images? (y/n) [y]: ").strip().lower()
                 save_images = save_imgs != "n"
+                if ScanBattery is None:
+                    print("ScanBattery action interface is unavailable in this workspace build.")
+                    continue
                 scan_client = ActionClient(node, ScanBattery, 'scan_battery')
                 if not scan_client.wait_for_server(timeout_sec=5.0):
                     print("scan_battery action server not available")
