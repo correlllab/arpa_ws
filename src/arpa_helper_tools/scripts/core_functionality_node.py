@@ -516,6 +516,12 @@ class CoreNode(Node):
 
     def plan_camera_to_pose(self, x, y, z, qx, qy, qz, qw, frame_id="world"):
         # Convert camera pose to wrist_3_link pose using the known transform
+        if self.T_wrist3_to_camera_optical is None:
+            self.get_logger().error(
+                f"Cannot plan camera-to-pose: camera transform unavailable "
+                f"(frame '{self.camera_optical_frame}' not found — e.g. simulation without a camera)."
+            )
+            return False
         target_camera = np.eye(4)
         target_camera[:3, :3] = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()
         target_camera[:3, 3] = [x, y, z]
