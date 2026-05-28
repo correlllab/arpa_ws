@@ -8,7 +8,7 @@ from geometry_msgs.msg import PoseStamped
 from std_srvs.srv import Trigger
 from core_functionality_node import CoreNode
 import time
-
+from custom_ros_messages.srv import RemovePart
 
 def main(args=None):
     #create everything we need
@@ -16,15 +16,8 @@ def main(args=None):
     node = CoreNode()
     node.visualize_detections()
     node.add_collision_plane("battery_do_not_cross", "floor_link", 0.118, -0.056, 0.9, 2.182, 1.574)
-    behavior_publisher = node.create_publisher(String, '/triggered_behavior', 10)
-    capture_client = node.create_client(Trigger, 'record_images/capture')
 
-    REMOVAL_BEHAVIOR = "ZForce"#SpiralForce" #"SpiralForce" or ZForce 
-    SECOND_LOOK = True
-    SAVE_IMAGES = False
-    
-    
-    
+    SECOND_LOOK = False
     
     # Get detections from vision node
     client = node.create_client(Trigger, '/arpa_vision_node/get_detections_json')
@@ -83,6 +76,7 @@ def main(args=None):
     try:
         for label, pose in zip(ordered_labels, ordered_poses):
             node.get_logger().info(f"\n\nProcessing {label} at position=({pose.pose.position.x:.3f}, {pose.pose.position.y:.3f}, {pose.pose.position.z:.3f})")
+
             x = pose.pose.position.x
             y = pose.pose.position.y
             z = pose.pose.position.z
@@ -90,62 +84,24 @@ def main(args=None):
             qy = pose.pose.orientation.y
             qz = pose.pose.orientation.z
             qw = pose.pose.orientation.w
-            plan_successful = False
-            tries = 0
-            behavior_publisher.publish(String(data=f"planning_to_{label}"))
-            while not plan_successful and tries < 3:
-                tries += 1
-                success = node.plan_toolhead_to_pose(x, y, 0.91, qx, qy, qz, qw)
-                if success:
-                    plan_successful = True
-                    node.get_logger().info("Planning succeeded!")
-                else:
-                    node.get_logger().warn(f"Planning failed, retrying... (attempt {tries}/3)")
-            if not plan_successful:
-                node.get_logger().error("Failed to plan after 3 attempts, skipping this target.")
-                continue       
-            
-            behavior_publisher.publish(String(data="executing_plan"))
-            node.execute_plan()
-            time.sleep(1)
-
-            if SECOND_LOOK:
-                behavior_publisher.publish(String(data="second sight"))
-                screw_pose = PoseStamped()
-                screw_pose.header = pose.header
-                screw_pose.pose.position.x = pose.pose.position.x
-                screw_pose.pose.position.y = pose.pose.position.y
-                screw_pose.pose.position.z = pose.pose.position.z
-                screw_pose.pose.orientation = pose.pose.orientation
-                alignment_result = node.align_to_screw_img(initial_screw_pose=screw_pose)
-                node.get_logger().info(f"Second sight done final result={alignment_result}. Proceeding with removal (screw may be occluded by EE when aligned).")
-
-            if capture_client.service_is_ready() and SAVE_IMAGES:
-                future = capture_client.call_async(Trigger.Request())
-                rclpy.spin_until_future_complete(node, future, timeout_sec=2.0)
-                if future.done():
-                    node.get_logger().info(f"  Captured img: {future.result().message}")
-                else:
-                    node.get_logger().warn(f"  Capture timed out at orientation")
-            else:
-                node.get_logger().warn(f"  Capture service not available at orientation or SAVE_IMAGES is false {SAVE_IMAGES=}, skipping")
 
 
-            behavior_publisher.publish(String(data="removal"))
-            node.motor_control(100)
-            trigger_with_retry(node, REMOVAL_BEHAVIOR)
-            trigger_with_retry(node, "play")
-            time.sleep(2)
+            req = RemovePart.Request()
+            req.visual_servo = SECOND_LOOK
+            req.target_pose.header.frame_id = "floor_link"
+            req.target_pose.pose.position.x = x
+            req.target_pose.pose.position.y = y
+            req.target_pose.pose.position.z = z
+            req.target_pose.pose.orientation.x = qx
+            req.target_pose.pose.orientation.y = qy
+            req.target_pose.pose.orientation.z = qz
+            req.target_pose.pose.orientation.w = qw
+            future = node.unscrew_client.call_async(req)
+            while not future.done():
+                time.sleep(0.05)
+            result = future.result()
+            print(f"Unscrew result: {result.success} — {result.message}")
 
-            behavior_publisher.publish(String(data="retracting")) 
-            trigger_with_retry(node, "retract")
-            trigger_with_retry(node, "play")
-            time.sleep(2)
-            behavior_publisher.publish(String(data="retracted finishes"))
-
-
-            node.motor_control(0)
-            trigger_with_retry(node, "ros2control")
     except KeyboardInterrupt:
         node.get_logger().info("Interrupted by user.")
     finally:

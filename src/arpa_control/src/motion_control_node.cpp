@@ -227,7 +227,7 @@ double MotionControlNode::getConfigurationCost(
   double proximity_penalty = 1 / actuator_wrist_distance;
   double area_penalty = 1 / triangle_area; // Penalize small triangle area (near-collinear)
   //TODO use ros params to test different cost structures
-  double total_cost = (2 * weighted_joint_distance) + (0.1 * proximity_penalty) + (0.5 * area_penalty);
+  double total_cost = (2 * weighted_joint_distance) + (0.1 * proximity_penalty) + (10 * area_penalty);
 
   // RCLCPP_INFO(get_logger(), "Cost breakdown - Joint: %.4f, Proximity: %.4f (dist=%.3fm), Area: %.4f, Total: %.4f",
   //             joint_cost, proximity_penalty, actuator_wrist_distance, area_penalty, total_cost);
