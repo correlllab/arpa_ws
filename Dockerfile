@@ -28,11 +28,6 @@ RUN apt update && apt install -y \
     ros-humble-moveit-simple-controller-manager \
     ros-humble-moveit-planners-ompl \
     ros-humble-moveit-servo \
-    ros-humble-gazebo-ros \
-    ros-humble-gazebo-ros-pkgs \
-    ros-humble-gazebo-dev \
-    ros-humble-gazebo-plugins \
-    ros-humble-gazebo-msgs \
     ros-humble-ros2-control \
     ros-humble-controller-manager \
     ros-humble-control-toolbox \
@@ -41,10 +36,21 @@ RUN apt update && apt install -y \
     ros-humble-joint-trajectory-controller \
     ros-humble-ur-msgs \
     ros-humble-ur-client-library \
-    gazebo \
-    libgazebo-dev \
+    ros-humble-realsense2-camera \
+    python3-opencv \
+    libopencv-dev \
     python3-colcon-common-extensions \
-    git build-essential cmake
+    git build-essential cmake && \
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+      apt install -y \
+        ros-humble-gazebo-ros \
+        ros-humble-gazebo-ros-pkgs \
+        ros-humble-gazebo-dev \
+        ros-humble-gazebo-plugins \
+        ros-humble-gazebo-msgs \
+        gazebo \
+        libgazebo-dev; \
+    fi
 
 # -------------------------------
 # 2. Install BehaviorTree.CPP v4
@@ -82,10 +88,16 @@ RUN apt update && apt install -y python3-rosdep python3-pip
 RUN rosdep init || true
 RUN rosdep update
 RUN cd /root/ros2_ws && \
-    rosdep install --from-paths src --ignore-src -r -y --rosdistro humble
+    if [ "$(dpkg --print-architecture)" = "amd64" ]; then \
+      rosdep install --from-paths src --ignore-src -r -y --rosdistro humble; \
+    else \
+      rosdep install --from-paths src --ignore-src -r -y --rosdistro humble \
+        --skip-keys "gazebo_ros2_control gazebo_ros"; \
+    fi
 
 # Python deps for arpa_helper_tools (scan_battery TSP)
-RUN python3 -m pip install --no-cache-dir ortools
+RUN python3 -m pip install --no-cache-dir ortools requests open3d torch ultralytics openai-clip && \
+    python3 -m pip install --no-cache-dir "numpy<2"
 
 # -------------------------------
 # Build workspace
