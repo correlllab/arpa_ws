@@ -96,7 +96,7 @@ RUN cd /root/ros2_ws && \
     fi
 
 # Python deps for arpa_helper_tools (scan_battery TSP)
-RUN python3 -m pip install --no-cache-dir ortools requests open3d torch ultralytics openai-clip && \
+RUN python3 -m pip install --no-cache-dir ortools requests open3d torch ultralytics openai-clip pyserial && \
     python3 -m pip install --no-cache-dir "numpy<2"
 
 # -------------------------------
