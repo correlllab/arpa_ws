@@ -7,7 +7,8 @@ import numpy as np
 from arpa_control.srv import PlanToPose, ExecutePlan, GetPoseCostMatrix
 from custom_ros_messages.srv import EthernetMotor, UR16BehaviorTrigger, RemovePart
 from std_srvs.srv import Trigger
-from std_msgs.msg import Int8
+from std_msgs.msg import Int8, ColorRGBA
+from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Pose, PoseStamped, TwistStamped
 from custom_ros_messages.msg import DetectionBundle
 from sensor_msgs.msg import CameraInfo
@@ -31,7 +32,7 @@ import threading
 import time
 from cv_bridge import CvBridge
 import cv2
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 from rclpy.callback_groups import ReentrantCallbackGroup
 import tf2_ros
 from tf2_ros import LookupException, ConnectivityException, ExtrapolationException
@@ -64,7 +65,11 @@ class CoreNode(Node):
         self.execute_trajectory_client = ActionClient(self, ExecuteTrajectory, '/execute_trajectory', callback_group=self._reentrant_cb_group)
         self.update_depth_client = self.create_client(Trigger, 'update_depth', callback_group=self._reentrant_cb_group)
         self.pose_cost_matrix_client = self.create_client(GetPoseCostMatrix, 'get_pose_cost_matrix', callback_group=self._reentrant_cb_group)
-        self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', 10)
+        # LATCHED (transient_local) so the collision objects persist for a move_group that
+        # subscribes after we publish. depth=10 retains the recent diffs (battery + floor).
+        _scene_qos = QoSProfile(depth=10, history=HistoryPolicy.KEEP_LAST,
+                                durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.planning_scene_pub = self.create_publisher(PlanningScene, '/planning_scene', _scene_qos)
         self.create_service(RemovePart, 'remove_part', self._remove_part_cb, callback_group=self._reentrant_cb_group)
         self.remove_part_client = self.create_client(RemovePart, 'remove_part', callback_group=self._reentrant_cb_group)
         self.create_service(Trigger, '/go_home', self._go_home_cb, callback_group=self._reentrant_cb_group)
@@ -643,14 +648,19 @@ class CoreNode(Node):
         return result.success
 
     def add_collision_plane(self, plane_id = None, frame_id = None, x=None, y=None, z=None, size_x=None, size_y=None, thickness=None):
+        # SOLID battery box (was a 4 cm cap slab). Spans z in [0.73, 0.89]: covers the
+        # battery body (~0.73-0.86) plus the original cap level (0.89), so paths can no
+        # longer pass THROUGH the battery (the .stl mesh collision is unreliable; this
+        # primitive box is not). Top is unchanged at z=0.89; the arm operates above that,
+        # so the parked/start config (kept above 0.89) does not start in collision.
         plane_id = "battery_do_not_cross" if plane_id is None else plane_id
         frame_id = "floor_link" if frame_id is None else frame_id
         x = 0.118 if x is None else x
         y = -0.056 if y is None else y
-        z = 0.87 if z is None else z
+        z = 0.81 if z is None else z          # center; with thickness 0.16 -> z in [0.73, 0.89]
         size_x = 2.182 if size_x is None else size_x
         size_y = 1.574 if size_y is None else size_y
-        thickness = 0.04 if thickness is None else thickness
+        thickness = 0.16 if thickness is None else thickness
 
         collision_object = CollisionObject()
         collision_object.header.frame_id = frame_id
@@ -691,6 +701,139 @@ class CoreNode(Node):
 
         self.planning_scene_pub.publish(planning_scene)
         self.get_logger().info(f"Removed collision plane '{plane_id}'")
+
+    def add_floor_plane(self, plane_id="floor", frame_id="floor_link"):
+        # Large thin floor box whose TOP sits at z=-0.03 -- just BELOW the gantry feet
+        # (left/right_leg bottoms ~ z=-0.017) so it never collides with a robot link, but
+        # stops the arm/tool from planning below ground.
+        collision_object = CollisionObject()
+        collision_object.header.frame_id = frame_id
+        collision_object.header.stamp = self.get_clock().now().to_msg()
+        collision_object.id = plane_id
+        collision_object.operation = CollisionObject.ADD
+
+        box = SolidPrimitive()
+        box.type = SolidPrimitive.BOX
+        box.dimensions = [10.0, 10.0, 0.1]      # 10x10 m, 10 cm thick
+
+        box_pose = Pose()
+        box_pose.position.x = 0.0
+        box_pose.position.y = 0.0
+        box_pose.position.z = -0.08             # center; top = -0.03 (below the feet)
+        box_pose.orientation.w = 1.0
+
+        collision_object.primitives.append(box)
+        collision_object.primitive_poses.append(box_pose)
+
+        planning_scene = PlanningScene()
+        planning_scene.is_diff = True
+        planning_scene.world.collision_objects.append(collision_object)
+
+        self.planning_scene_pub.publish(planning_scene)
+        self.get_logger().info(f"Added floor plane '{plane_id}' (top z=-0.03)")
+
+    def run_battery_scan(self, save_images=True):
+        """On-demand battery scan (ported from scan_battery_action_server.py so it runs
+        IN-PROCESS via the menu, with no action interface/server and no auto-launch).
+        Visits a grid of camera-down poses over the battery, plan+execute each, optionally
+        capturing an image at each reached pose. Ctrl-C aborts back to the menu. Returns a
+        summary dict {total, completed, skipped}."""
+        # --- scan grid config (mirrors scan_battery_action_server.py) ---
+        LOWER_LEFT, UPPER_RIGHT = [1.0, -0.75], [-0.90, 0.65]
+        Z_HEIGHT, N_X, N_Y = 1.25, 8, 8
+        QX, QY, QZ, QW = 0.7071068, 0.7071068, 0.0, 0.0
+        FRAME_ID = "floor_link"
+        xs = [LOWER_LEFT[0] + i * (UPPER_RIGHT[0] - LOWER_LEFT[0]) / (N_X - 1) for i in range(N_X)]
+        ys = [LOWER_LEFT[1] + i * (UPPER_RIGHT[1] - LOWER_LEFT[1]) / (N_Y - 1) for i in range(N_Y)]
+
+        def _ps(x, y, q):
+            ps = PoseStamped()
+            ps.header.frame_id = FRAME_ID
+            ps.pose.position.x, ps.pose.position.y, ps.pose.position.z = float(x), float(y), Z_HEIGHT
+            ps.pose.orientation.x, ps.pose.orientation.y, ps.pose.orientation.z, ps.pose.orientation.w = q
+            return ps
+
+        pose_list = [_ps(x, y, (QX, QY, QZ, QW)) for x in xs for y in ys]
+        pose_arr = self.get_tsp_order(pose_list)
+
+        # edge poses along the leftmost X column (camera-down, mirrors the script)
+        for y in ys:
+            z_hat = np.array([0.0, 0.0, -1.0]); y_hat = np.array([-1.0, 0.0, 0.0])
+            rot = np.column_stack([np.cross(y_hat, z_hat), y_hat, z_hat])
+            q = Rotation.from_matrix(rot).as_quat()
+            pose_arr.append(_ps(xs[0] - 0.05, y, (float(q[0]), float(q[1]), float(q[2]), float(q[3]))))
+
+        total = len(pose_arr)
+
+        # --- progress markers in RViz ---
+        marker_pub = self.create_publisher(MarkerArray, '/scan_poses_markers', 10)
+        ma = MarkerArray()
+        for i, pose in enumerate(pose_arr):
+            m = Marker()
+            m.header.frame_id = pose.header.frame_id
+            m.header.stamp = self.get_clock().now().to_msg()
+            m.ns, m.id, m.type, m.action = "scan_poses", i, Marker.ARROW, Marker.ADD
+            m.pose = pose.pose
+            m.scale.x, m.scale.y, m.scale.z = 0.15, 0.02, 0.02
+            m.color = ColorRGBA(r=0.2, g=0.4, b=1.0, a=0.8)
+            ma.markers.append(m)
+
+        def _color(idx, r, g, b, a=1.0):
+            ma.markers[idx].color = ColorRGBA(r=r, g=g, b=b, a=a)
+
+        # --- optional pre-scan clears (missing services are tolerated) ---
+        for srv_name in ('arpa_vision_node/clear_detections', 'pointcloud_accumulator/clear_arm_pointcloud'):
+            client = self.create_client(Trigger, srv_name)
+            if client.wait_for_service(timeout_sec=3.0):
+                fut = client.call_async(Trigger.Request())
+                deadline = time.time() + 3.0
+                while not fut.done() and time.time() < deadline:
+                    time.sleep(0.05)
+                self.get_logger().info(f"Cleared: {srv_name}")
+            else:
+                self.get_logger().warn(f"Service not available: {srv_name}")
+        capture_client = self.create_client(Trigger, 'record_images/capture')
+
+        self.trigger_behavior("ros2control")
+        time.sleep(1.0)
+        marker_pub.publish(ma)
+        if self.use_collision_plane:
+            self.add_collision_plane()
+            self.add_floor_plane()
+        marker_pub.publish(ma)
+
+        self.get_logger().info(f"Battery scan: {total} poses to visit (save_images={save_images})")
+        completed, skipped = 0, 0
+        try:
+            for i, pose in enumerate(pose_arr):
+                _color(i, 1.0, 1.0, 0.0); marker_pub.publish(ma)
+                p = pose.pose.position
+                self.get_logger().info(f"\n--- [{i+1}/{total}] x={p.x:.3f}, y={p.y:.3f}, z={p.z:.3f}")
+                ok = self.plan_to_pose(
+                    p.x, p.y, p.z,
+                    pose.pose.orientation.x, pose.pose.orientation.y,
+                    pose.pose.orientation.z, pose.pose.orientation.w,
+                    frame_id=pose.header.frame_id)
+                if not ok or not self.execute_plan():
+                    skipped += 1
+                    _color(i, 1.0, 0.0, 0.0, 0.8)
+                    self.get_logger().warn(f"  Failed at pose {i+1}, skipping")
+                    time.sleep(0.5)
+                else:
+                    completed += 1
+                    _color(i, 0.0, 1.0, 0.0)
+                    time.sleep(0.67)
+                    if save_images and capture_client.service_is_ready():
+                        fut = capture_client.call_async(Trigger.Request())
+                        deadline = time.time() + 2.0
+                        while not fut.done() and time.time() < deadline:
+                            time.sleep(0.05)
+                marker_pub.publish(ma)
+        except KeyboardInterrupt:
+            self.get_logger().warn(f"Battery scan aborted by user at pose {completed + skipped}/{total}")
+
+        self.get_logger().info(f"Scan complete: {completed}/{total} succeeded, {skipped} skipped")
+        return {"total": total, "completed": completed, "skipped": skipped}
 
     def go_home(self, frame_kwrd):
         self.get_logger().info("Going home...")
@@ -1138,6 +1281,7 @@ def main(args=None):
 
     if node.use_collision_plane:
         node.add_collision_plane()
+        node.add_floor_plane()
 
     try:
         while True:
@@ -1235,32 +1379,12 @@ def main(args=None):
             elif choice == "10":
                 save_imgs = input("Save images? (y/n) [y]: ").strip().lower()
                 save_images = save_imgs != "n"
-                if ScanBattery is None:
-                    print("ScanBattery action interface is unavailable in this workspace build.")
-                    continue
-                scan_client = ActionClient(node, ScanBattery, 'scan_battery')
-                if not scan_client.wait_for_server(timeout_sec=5.0):
-                    print("scan_battery action server not available")
-                else:
-                    goal = ScanBattery.Goal()
-                    goal.save_images = save_images
-                    future = scan_client.send_goal_async(
-                        goal,
-                        feedback_callback=lambda fb: print(
-                            f"  Scan progress: {fb.feedback.points_explored}/{fb.feedback.total_points}"))
-                    while not future.done():
-                        time.sleep(0.05)
-                    goal_handle = future.result()
-                    if not goal_handle.accepted:
-                        print("Goal rejected")
-                    else:
-                        print("Scan started — waiting for result...")
-                        result_future = goal_handle.get_result_async()
-                        while not result_future.done():
-                            time.sleep(0.1)
-                        r = result_future.result().result
-                        print(f"Scan complete: success={r.success}, "
-                              f"completed={r.completed}/{r.total_poses}, skipped={r.skipped}")
+                # Run the scan IN-PROCESS, on command only (no action server, no
+                # auto-launch). Ctrl-C during the scan returns to this menu.
+                print("Starting battery scan (Ctrl-C to abort)...")
+                summary = node.run_battery_scan(save_images=save_images)
+                print(f"Scan complete: completed={summary['completed']}/{summary['total']}, "
+                      f"skipped={summary['skipped']}")
 
             elif choice == "0":
                 break

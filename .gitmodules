@@ -28,3 +28,6 @@
 [submodule "src/ros-mcp-server"]
 	path = src/ros-mcp-server
 	url = git@github.com:robotmcp/ros-mcp-server.git
+[submodule "src/zed-ros2-wrapper"]
+	path = src/zed-ros2-wrapper
+	url = https://github.com/stereolabs/zed-ros2-wrapper.git

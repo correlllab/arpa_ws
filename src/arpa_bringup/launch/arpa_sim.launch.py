@@ -22,9 +22,16 @@ def launch_setup(context, *args, **kwargs):
     safety_k_position = LaunchConfiguration("safety_k_position")
 
     # General arguments
-    use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
-    constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
+    corridor_constraint = LaunchConfiguration("corridor_constraint")
+    orientation_constraint = LaunchConfiguration("orientation_constraint")
     use_special_logic = LaunchConfiguration("use_special_logic")
+    analytical_ik = LaunchConfiguration("analytical_ik")
+    optimize_path = LaunchConfiguration("optimize_path")
+    cost_w_joint = LaunchConfiguration("cost_w_joint")
+    cost_w_proximity = LaunchConfiguration("cost_w_proximity")
+    cost_w_area = LaunchConfiguration("cost_w_area")
+    kdl_random_restart_count = LaunchConfiguration("kdl_random_restart_count")
+    kdl_restart_timeout = LaunchConfiguration("kdl_restart_timeout")
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
     description_package = LaunchConfiguration("description_package")
@@ -230,9 +237,16 @@ def launch_setup(context, *args, **kwargs):
             "sim_gazebo": sim_gazebo,
             "sim_ignition": sim_ignition,
             "initial_positions_file": initial_positions_file,
-            "use_corridor_constraint": use_corridor_constraint,
-            "constrain_corridor_orientation": constrain_corridor_orientation,
+            "corridor_constraint": corridor_constraint,
+            "orientation_constraint": orientation_constraint,
             "use_special_logic": use_special_logic,
+            "analytical_ik": analytical_ik,
+            "optimize_path": optimize_path,
+            "cost_w_joint": cost_w_joint,
+            "cost_w_proximity": cost_w_proximity,
+            "cost_w_area": cost_w_area,
+            "kdl_random_restart_count": kdl_random_restart_count,
+            "kdl_restart_timeout": kdl_restart_timeout,
         }.items(),
     )
 
@@ -744,14 +758,14 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "use_corridor_constraint",
+            "corridor_constraint",
             default_value="false",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "constrain_corridor_orientation",
+            "orientation_constraint",
             default_value="false",
             description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
         )
@@ -761,6 +775,56 @@ def generate_launch_description():
             "use_special_logic",
             default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection. Set to false to use original corridor/default planning logic.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "analytical_ik",
+            default_value="false",
+            description="If true, generate IK seeds with the closed-form UR16e analytical solver "
+            "(with automatic KDL fallback). If false (default), use the original actuator-offset + KDL sweep.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "optimize_path",
+            default_value="false",
+            description="If true, plan with RRTstar (path-length optimized) instead of RRTConnect.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_joint",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized joint-distance cost (analytical_ik=true).",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_proximity",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized wrist-to-actuator proximity penalty.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_area",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized arm-triangle-area (near-singularity) penalty.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "kdl_random_restart_count",
+            default_value="1",
+            description="KDL fallback restarts when analytical IK finds nothing: 1 = single current-state seed; >1 adds random-restart seeds.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "kdl_restart_timeout",
+            default_value="0.05",
+            description="Per-attempt setFromIK timeout (s) for KDL fallback random restarts.",
         )
     )
 

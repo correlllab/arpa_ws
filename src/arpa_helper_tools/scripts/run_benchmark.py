@@ -2,16 +2,16 @@
 """
 Run battery scan benchmark N times and append results to CSV files.
 
-Assumes sim + motion_control are already running (with desired use_corridor_constraint
+Assumes sim + motion_control are already running (with desired corridor_constraint
 and use_special_logic). Match launch args to script args.
 
 Usage:
   # Corridor false, special logic true (default):
-  ros2 launch arpa_bringup arpa_sim.launch.py use_corridor_constraint:=false
+  ros2 launch arpa_bringup arpa_sim.launch.py corridor_constraint:=false
   ros2 run arpa_helper_tools run_benchmark.py --corridor false --special-logic true --runs 10
 
   # Corridor true, special logic false:
-  ros2 launch arpa_bringup arpa_sim.launch.py use_corridor_constraint:=true use_special_logic:=false
+  ros2 launch arpa_bringup arpa_sim.launch.py corridor_constraint:=true use_special_logic:=false
   ros2 run arpa_helper_tools run_benchmark.py --corridor true --special-logic false --runs 10
 
 Output (CSV, in --output-dir):
