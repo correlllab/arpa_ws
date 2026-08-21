@@ -118,6 +118,7 @@ WORKDIR /root/ros2_ws
 # Last: pin NumPy 1.x so system SciPy (apt) and Open3D imports stay compatible
 RUN pip3 install "numpy>=1.23,<2"
 
+RUN apt install -y nlohmann-json3-dev
 
 
 CMD ["bash"]
