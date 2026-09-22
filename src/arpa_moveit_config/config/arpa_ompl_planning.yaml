@@ -84,6 +84,12 @@ ur16e_on_gantry:
     - PRMkConfigDefault
     - PRMstarkConfigDefault
   longest_valid_segment_fraction: 0.01
+  # simplify_solution:false stops the OMPL post-processing shortcutter from cutting
+  # corners THROUGH a path constraint. That shortcutter was what broke down_mode /
+  # orientation_constraint: the planner found a constraint-satisfying (camera-down) path,
+  # then the simplifier shortcut through it -> MoveItErrorCode -2 "invalid (postprocessing)".
+  # RRTstar still length-optimizes, so constrained paths stay clean without it.
+  simplify_solution: false
 
 parker_linear_actuator:
   planner_configs:

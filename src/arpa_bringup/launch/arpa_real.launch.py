@@ -26,8 +26,16 @@ def launch_setup(context, *args, **kwargs):
     safety_limits = LaunchConfiguration("safety_limits")
     safety_pos_margin = LaunchConfiguration("safety_pos_margin")
     safety_k_position = LaunchConfiguration("safety_k_position")
-    use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
-    constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
+    corridor_constraint = LaunchConfiguration("corridor_constraint")
+    orientation_constraint = LaunchConfiguration("orientation_constraint")
+    analytical_ik = LaunchConfiguration("analytical_ik")
+    optimize_path = LaunchConfiguration("optimize_path")
+    cost_w_joint = LaunchConfiguration("cost_w_joint")
+    cost_w_proximity = LaunchConfiguration("cost_w_proximity")
+    cost_w_area = LaunchConfiguration("cost_w_area")
+    kdl_random_restart_count = LaunchConfiguration("kdl_random_restart_count")
+    kdl_restart_timeout = LaunchConfiguration("kdl_restart_timeout")
+    use_zed = LaunchConfiguration("use_zed")
     # General arguments
     runtime_config_package = LaunchConfiguration("runtime_config_package")
     controllers_file = LaunchConfiguration("controllers_file")
@@ -256,8 +264,15 @@ def launch_setup(context, *args, **kwargs):
             "sim_gazebo": sim_gazebo,
             "sim_ignition": sim_ignition,
             "initial_positions_file": initial_positions_file,
-            "use_corridor_constraint": use_corridor_constraint,
-            "constrain_corridor_orientation": constrain_corridor_orientation,
+            "corridor_constraint": corridor_constraint,
+            "orientation_constraint": orientation_constraint,
+            "analytical_ik": analytical_ik,
+            "optimize_path": optimize_path,
+            "cost_w_joint": cost_w_joint,
+            "cost_w_proximity": cost_w_proximity,
+            "cost_w_area": cost_w_area,
+            "kdl_random_restart_count": kdl_random_restart_count,
+            "kdl_restart_timeout": kdl_restart_timeout,
         }.items(),
     )
 
@@ -271,6 +286,22 @@ def launch_setup(context, *args, **kwargs):
         PythonLaunchDescriptionSource(
             [arpa_depth_pkg_share, "/launch/ur16e_rs_cams.launch.py"]
         )
+    )
+
+    # ZED camera driver — brought up the same way as the RealSense (arpa_depth, above):
+    # an IncludeLaunchDescription of the camera's own launch file. The ZED wrapper ships
+    # zed_camera.launch.py; we point it at the first-gen ZED (camera_model:=zed) and name it
+    # 'zed' so its base frame is zed_camera_link, matching the static_zed_cam_tf mount below.
+    # Gated behind use_zed (default false): the ZED SDK + zed_wrapper build are still pending,
+    # and launching an unbuilt package would crash the whole bringup. Flip use_zed:=true once built.
+    zed_camera = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [FindPackageShare("zed_wrapper"), "/launch/zed_camera.launch.py"]
+        ),
+        launch_arguments={
+            "camera_model": "zed",
+            "camera_name": "zed",
+        }.items(),
     )
 
     ur_rest_api = Node(
@@ -338,6 +369,38 @@ def launch_setup(context, *args, **kwargs):
         arguments=["0", "0", "-0.165", "0", "0", "-3.14159", "test_ratchet_attachment", "test_ratchet_extension_link"]
     )
 
+    # ZED camera mount: mirror of the RealSense ee_cam mount onto the OPPOSITE (+Y) face
+    # of the tool, looking DOWN PARALLEL to the RealSense.
+    #
+    # Source it mirrors: cl_realsense/launch/ur16e_rs_cams.launch.py -> static_ee_cam_tf
+    #   RealSense: tool0 -> ee_cam_link  xyz (0.0338, -0.1612, 0.0497)  quat (0.7090, 0.0043, 0.7052, 0.0007)
+    #
+    # How the mirror was derived:
+    #   - Flip ONLY the Y translation (-0.1612 -> +0.1612) to move to the other side of the box.
+    #   - Keep the orientation IDENTICAL (NOT reflected). A true geometric mirror would flip
+    #     handedness and point the ZED anti-parallel; copying the quaternion keeps both optical
+    #     +Z axes pointing the same way down the tool0 +X (nut-runner) axis = genuinely parallel.
+    #
+    # !!! STARTING ESTIMATE, NOT A CALIBRATION !!!
+    #   - The first-gen ZED body is ~2.5x the RealSense, so |Y| likely needs to GROW outward for
+    #     clearance against tool_holder_link / the workpiece. Verify physical clearance.
+    #   - The ZED needs its OWN hand-eye calibration; replace these numbers once calibrated.
+    #   - Child frame 'zed_camera_link' must match the zed_wrapper base frame: launch the ZED node
+    #     with camera_name:=zed (camera_model:=zed for the first-gen ZED) so the prefix lines up,
+    #     and disable the wrapper's positional-tracking TF (pos_tracking.pos_tracking_enabled:=false)
+    #     so it does not try to re-parent zed_camera_link and fight this static transform.
+    static_zed_cam_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="static_zed_cam_tf",
+        arguments=[
+            "0.033838200335085646", "0.16124934095715254", "0.04973827839776546",
+            "0.7090084119721195", "0.004283455595113997", "0.7051866592991314", "0.000706616917886843",
+            "tool0",
+            "zed_camera_link",
+        ]
+    )
+
     rosbridge_mcp = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             get_package_share_directory("arpa_bringup") + "/launch/rosbridge_mcp.launch.py"
@@ -349,7 +412,7 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
-    return [
+    to_return = [
         ur_driver,
         ur_rest_api,
         # arpa_moveit_launch,
@@ -365,10 +428,18 @@ def launch_setup(context, *args, **kwargs):
         # recorded_poses_publisher
         test_static_tf_ratchet_attatchemnt,
         test_static_tf_ratchet_ee,
+        static_zed_cam_tf,
         # rosbridge_mcp,
         # scan_battery_server,
         vla_data_capture
     ]
+
+    # Only bring up the ZED driver when explicitly enabled (use_zed:=true). Kept out of the
+    # default set so arpa_real keeps working before the ZED SDK is installed and zed_wrapper built.
+    if context.perform_substitution(use_zed).lower() == "true":
+        to_return.append(zed_camera)
+
+    return to_return
 
 
 def generate_launch_description():
@@ -700,18 +771,76 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "use_corridor_constraint",
+            "corridor_constraint",
             default_value="false",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "constrain_corridor_orientation",
+            "orientation_constraint",
             default_value="false",
             description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
         )
     )
-    
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "analytical_ik",
+            default_value="false",
+            description="If true, generate IK seeds with the closed-form UR16e analytical solver "
+            "(with automatic KDL fallback). If false (default), use the original actuator-offset + KDL sweep.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "optimize_path",
+            default_value="false",
+            description="If true, plan with RRTstar (path-length optimized) instead of RRTConnect.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_joint",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized joint-distance cost (analytical_ik=true).",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_proximity",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized wrist-to-actuator proximity penalty.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_area",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized arm-triangle-area (near-singularity) penalty.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "kdl_random_restart_count",
+            default_value="1",
+            description="KDL fallback restarts when analytical IK finds nothing: 1 = single current-state seed; >1 adds random-restart seeds.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "kdl_restart_timeout",
+            default_value="0.05",
+            description="Per-attempt setFromIK timeout (s) for KDL fallback random restarts.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "use_zed",
+            default_value="false",
+            description="Launch the ZED camera driver (zed_wrapper, camera_model:=zed) alongside the RealSense. "
+            "Requires the ZED SDK installed and zed_wrapper built. Default false until that is set up.",
+        )
+    )
+
 
     return LaunchDescription(declared_arguments + [OpaqueFunction(function=launch_setup)])

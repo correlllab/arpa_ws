@@ -25,6 +25,7 @@
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <visualization_msgs/msg/interactive_marker_feedback.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <Eigen/Geometry>
 
 
 // lidar
@@ -34,6 +35,17 @@
 #include <mutex>
 #include <thread>
 #include <random>
+
+
+// Raw (un-normalized) cost components for a single IK solution, used by the
+// analytical-IK seed ranking in getJointConfigurations(). valid=false means the
+// candidate was rejected (out of bounds or too close to the actuator plate).
+struct RawIKCost {
+  double joint_distance{0.0};
+  double proximity_penalty{0.0};
+  double area_penalty{0.0};
+  bool valid{false};
+};
 
 
 class MotionControlNode : public rclcpp::Node
@@ -99,7 +111,31 @@ private:
   double getConfigurationCost(
       const std::shared_ptr<moveit::core::RobotState>& current_state,
       const std::shared_ptr<moveit::core::RobotState>& target_state);
+  /** Raw cost components (joint distance, proximity, area) used to rank analytical-IK seeds. */
+  RawIKCost getRawConfigurationCost(
+      const std::shared_ptr<moveit::core::RobotState>& current_state,
+      const std::shared_ptr<moveit::core::RobotState>& target_state);
   std::vector<std::vector<double>> getJointConfigurations(geometry_msgs::msg::Pose target_pose);
+  /** The KDL actuator-offset sweep (the default-path IK). Extracted so both the default
+   *  path and the analytical seed-merge can use it; behaviour is identical to the old
+   *  inline sweep. */
+  std::vector<std::vector<double>> getKDLConfigurations(geometry_msgs::msg::Pose target_pose);
+  /** Analytical-path only: damped least-squares (Newton/Levenberg-Marquardt) Cartesian
+   *  refine over `joint_names` (the full 6 arm + 1 gantry set). Drives `state` so that
+   *  getGlobalLinkTransform(tip_link) matches `target_in_world`, using a numerical 6xN
+   *  Jacobian from URDF FK (no chain-group requirement; prismatic gantry handled naturally).
+   *  Mutates `state`; returns true iff converged within pos_tol (m) / rot_tol (rad). Never
+   *  bypasses a safety check -- the caller re-validates bounds/clearance/collision. */
+  bool refineToPose(moveit::core::RobotState& state,
+                    const Eigen::Isometry3d& target_in_world,
+                    const std::vector<std::string>& joint_names,
+                    const std::string& tip_link,
+                    int max_iters, double pos_tol, double rot_tol, double lambda);
+  /** Analytical-path only: drop goal configs that are already in collision (whole-robot
+   *  vs live scene). Fail-open (returns input unchanged if the scene can't be fetched). */
+  std::vector<std::vector<double>> filterCollisionFreeConfigs(const std::vector<std::vector<double>>& configs);
+  /** Fetch a snapshot of the live MoveIt planning scene via /get_planning_scene; nullptr on failure. */
+  std::shared_ptr<planning_scene::PlanningScene> fetchLiveScene();
   /** Multi-objective IK seed selection (clearance, manipulability, joint distance, limit margin). */
   double getMinClearance(const std::shared_ptr<moveit::core::RobotState>& state);
   double getManipulability(const std::shared_ptr<moveit::core::RobotState>& state);
@@ -129,6 +165,13 @@ private:
   std::vector<double> m_goal_joint_values;
 
   const std::vector<double> m_joint_weights = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+
+  // Weights for the analytical-IK seed ranking (each cost component is min-max
+  // normalized to [0,1] then combined). Re-read from ROS params each call so they
+  // can be tuned at runtime with `ros2 param set`. Only used when analytical_ik=true.
+  double m_cost_w_joint{1.0};
+  double m_cost_w_proximity{1.0};
+  double m_cost_w_area{1.0};
 
   // Dedicated node and thread for MoveGroupInterface
   rclcpp::Node::SharedPtr m_move_group_node;

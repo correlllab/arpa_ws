@@ -1,4 +1,5 @@
 #include "arpa_control/motion_control_node.hpp"
+#include "arpa_control/ur16e_analytical_ik.hpp"
 #include <rclcpp/exceptions.hpp>
 #include <chrono>
 #include <future>
@@ -17,7 +18,14 @@
 #include <algorithm>
 #include <numeric>
 #include <random>
+#include <set>
+#include <array>
 #include <moveit/robot_state/conversions.h>
+#include <moveit/robot_trajectory/robot_trajectory.h>
+#include <moveit/trajectory_processing/time_optimal_trajectory_generation.h>
+#include <moveit/planning_scene/planning_scene.h>
+#include <moveit_msgs/srv/get_planning_scene.hpp>
+#include <moveit_msgs/msg/planning_scene_components.hpp>
 
 MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
     : Node("motion_control_node", options)
@@ -73,6 +81,49 @@ MotionControlNode::MotionControlNode(rclcpp::NodeOptions options)
   this->declare_parameter("octomap_resolution", 0.03);
   this->declare_parameter("arm_padding", 0.015);
   m_arm_padding = this->get_parameter("arm_padding").as_double();
+
+  // ---- Custom analytical IK (ported from realbenchmarker) ----
+  // analytical_ik=false (default) keeps the existing actuator-offset + KDL
+  // (setFromIK) seed sweep untouched. true switches seed generation to the
+  // closed-form UR16e solver (ur16e_ik::solve), with auto-fallback to KDL if it
+  // returns no valid solutions. Read live each call so it can be toggled at runtime.
+  //
+  // Guarded with has_parameter(): main() enables
+  // automatically_declare_parameters_from_overrides, so analytical_ik (passed by
+  // the launch file) is already auto-declared by the time we get here. An unguarded
+  // declare would throw ParameterAlreadyDeclaredException. The guard also lets the
+  // node run standalone (no launch overrides) by supplying the defaults below.
+  if (!this->has_parameter("analytical_ik")) this->declare_parameter("analytical_ik", false);
+  // Analytical-IK wrist-to-actuator-plate clearance gate (metres). The default path
+  // disabled this heuristic (real self-collision is caught by the planner anyway), so
+  // default 0.0 = DISABLED to match it; set >0 to reject IK solutions whose wrist_3 is
+  // closer than this to the plate. Was a hardcoded 0.65 that made analytical_ik fail
+  // on poses (e.g. go_home) the default path reaches.
+  if (!this->has_parameter("analytical_wrist_plate_min_dist")) this->declare_parameter("analytical_wrist_plate_min_dist", 0.0);
+  if (!this->has_parameter("cost_w_joint")) this->declare_parameter("cost_w_joint", 1.0);
+  if (!this->has_parameter("cost_w_proximity")) this->declare_parameter("cost_w_proximity", 1.0);
+  if (!this->has_parameter("cost_w_area")) this->declare_parameter("cost_w_area", 1.0);
+  if (!this->has_parameter("kdl_random_restart_count")) this->declare_parameter("kdl_random_restart_count", 1);
+  if (!this->has_parameter("kdl_restart_timeout")) this->declare_parameter("kdl_restart_timeout", 0.05);
+  // Analytical-IK Newton/Levenberg-Marquardt refine (analytical_ik=true ONLY). When a
+  // gantry sweep sample yields NO usable closed-form goal (solve() returned nothing, or
+  // every branch failed the bounds/FK/clearance gates), a damped least-squares step over
+  // the FULL 6+1 DOF (arm + gantry, both free to move) is seeded at that sample and run to
+  // drive tool0 onto the target -- reaching targets that fall between the 0.1 m grid samples.
+  // Rescued goals still pass the same satisfiesBounds/FK/clearance/collision gates, so a bad
+  // refine can only be DROPPED, never commanded. Default true (safe by that invariant); set
+  // false to restore the old closed-form-only behaviour. Does NOT touch analytical_ik=false.
+  if (!this->has_parameter("analytical_refine")) this->declare_parameter("analytical_refine", true);
+  if (!this->has_parameter("analytical_refine_max_iters")) this->declare_parameter("analytical_refine_max_iters", 20);
+  if (!this->has_parameter("analytical_refine_damping")) this->declare_parameter("analytical_refine_damping", 0.05);
+  // Max tilt (rad) of the tool axis away from straight-down for orientation_constraint.
+  if (!this->has_parameter("orientation_tilt_tolerance")) this->declare_parameter("orientation_tilt_tolerance", 0.4);
+  // optimize_path: use RRTstar (path-length-optimizing) instead of RRTConnect to
+  // produce cleaner, less convoluted motions. Uses the full planning-time budget.
+  if (!this->has_parameter("optimize_path")) this->declare_parameter("optimize_path", false);
+  m_cost_w_joint = this->get_parameter("cost_w_joint").as_double();
+  m_cost_w_proximity = this->get_parameter("cost_w_proximity").as_double();
+  m_cost_w_area = this->get_parameter("cost_w_area").as_double();
   m_arm_padding_links = {"forearm_link", "shoulder_link", "upper_arm_link", "wrist_1_link", "wrist_2_link", "wrist_3_link", "tool0", "tool_holder_link", "runner_link", "ratchet_extension_link"};
   for(auto link : m_arm_padding_links) {
     m_arm_padding_map[link] = m_arm_padding;
@@ -124,6 +175,15 @@ void MotionControlNode::initMoveGroup()
 
   m_move_group->startStateMonitor(2.5);
   m_move_group->setPlanningPipelineId("move_group");
+
+  // CRITICAL: the "ur16e_on_gantry" group is defined by a joint list (no <chain>)
+  // and has no SRDF <end_effector> attached, so getEndEffectorLink() returns "".
+  // An empty link name makes getGlobalLinkTransform("") THROW (crashing the corridor
+  // constraint) and makes orientation/position constraints malformed (silently
+  // ignored). Pin the EE link to the kinematics tip frame (tool0) so every
+  // getEndEffectorLink() user (constraints, setFromIK) is well-formed.
+  m_move_group->setEndEffectorLink("tool0");
+  RCLCPP_INFO(get_logger(), "End-effector link pinned to: %s", m_move_group->getEndEffectorLink().c_str());
 
   m_move_group->setPlannerId("RRTConnectkConfigDefault");
   // m_move_group->setPlannerId("RRTstarkConfigDefault");
@@ -238,6 +298,120 @@ double MotionControlNode::getConfigurationCost(
   return total_cost;
 }
 
+// Raw cost components for analytical-IK seed ranking. Unlike getConfigurationCost
+// (kept for the default path / computePairwiseCost), this REJECTS configs where the
+// wrist is closer than 0.65 m to the actuator plate. Only used by the analytical path.
+RawIKCost MotionControlNode::getRawConfigurationCost(
+    const std::shared_ptr<moveit::core::RobotState>& current_state,
+    const std::shared_ptr<moveit::core::RobotState>& target_state)
+{
+  RawIKCost result;
+
+  const auto* jmg = target_state->getJointModelGroup(m_move_group->getName());
+
+  if (!target_state->satisfiesBounds(jmg)) {
+    RCLCPP_WARN(get_logger(), "Target state has joints out of valid range");
+    return result;  // valid=false
+  }
+
+  const Eigen::Isometry3d& actuator_tf =
+      target_state->getGlobalLinkTransform("linear_actuator_plate_link");
+  const Eigen::Isometry3d& wrist_tf =
+      target_state->getGlobalLinkTransform("wrist_3_link");
+  const Eigen::Isometry3d& forearm_tf =
+      target_state->getGlobalLinkTransform("forearm_link");
+
+  double ee_distance = (actuator_tf.translation() - wrist_tf.translation()).norm();
+  const double wrist_plate_min = this->get_parameter("analytical_wrist_plate_min_dist").as_double();
+  if (wrist_plate_min > 0.0 && ee_distance < wrist_plate_min) {
+    RCLCPP_WARN(get_logger(),
+        "EE too close to linear actuator plate: %.3f m (min %.3f m)", ee_distance, wrist_plate_min);
+    return result;  // valid=false
+  }
+
+  Eigen::Vector3d a = actuator_tf.translation();
+  Eigen::Vector3d b = wrist_tf.translation();
+  Eigen::Vector3d c = forearm_tf.translation();
+  double triangle_area = 0.5 * (b - a).cross(c - a).norm();
+
+  result.joint_distance = getWeightedJointDistance(current_state, target_state);
+  result.proximity_penalty = 1.0 / ee_distance;
+  result.area_penalty = 1.0 / triangle_area;
+  result.valid = true;
+
+  return result;
+}
+
+// Damped least-squares (Newton / Levenberg-Marquardt) Cartesian refine over an arbitrary
+// joint set. Used ONLY by the analytical-IK path to rescue gantry samples that the
+// closed-form solver could not place a goal at. Drives the supplied joints of `state` so
+// getGlobalLinkTransform(tip_link) matches `target_in_world` (the goal pose in the planning
+// frame). The 6xN Jacobian is built NUMERICALLY from URDF FK (finite differences), which
+// (a) needs no chain group -- so it works over the 7-DOF arm+gantry joint-list group the
+// same as the 6-DOF arm -- and (b) handles the prismatic gantry naturally (its column is a
+// pure translation). Errors are taken in the WORLD frame so they are invariant to the
+// gantry sliding (base_link_inertia is downstream of the rail). Mutates `state`; returns
+// true iff converged within pos_tol (m) / rot_tol (rad). This routine never bypasses a
+// safety check -- the caller re-runs satisfiesBounds + clearance + collision on the result.
+bool MotionControlNode::refineToPose(
+    moveit::core::RobotState& state,
+    const Eigen::Isometry3d& target_in_world,
+    const std::vector<std::string>& joint_names,
+    const std::string& tip_link,
+    int max_iters, double pos_tol, double rot_tol, double lambda)
+{
+  const int N = static_cast<int>(joint_names.size());
+  if (N == 0) return false;
+  constexpr double FD_EPS = 1e-6;    // finite-difference step (rad or m)
+  constexpr double MAX_STEP = 0.3;   // per-iteration joint step clamp (rad or m)
+
+  // SE(3) error twist [dposition; axis*angle] that moves `actual` onto `desired` (world frame).
+  auto poseError = [](const Eigen::Isometry3d& desired, const Eigen::Isometry3d& actual) {
+    Eigen::Matrix<double, 6, 1> e;
+    e.head<3>() = desired.translation() - actual.translation();
+    Eigen::AngleAxisd aa(desired.rotation() * actual.rotation().transpose());
+    e.tail<3>() = aa.axis() * aa.angle();
+    return e;
+  };
+
+  for (int iter = 0; iter <= max_iters; ++iter) {
+    state.updateLinkTransforms();
+    Eigen::Isometry3d actual = state.getGlobalLinkTransform(tip_link);
+    Eigen::Matrix<double, 6, 1> e = poseError(target_in_world, actual);
+    if (e.head<3>().norm() <= pos_tol && e.tail<3>().norm() <= rot_tol) return true;
+    if (iter == max_iters) break;
+
+    // Numerical 6xN Jacobian: column j = d(tip twist)/d(q_j) about the current config.
+    Eigen::MatrixXd J(6, N);
+    for (int j = 0; j < N; ++j) {
+      double q0 = *state.getJointPositions(joint_names[j]);
+      double qp = q0 + FD_EPS;
+      state.setJointPositions(joint_names[j], &qp);
+      state.updateLinkTransforms();
+      Eigen::Isometry3d actual_p = state.getGlobalLinkTransform(tip_link);
+      J.col(j) = poseError(actual_p, actual) / FD_EPS;
+      state.setJointPositions(joint_names[j], &q0);   // restore
+    }
+    state.updateLinkTransforms();
+
+    // dq = J^T (J J^T + lambda^2 I)^-1 e   (Levenberg-Marquardt damped least squares).
+    Eigen::Matrix<double, 6, 6> JJt = J * J.transpose();
+    JJt.diagonal().array() += lambda * lambda;
+    Eigen::VectorXd dq = J.transpose() * JJt.ldlt().solve(e);
+
+    // Step-clamp for stability, apply, and clamp each joint to its model bounds.
+    for (int j = 0; j < N; ++j) {
+      double step = std::clamp(dq[j], -MAX_STEP, MAX_STEP);
+      double qn = *state.getJointPositions(joint_names[j]) + step;
+      const moveit::core::JointModel* jm = state.getRobotModel()->getJointModel(joint_names[j]);
+      const auto& b = jm->getVariableBounds()[0];
+      if (b.position_bounded_) qn = std::clamp(qn, b.min_position_, b.max_position_);
+      state.setJointPositions(joint_names[j], &qn);
+    }
+  }
+  return false;
+}
+
 void MotionControlNode::updateGoalMarker(const std::shared_ptr<moveit::core::RobotState>& state)
 {
   // Publish DisplayRobotState with joint values
@@ -287,14 +461,274 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
   double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
   RCLCPP_INFO(get_logger(), "Current linear actuator position: %.3f m", original_actuator_pos);
 
+  const bool use_analytical = this->get_parameter("analytical_ik").as_bool();
+  // Analytical results are stored here (not returned early) so they can be MERGED with the
+  // KDL sweep seeds and collision-filtered below. Only populated when use_analytical.
+  std::vector<std::vector<double>> analytical_solutions;
+
+  // ==========================================================================
+  // ANALYTICAL PATH (analytical_ik=true): closed-form UR16e IK.
+  // Sweep gantry positions, solve the 6-DOF arm analytically at each (in the
+  // base_link_inertia frame), validate against full 7-DOF bounds + clearance,
+  // then rank by normalized multi-objective cost. Falls back to KDL only if the
+  // analytical solver yields no valid solution. When false, this block is skipped
+  // entirely and the original actuator-offset + KDL sweep below runs unchanged.
+  // ==========================================================================
+  if (use_analytical) {
+    const std::array<std::string, 6> arm_joint_names = {
+        "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+        "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"
+    };
+
+    // Target pose as an Eigen transform in the planning frame.
+    Eigen::Isometry3d target_in_world = Eigen::Isometry3d::Identity();
+    target_in_world.translation() = Eigen::Vector3d(
+        target_pose.position.x, target_pose.position.y, target_pose.position.z);
+    target_in_world.linear() = Eigen::Quaterniond(
+        target_pose.orientation.w, target_pose.orientation.x,
+        target_pose.orientation.y, target_pose.orientation.z).toRotationMatrix();
+
+    // Re-read cost weights from params (allows runtime tuning via `ros2 param set`).
+    m_cost_w_joint = this->get_parameter("cost_w_joint").as_double();
+    m_cost_w_proximity = this->get_parameter("cost_w_proximity").as_double();
+    m_cost_w_area = this->get_parameter("cost_w_area").as_double();
+
+    // Newton/LM refine knobs (analytical-path only; read live so they can be tuned at runtime).
+    const bool   do_refine     = this->get_parameter("analytical_refine").as_bool();
+    const int    refine_iters  = this->get_parameter("analytical_refine_max_iters").as_int();
+    const double refine_lambda = this->get_parameter("analytical_refine_damping").as_double();
+    // Full 6+1 DOF joint set for the refine: the 6 arm joints + the prismatic gantry, so both
+    // move together. (arm_joint_names and actuator_joint are in scope from above.)
+    std::vector<std::string> refine_joints(arm_joint_names.begin(), arm_joint_names.end());
+    refine_joints.push_back(actuator_joint);
+
+    std::vector<std::vector<double>> all_solutions;
+    std::vector<RawIKCost> all_raw_costs;
+
+    // --- Frame calibration: map the solver's ur_kin frame6 to ROS tool0, derived from
+    // the CURRENT robot state each call (no hardcoded flange/tool rotation).
+    // CRITICAL (fixed 2026-06-04): the ur_kin DH "Base" frame is NOT base_link_inertia --
+    // it is base_link_inertia rotated an additional Rz(pi) about Z (== ROS base_link; the
+    // UR description carries that pi on the base_link->base_link_inertia joint). Verified
+    // numerically: URDF(base_link_inertia->tool0)(q) == Rz(pi) * ur16e_ik::forward(q) * F
+    // (F = constant frame6->tool0, ~1e-10 residual across configs). The OLD code omitted
+    // this Rz(pi), so X_tool absorbed a CONFIG-DEPENDENT factor C^-1*Rz(pi)*C and
+    // target_in_dh6 was corrupted by ~1 m for targets far from the current pose -> solve()
+    // returned 0 raw solutions at edge poses (go_home). Applying Rz(pi) on the base side
+    // makes X_tool collapse to the true constant frame6->tool0 and target_in_dh6 the true
+    // frame6 target. The FK-verification gate below stays as the guard.
+    const Eigen::Isometry3d Rz_pi(Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitZ()));
+    const std::string tip_link = "tool0";
+    double qc[6];
+    for (int j = 0; j < 6; ++j) qc[j] = *current_state->getJointPositions(arm_joint_names[j]);
+    Eigen::Isometry3d X_tool;
+    {
+      Eigen::Isometry3d C = ur16e_ik::forward(qc);  // ur_kin base->frame6 at current arm joints
+      Eigen::Isometry3d base0_cur = current_state->getGlobalLinkTransform("base_link_inertia") * Rz_pi;  // ur_kin Base
+      Eigen::Isometry3d tool0_cur = current_state->getGlobalLinkTransform(tip_link);
+      X_tool = C.inverse() * (base0_cur.inverse() * tool0_cur);  // now the constant frame6 -> tool0
+    }
+
+    int raw_sol_count = 0, fk_pass_count = 0, refine_rescued = 0;
+
+    // Sweep gantry positions at 0.1 m steps and solve analytical IK at each.
+    std::set<int> tried_positions_mm;
+    for (double offset : {0.0, -0.1, 0.1, -0.2, 0.2, -0.3, 0.3, -0.4, 0.4,
+                          -0.5, 0.5, -0.6, 0.6, -0.7, 0.7, -0.8, 0.8,
+                          -0.9, 0.9, -1.0, 1.0}) {
+      double gantry_pos = std::clamp(original_actuator_pos + offset, 0.2, 1.9);
+      int key_mm = static_cast<int>(gantry_pos * 1000);
+      if (tried_positions_mm.count(key_mm)) continue;
+      tried_positions_mm.insert(key_mm);
+
+      auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
+      seed_state->setJointPositions(actuator_joint, &gantry_pos);
+      seed_state->update();
+      Eigen::Isometry3d base0 = seed_state->getGlobalLinkTransform("base_link_inertia") * Rz_pi;  // ur_kin Base
+      Eigen::Isometry3d target_in_base = base0.inverse() * target_in_world;   // desired tool0 in ur_kin Base
+      Eigen::Isometry3d target_in_dh6 = target_in_base * X_tool.inverse();    // -> ur_kin frame6
+
+      auto ik_solutions = ur16e_ik::solve(target_in_dh6);
+      raw_sol_count += static_cast<int>(ik_solutions.size());
+
+      bool sample_yielded = false;   // did this rail sample produce any usable closed-form goal?
+      for (const auto& sol : ik_solutions) {
+        for (int j = 0; j < 6; ++j) {
+          seed_state->setJointPositions(arm_joint_names[j], &sol.joints[j]);
+        }
+        seed_state->update();
+
+        if (!seed_state->satisfiesBounds(jmg)) continue;
+
+        // FK-verification gate: confirm these analytical joints actually reach the
+        // target tool0 pose via the REAL URDF FK. Rejects any frame-mapping error so
+        // a bad solution can never be commanded (worst case -> KDL fallback below).
+        // Reuse base0 (the Rz(pi)-corrected ur_kin Base) so actual and target are in the
+        // SAME frame; the pos/rot residual is invariant to the common base frame.
+        Eigen::Isometry3d actual_in_base =
+            base0.inverse() * seed_state->getGlobalLinkTransform(tip_link);
+        double dpos = (actual_in_base.translation() - target_in_base.translation()).norm();
+        Eigen::Matrix3d dR = actual_in_base.rotation().transpose() * target_in_base.rotation();
+        double drot = std::acos(std::clamp((dR.trace() - 1.0) * 0.5, -1.0, 1.0));
+        if (dpos > 0.005 || drot > 0.02) continue;   // 5 mm / ~1.1 deg
+        ++fk_pass_count;
+
+        RawIKCost raw = getRawConfigurationCost(current_state, seed_state);
+        if (!raw.valid) continue;
+
+        std::vector<double> joint_positions;
+        seed_state->copyJointGroupPositions(jmg, joint_positions);
+        all_solutions.push_back(joint_positions);
+        all_raw_costs.push_back(raw);
+        sample_yielded = true;
+      }
+
+      // ---- Newton/LM rescue (analytical_refine=true) ------------------------------
+      // No usable closed-form goal at this rail sample (solve() returned nothing, or every
+      // branch failed bounds/FK/clearance). Seed a damped-LS refine at (current arm, rail=
+      // this sample) and let the arm AND gantry both move continuously to land tool0 on the
+      // target -- reaching targets that fall between the discrete 0.1 m grid samples. The
+      // rescued goal is NOT trusted blindly: it still passes satisfiesBounds + the same
+      // getRawConfigurationCost clearance gate below (and the collision filter later) before
+      // it can be offered to the planner.
+      if (do_refine && !sample_yielded) {
+        auto refine_state = std::make_shared<moveit::core::RobotState>(*current_state);
+        refine_state->setJointPositions(actuator_joint, &gantry_pos);   // start from this rail position
+        refine_state->update();
+        if (refineToPose(*refine_state, target_in_world, refine_joints, tip_link,
+                         refine_iters, 0.005, 0.02, refine_lambda)
+            && refine_state->satisfiesBounds(jmg)) {
+          refine_state->update();
+          RawIKCost raw = getRawConfigurationCost(current_state, refine_state);
+          if (raw.valid) {
+            std::vector<double> joint_positions;
+            refine_state->copyJointGroupPositions(jmg, joint_positions);
+            all_solutions.push_back(joint_positions);
+            all_raw_costs.push_back(raw);
+            ++refine_rescued;
+          }
+        }
+      }
+    }
+    RCLCPP_INFO(get_logger(),
+        "Analytical IK: %d raw solutions, %d passed FK-verification, %d Newton/LM-rescued, %zu total after clearance/bounds",
+        raw_sol_count, fk_pass_count, refine_rescued, all_solutions.size());
+
+    // If the closed-form solver produced valid goal configurations, rank and return them.
+    // If it produced NOTHING (e.g. a near-edge pose like go_home), do NOT give up here --
+    // fall through to the full KDL offset sweep below (the SAME code the default path
+    // uses, including the 7-DOF "NaN" solve that moves the arm AND the gantry together to
+    // reach edge poses). This makes analytical_ik a strict SUPERSET of the default path's
+    // reach: any pose the default path can reach, analytical_ik can too (it just tries the
+    // fast closed-form first). The planner (OMPL) then handles getting there, however
+    // convoluted the route needs to be.
+    if (!all_solutions.empty()) {
+      // Normalize each cost component to [0,1] across all candidates, combine with weights.
+    double min_joint = std::numeric_limits<double>::max();
+    double max_joint = std::numeric_limits<double>::lowest();
+    double min_prox  = std::numeric_limits<double>::max();
+    double max_prox  = std::numeric_limits<double>::lowest();
+    double min_area  = std::numeric_limits<double>::max();
+    double max_area  = std::numeric_limits<double>::lowest();
+
+    for (const auto& raw : all_raw_costs) {
+      min_joint = std::min(min_joint, raw.joint_distance);
+      max_joint = std::max(max_joint, raw.joint_distance);
+      min_prox  = std::min(min_prox,  raw.proximity_penalty);
+      max_prox  = std::max(max_prox,  raw.proximity_penalty);
+      min_area  = std::min(min_area,  raw.area_penalty);
+      max_area  = std::max(max_area,  raw.area_penalty);
+    }
+
+    double range_joint = max_joint - min_joint;
+    double range_prox  = max_prox  - min_prox;
+    double range_area  = max_area  - min_area;
+
+    std::vector<double> analytical_costs(all_solutions.size());
+    for (size_t i = 0; i < all_solutions.size(); ++i) {
+      double norm_joint = (range_joint > 1e-12) ? (all_raw_costs[i].joint_distance - min_joint) / range_joint : 0.0;
+      double norm_prox  = (range_prox  > 1e-12) ? (all_raw_costs[i].proximity_penalty - min_prox) / range_prox : 0.0;
+      double norm_area  = (range_area  > 1e-12) ? (all_raw_costs[i].area_penalty - min_area) / range_area : 0.0;
+      analytical_costs[i] = m_cost_w_joint * norm_joint + m_cost_w_proximity * norm_prox + m_cost_w_area * norm_area;
+    }
+
+    std::vector<size_t> indices(all_solutions.size());
+    std::iota(indices.begin(), indices.end(), 0);
+    std::stable_sort(indices.begin(), indices.end(),
+        [&](size_t a, size_t b) { return analytical_costs[a] < analytical_costs[b]; });
+
+    std::vector<std::vector<double>> sorted_solutions;
+    sorted_solutions.reserve(indices.size());
+    for (size_t idx : indices) {
+      sorted_solutions.push_back(all_solutions[idx]);
+    }
+
+      RCLCPP_INFO(get_logger(), "Analytical IK: %zu solutions (best cost=%.4f, worst cost=%.4f)",
+          sorted_solutions.size(), analytical_costs[indices.front()], analytical_costs[indices.back()]);
+
+      analytical_solutions = sorted_solutions;   // keep; merged with KDL seeds + collision-filtered below
+    }
+
+    if (analytical_solutions.empty()) {
+      RCLCPP_WARN(get_logger(),
+          "Analytical IK found no valid solution for this pose; relying on the full KDL "
+          "offset sweep (incl. 7-DOF solve) below for goal configs");
+    }
+  }  // end if (use_analytical)
+
+  // KDL offset sweep (the default-path solver; also merged in for the analytical path).
+  std::vector<std::vector<double>> kdl_solutions = getKDLConfigurations(target_pose);
+
+  if (!use_analytical) {
+    return kdl_solutions;   // DEFAULT PATH: identical to the original inline KDL sweep result.
+  }
+
+  // ----- ANALYTICAL PATH ONLY (analytical_ik=true): seed-merge + goal collision-filter -----
+  // Offer OMPL the UNION of analytical (preferred, ranked first) + KDL goal configs, then
+  // drop any goal already in collision (the planner cannot reach a colliding goal, so
+  // filtering them avoids wasted planning attempts and surfaces how many goals are actually
+  // viable). Fail-open: if the scene can't be fetched, all goals are kept (OMPL still
+  // collision-checks during planning).
+  std::vector<std::vector<double>> merged = analytical_solutions;
+  merged.insert(merged.end(), kdl_solutions.begin(), kdl_solutions.end());
+  if (merged.empty()) {
+    RCLCPP_ERROR(get_logger(), "No valid IK solution found (analytical + KDL)");
+    return {};
+  }
+  std::vector<std::vector<double>> collision_free = filterCollisionFreeConfigs(merged);
+  RCLCPP_INFO(get_logger(),
+      "Analytical seed-merge: %zu analytical + %zu KDL = %zu candidates, %zu collision-free",
+      analytical_solutions.size(), kdl_solutions.size(), merged.size(), collision_free.size());
+  if (collision_free.empty()) {
+    RCLCPP_WARN(get_logger(),
+        "All %zu merged IK goals are in collision; returning unfiltered so the planner can still try",
+        merged.size());
+    return merged;
+  }
+  return collision_free;
+}
+
+// KDL actuator-offset sweep — the default-path IK, extracted verbatim so the analytical
+// seed-merge can reuse it. Behaviour is identical to the previous inline sweep.
+std::vector<std::vector<double>> MotionControlNode::getKDLConfigurations(geometry_msgs::msg::Pose target_pose)
+{
+  auto current_state = m_move_group->getCurrentState();
+  if (!current_state) {
+    RCLCPP_ERROR(get_logger(), "Failed to get current robot state");
+    return {};
+  }
+  const auto* jmg     = current_state->getJointModelGroup(m_move_group->getName());
+  const auto* arm_jmg = current_state->getJointModelGroup("ur_manipulator");
+  const std::string& ee_link = m_move_group->getEndEffectorLink();
+  const std::string actuator_joint = "linear_actuator_to_linear_actuator_plate_joint";
+  double original_actuator_pos = *current_state->getJointPositions(actuator_joint);
+
   std::vector<std::vector<double>> all_solutions;
   std::vector<double> all_costs;
 
-  // Try IK with linear actuator locked at each offset.
-  // IK is solved on arm_jmg (ur_manipulator, 6-DOF arm only) so the actuator
-  // position set in the seed state is held fixed — the solver never touches it.
-  // todo use linspace to generate offsets with resolution
-  // offsets can sometime just be 0.0 lock the arm where it is or if its NAN solve for the whole system from the current position
+  // Try IK with linear actuator locked at each offset. IK is solved on arm_jmg
+  // (ur_manipulator, 6-DOF arm only) so the actuator position is held fixed; the NaN
+  // offset solves the whole 7-DOF system (arm + gantry) from the current position.
   for (double offset : {0.0, -0.25, 0.25, 0.5, -0.5, -0.75, 0.75, -1.0, 1.0, std::numeric_limits<double>::quiet_NaN()}) {
     auto seed_state = std::make_shared<moveit::core::RobotState>(*current_state);
     auto* use_jmg = std::isnan(offset) ? jmg : arm_jmg;
@@ -303,28 +737,17 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
       seed_state->setJointPositions(actuator_joint, &shifted_pos);
       seed_state->update();
     }
-    
-    
-    // updateGoalMarker(seed_state);
-    // std::this_thread::sleep_for(std::chrono::seconds(2));
-    //TODO dont solve IK for impossible LA positions (wastes timeout?)
     if (!seed_state->setFromIK(use_jmg, target_pose, ee_link, 0.1)) {
       RCLCPP_WARN(get_logger(), "IK failed for actuator offset %.2f", offset);
       continue;
     }
     seed_state->update();
-
-    // updateGoalMarker(seed_state);
-    
     double cost = getConfigurationCost(current_state, seed_state);
-    // std::this_thread::sleep_for(std::chrono::seconds(5));
     if (std::isinf(cost)) continue;
-
     std::vector<double> joint_positions;
     seed_state->copyJointGroupPositions(jmg, joint_positions);
     all_solutions.push_back(joint_positions);
     all_costs.push_back(cost);
-
   }
 
   if (all_solutions.empty()) {
@@ -332,7 +755,6 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
     return {};
   }
 
-  // Sort by cost ascending
   std::vector<size_t> indices(all_solutions.size());
   std::iota(indices.begin(), indices.end(), 0);
   std::sort(indices.begin(), indices.end(),
@@ -340,14 +762,66 @@ std::vector<std::vector<double>> MotionControlNode::getJointConfigurations(geome
 
   std::vector<std::vector<double>> sorted_solutions;
   sorted_solutions.reserve(indices.size());
-  for (size_t idx : indices) {
-    sorted_solutions.push_back(all_solutions[idx]);
-  }
+  for (size_t idx : indices) sorted_solutions.push_back(all_solutions[idx]);
 
   RCLCPP_INFO(get_logger(), "Found %zu IK solutions (best cost=%.4f, worst cost=%.4f)",
       sorted_solutions.size(), all_costs[indices.front()], all_costs[indices.back()]);
-
   return sorted_solutions;
+}
+
+// Fetch a snapshot of the live MoveIt planning scene (/get_planning_scene). nullptr on failure.
+std::shared_ptr<planning_scene::PlanningScene> MotionControlNode::fetchLiveScene()
+{
+  auto tmp_node = std::make_shared<rclcpp::Node>("ik_goal_scene_query");
+  auto client = tmp_node->create_client<moveit_msgs::srv::GetPlanningScene>("/get_planning_scene");
+  if (!client->wait_for_service(std::chrono::seconds(2))) {
+    RCLCPP_WARN(get_logger(), "/get_planning_scene unavailable; skipping goal collision filter");
+    return nullptr;
+  }
+  auto req = std::make_shared<moveit_msgs::srv::GetPlanningScene::Request>();
+  req->components.components =
+      moveit_msgs::msg::PlanningSceneComponents::SCENE_SETTINGS |
+      moveit_msgs::msg::PlanningSceneComponents::ROBOT_STATE |
+      moveit_msgs::msg::PlanningSceneComponents::ROBOT_STATE_ATTACHED_OBJECTS |
+      moveit_msgs::msg::PlanningSceneComponents::WORLD_OBJECT_NAMES |
+      moveit_msgs::msg::PlanningSceneComponents::WORLD_OBJECT_GEOMETRY |
+      moveit_msgs::msg::PlanningSceneComponents::OCTOMAP |
+      moveit_msgs::msg::PlanningSceneComponents::ALLOWED_COLLISION_MATRIX |
+      moveit_msgs::msg::PlanningSceneComponents::LINK_PADDING_AND_SCALING;
+  auto future = client->async_send_request(req);
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(tmp_node);
+  if (exec.spin_until_future_complete(future, std::chrono::seconds(5)) != rclcpp::FutureReturnCode::SUCCESS) {
+    RCLCPP_WARN(get_logger(), "get_planning_scene call failed/timed out; skipping goal collision filter");
+    return nullptr;
+  }
+  auto scene = std::make_shared<planning_scene::PlanningScene>(m_move_group->getRobotModel());
+  scene->usePlanningSceneMsg(future.get()->scene);
+  return scene;
+}
+
+// Drop goal configs already in collision (whole robot vs world + self, scene ACM).
+// Fail-open: returns the input unchanged if the scene can't be fetched (OMPL re-checks anyway).
+std::vector<std::vector<double>> MotionControlNode::filterCollisionFreeConfigs(
+    const std::vector<std::vector<double>>& configs)
+{
+  auto scene = fetchLiveScene();
+  if (!scene) return configs;
+  const auto* jmg = m_move_group->getRobotModel()->getJointModelGroup(m_move_group->getName());
+  moveit::core::RobotState state = scene->getCurrentState();
+  collision_detection::CollisionRequest creq;
+  creq.contacts = false;
+  creq.distance = false;
+  std::vector<std::vector<double>> out;
+  out.reserve(configs.size());
+  for (const auto& cfg : configs) {
+    state.setJointGroupPositions(jmg, cfg);
+    state.update();
+    collision_detection::CollisionResult cres;
+    scene->checkCollision(creq, cres, state);
+    if (!cres.collision) out.push_back(cfg);
+  }
+  return out;
 }
 
 
@@ -383,98 +857,129 @@ void MotionControlNode::publishTargetTransform(geometry_msgs::msg::PoseStamped& 
 }
 
 bool MotionControlNode::setPathConstraints(geometry_msgs::msg::PoseStamped& target_pose){
-  auto robot_state = m_move_group->getCurrentState();
-  //TODO params should be member variables and not got each call
-  const double padding = this->get_parameter("corridor_padding").as_double();
-  const double cross = this->get_parameter("corridor_cross_section").as_double();
+  // Corridor position box and end-effector orientation are INDEPENDENT constraints,
+  // each gated by its own bool (corridor_constraint / orientation_constraint).
+  // Any combination is valid: position-only, orientation-only, both, or neither.
+  // They are submitted together in a single Constraints message.
   const std::string planning_frame = m_move_group->getPlanningFrame();
-  if (!robot_state){
-    //TODO log something
-    return false;
-  }
   const std::string ee_link = m_move_group->getEndEffectorLink();
-  Eigen::Isometry3d ee_tf = robot_state->getGlobalLinkTransform(ee_link);
-  Eigen::Vector3d start_pos = ee_tf.translation();
-  Eigen::Vector3d end_pos(
-    target_pose.pose.position.x,
-    target_pose.pose.position.y,
-    target_pose.pose.position.z);
-  Eigen::Vector3d diff = end_pos - start_pos;
-  double seg_len = diff.norm();
-  if(seg_len < 1e-6) {
-    RCLCPP_WARN(get_logger(), "Start and target poses are too close for corridor constraint (distance %.6f m)", seg_len);
-    return false;
-  }
-  
-  Eigen::Vector3d dir = diff / seg_len;
-  double length_along = seg_len + 2.0 * padding;
-  Eigen::Vector3d mid = start_pos + 0.5 * diff;
-  Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
-  moveit_msgs::msg::PositionConstraint pos_constraint;
-  pos_constraint.header.frame_id = planning_frame;
-  pos_constraint.link_name = ee_link;
-  pos_constraint.target_point_offset.x = 0.0;
-  pos_constraint.target_point_offset.y = 0.0;
-  pos_constraint.target_point_offset.z = 0.0;
-  pos_constraint.weight = 1.0;
-
-  shape_msgs::msg::SolidPrimitive box;
-  box.type = shape_msgs::msg::SolidPrimitive::BOX;
-  box.dimensions.resize(3);
-  box.dimensions[0] = length_along;
-  box.dimensions[1] = 2.0 * cross;
-  box.dimensions[2] = 2.0 * cross;
-
-  geometry_msgs::msg::Pose box_pose;
-  box_pose.position.x = mid.x();
-  box_pose.position.y = mid.y();
-  box_pose.position.z = mid.z();
-  box_pose.orientation.x = quat.x();
-  box_pose.orientation.y = quat.y();
-  box_pose.orientation.z = quat.z();
-  box_pose.orientation.w = quat.w();
-
-  pos_constraint.constraint_region.primitives.push_back(box);
-  pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
-
-  // Publish corridor box for visualization in RViz
-  visualization_msgs::msg::Marker corridor_marker;
-  corridor_marker.header.frame_id = planning_frame;
-  corridor_marker.header.stamp = now();
-  corridor_marker.ns = "corridor";
-  corridor_marker.id = 0;
-  corridor_marker.type = visualization_msgs::msg::Marker::CUBE;
-  corridor_marker.action = visualization_msgs::msg::Marker::ADD;
-  corridor_marker.pose = box_pose;
-  corridor_marker.scale.x = box.dimensions[0];
-  corridor_marker.scale.y = box.dimensions[1];
-  corridor_marker.scale.z = box.dimensions[2];
-  corridor_marker.color.r = 0.0f;
-  corridor_marker.color.g = 0.8f;
-  corridor_marker.color.b = 1.0f;
-  corridor_marker.color.a = 0.25f;
-  m_corridor_marker_pub->publish(corridor_marker);
+  const bool use_corridor = this->get_parameter("corridor_constraint").as_bool();
+  const bool constrain_orientation = this->get_parameter("orientation_constraint").as_bool();
 
   moveit_msgs::msg::Constraints path_constraints;
-  path_constraints.position_constraints.push_back(pos_constraint);
 
-  const bool constrain_orientation = this->get_parameter("constrain_corridor_orientation").as_bool();
+  // ---- Position corridor box (gated by corridor_constraint) ----
+  if (use_corridor) {
+    auto robot_state = m_move_group->getCurrentState();
+    if (!robot_state) {
+      RCLCPP_WARN(get_logger(), "Corridor position constraint skipped: current robot state unavailable");
+    } else {
+      //TODO params should be member variables and not got each call
+      const double padding = this->get_parameter("corridor_padding").as_double();
+      const double cross = this->get_parameter("corridor_cross_section").as_double();
+      Eigen::Isometry3d ee_tf = robot_state->getGlobalLinkTransform(ee_link);
+      Eigen::Vector3d start_pos = ee_tf.translation();
+      Eigen::Vector3d end_pos(
+        target_pose.pose.position.x,
+        target_pose.pose.position.y,
+        target_pose.pose.position.z);
+      Eigen::Vector3d diff = end_pos - start_pos;
+      double seg_len = diff.norm();
+      if (seg_len < 1e-6) {
+        RCLCPP_WARN(get_logger(), "Corridor position constraint skipped: start and target too close (distance %.6f m)", seg_len);
+      } else {
+        Eigen::Vector3d dir = diff / seg_len;
+        double length_along = seg_len + 2.0 * padding;
+        Eigen::Vector3d mid = start_pos + 0.5 * diff;
+        Eigen::Quaterniond quat = Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d::UnitX(), dir);
+        moveit_msgs::msg::PositionConstraint pos_constraint;
+        pos_constraint.header.frame_id = planning_frame;
+        pos_constraint.link_name = ee_link;
+        pos_constraint.target_point_offset.x = 0.0;
+        pos_constraint.target_point_offset.y = 0.0;
+        pos_constraint.target_point_offset.z = 0.0;
+        pos_constraint.weight = 1.0;
+
+        shape_msgs::msg::SolidPrimitive box;
+        box.type = shape_msgs::msg::SolidPrimitive::BOX;
+        box.dimensions.resize(3);
+        box.dimensions[0] = length_along;
+        box.dimensions[1] = 2.0 * cross;
+        box.dimensions[2] = 2.0 * cross;
+
+        geometry_msgs::msg::Pose box_pose;
+        box_pose.position.x = mid.x();
+        box_pose.position.y = mid.y();
+        box_pose.position.z = mid.z();
+        box_pose.orientation.x = quat.x();
+        box_pose.orientation.y = quat.y();
+        box_pose.orientation.z = quat.z();
+        box_pose.orientation.w = quat.w();
+
+        pos_constraint.constraint_region.primitives.push_back(box);
+        pos_constraint.constraint_region.primitive_poses.push_back(box_pose);
+
+        // Publish corridor box for visualization in RViz
+        visualization_msgs::msg::Marker corridor_marker;
+        corridor_marker.header.frame_id = planning_frame;
+        corridor_marker.header.stamp = now();
+        corridor_marker.ns = "corridor";
+        corridor_marker.id = 0;
+        corridor_marker.type = visualization_msgs::msg::Marker::CUBE;
+        corridor_marker.action = visualization_msgs::msg::Marker::ADD;
+        corridor_marker.pose = box_pose;
+        corridor_marker.scale.x = box.dimensions[0];
+        corridor_marker.scale.y = box.dimensions[1];
+        corridor_marker.scale.z = box.dimensions[2];
+        corridor_marker.color.r = 0.0f;
+        corridor_marker.color.g = 0.8f;
+        corridor_marker.color.b = 1.0f;
+        corridor_marker.color.a = 0.25f;
+        m_corridor_marker_pub->publish(corridor_marker);
+
+        path_constraints.position_constraints.push_back(pos_constraint);
+        RCLCPP_INFO(get_logger(), "RRT corridor position constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
+      }
+    }
+  }
+
+  // ---- End-effector orientation: keep the tool pointing DOWN, yaw FREE ----
+  // (gated by orientation_constraint). Holds tool0's pointing axis (+Z) within
+  // `tilt` of straight down (-Z of the planning frame, assumed Z-up / REP-103),
+  // while leaving rotation ABOUT that axis (yaw) unconstrained. So the arm may
+  // translate and spin freely as long as the camera keeps looking down. Both the
+  // start and the goal must already be pointing down (yaw may differ — it's free)
+  // or OMPL fails by design. ROTATION_VECTOR keeps the per-axis tolerances
+  // meaningful near vertical and is required by the constraint evaluator here.
   if (constrain_orientation) {
+    const double tilt = this->get_parameter("orientation_tilt_tolerance").as_double();
+    // Anchor: tool0 +Z aligned with planning-frame -Z (straight down); yaw arbitrary.
+    Eigen::Quaterniond q_down(Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()));
     moveit_msgs::msg::OrientationConstraint oc;
     oc.header.frame_id = planning_frame;
-    oc.link_name = ee_link;
-    oc.orientation = target_pose.pose.orientation;
-    oc.absolute_x_axis_tolerance = 0.4;
-    oc.absolute_y_axis_tolerance = 0.4;
-    oc.absolute_z_axis_tolerance = 0.4;
+    oc.link_name = ee_link;  // tool0 (the IK tip / tool frame)
+    oc.orientation.x = q_down.x();
+    oc.orientation.y = q_down.y();
+    oc.orientation.z = q_down.z();
+    oc.orientation.w = q_down.w();
+    oc.absolute_x_axis_tolerance = tilt;          // limit tilt away from vertical
+    oc.absolute_y_axis_tolerance = tilt;
+    oc.absolute_z_axis_tolerance = 2.0 * M_PI;    // free yaw about the tool axis
+    oc.parameterization = moveit_msgs::msg::OrientationConstraint::ROTATION_VECTOR;
     oc.weight = 1.0;
     path_constraints.orientation_constraints.push_back(oc);
+    RCLCPP_INFO(get_logger(),
+        "Orientation constraint: tool pointing down, tilt<=%.3f rad, yaw FREE (ROTATION_VECTOR)", tilt);
+  }
+
+  if (path_constraints.position_constraints.empty() &&
+      path_constraints.orientation_constraints.empty()) {
+    RCLCPP_INFO(get_logger(), "setPathConstraints: nothing to apply (corridor and orientation both off)");
+    return false;
   }
 
   m_move_group->setPathConstraints(path_constraints);
-  RCLCPP_INFO(get_logger(), "RRT corridor constraint: segment %.3f m, cross-section %.3f m", seg_len, 2.0 * cross);
   return true;
-
 }
 
 void MotionControlNode::planToPoseCallback(
@@ -482,9 +987,25 @@ void MotionControlNode::planToPoseCallback(
     std::shared_ptr<arpa_control::srv::PlanToPose::Response> response)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() START");
-  const bool use_corridor = this->get_parameter("use_corridor_constraint").as_bool();
-  const bool constrain_orientation = this->get_parameter("constrain_corridor_orientation").as_bool();
-  
+  // Invalidate any previous plan up front. If this planning request fails for ANY
+  // reason (OMPL failure, depth error, no IK), m_current_plan is left empty so a
+  // subsequent execute_plan call cannot run a STALE trajectory. Only a successful
+  // plan below repopulates it.
+  m_current_plan = moveit::planning_interface::MoveGroupInterface::Plan();
+  const bool use_corridor = this->get_parameter("corridor_constraint").as_bool();
+  const bool constrain_orientation = this->get_parameter("orientation_constraint").as_bool();
+  const bool optimize_path = this->get_parameter("optimize_path").as_bool();
+
+  // optimize_path -> RRTstar minimizes joint-space path length (cleaner, less
+  // convoluted motion) but consumes the full planning-time budget. Otherwise the
+  // fast feasibility planner RRTConnect.
+  m_move_group->setPlannerId(optimize_path ? "RRTstarkConfigDefault" : "RRTConnectkConfigDefault");
+
+  // Planning-time budget. Edge/corner poses (e.g. go_home at x=1.112) need far more than
+  // the old 2.5 s for RRTConnect to find a path through the workspace, so the plain case
+  // is now 10 s (RRTConnect still returns immediately on easy poses, so this only costs
+  // time when the problem is genuinely hard). Constrained/optimized: 15 s.
+  m_move_group->setPlanningTime((use_corridor || constrain_orientation || optimize_path) ? 15.0 : 10.0);
 
   //TODO, put in a while loop with MAX_TRIES
   //TODO make a function
@@ -523,7 +1044,9 @@ void MotionControlNode::planToPoseCallback(
 
   m_move_group->setStartStateToCurrentState();
 
-  if (use_corridor) {
+  // Apply path constraints if EITHER the position corridor OR the orientation
+  // constraint is enabled (they are independent).
+  if (use_corridor || constrain_orientation) {
     setPathConstraints(target_pose_in_planning_frame);
   }
   
@@ -548,6 +1071,7 @@ void MotionControlNode::planToPoseCallback(
     if (plan_result == moveit::core::MoveItErrorCode::SUCCESS) {
       RCLCPP_INFO(get_logger(), "Planning succeeded on IK solution %zu/%zu (%zu trajectory points)",
                   i + 1, solutions.size(), m_current_plan.trajectory_.joint_trajectory.points.size());
+
       m_goal_joint_values = solutions[i];
 
       // Update goal marker
@@ -569,7 +1093,10 @@ void MotionControlNode::planToPoseCallback(
 
   response->success = false;
   response->message = "Planning failed for all " + std::to_string(solutions.size()) + " IK solutions";
-  RCLCPP_ERROR(get_logger(), "Planning failed for all %zu IK solutions", solutions.size());
+  RCLCPP_ERROR(get_logger(), "%s", response->message.c_str());
+  // Clear the plan so the failed/rejected trajectory can never be executed by a later
+  // execute_plan call (the loop's plan() may have left a stale one in m_current_plan).
+  m_current_plan = moveit::planning_interface::MoveGroupInterface::Plan();
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control planToPoseCallback() END");
   m_move_group->clearPathConstraints();                // remove constraints
 
@@ -646,6 +1173,18 @@ void MotionControlNode::executePlanCallback(
     std::shared_ptr<arpa_control::srv::ExecutePlan::Response> response)
 {
   RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() START");
+
+  // Refuse to execute when there is no valid plan. Without this, a failed plan (which
+  // leaves m_current_plan empty) followed by an execute_plan call would silently run an
+  // empty/stale trajectory and report "Execution successful" — masking the failure.
+  if (m_current_plan.trajectory_.joint_trajectory.points.empty() &&
+      m_current_plan.trajectory_.multi_dof_joint_trajectory.points.empty()) {
+    response->success = false;
+    response->message = "Execution refused: no valid plan available (planning failed or no plan made yet)";
+    RCLCPP_ERROR(get_logger(), "%s", response->message.c_str());
+    RCLCPP_INFO(get_logger(), "[TRACE] Motion Control executePlanCallback() END");
+    return;
+  }
 
   auto execute_result = m_move_group->execute(m_current_plan);
   if (execute_result == moveit::core::MoveItErrorCode::SUCCESS)

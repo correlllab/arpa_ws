@@ -61,9 +61,16 @@ def launch_setup(context, *args, **kwargs):
     moveit_config_file = LaunchConfiguration("moveit_config_file")
     prefix = LaunchConfiguration("prefix")
     use_sim_time = LaunchConfiguration("use_sim_time")
-    use_corridor_constraint = LaunchConfiguration("use_corridor_constraint")
-    constrain_corridor_orientation = LaunchConfiguration("constrain_corridor_orientation")
+    corridor_constraint = LaunchConfiguration("corridor_constraint")
+    orientation_constraint = LaunchConfiguration("orientation_constraint")
     use_special_logic = LaunchConfiguration("use_special_logic")
+    analytical_ik = LaunchConfiguration("analytical_ik")
+    optimize_path = LaunchConfiguration("optimize_path")
+    cost_w_joint = LaunchConfiguration("cost_w_joint")
+    cost_w_proximity = LaunchConfiguration("cost_w_proximity")
+    cost_w_area = LaunchConfiguration("cost_w_area")
+    kdl_random_restart_count = LaunchConfiguration("kdl_random_restart_count")
+    kdl_restart_timeout = LaunchConfiguration("kdl_restart_timeout")
     # Additional xacro arguments
     transmission_hw_interface = LaunchConfiguration("transmission_hw_interface")
     headless_mode = LaunchConfiguration("headless_mode")
@@ -264,9 +271,16 @@ def launch_setup(context, *args, **kwargs):
             robot_description_planning,   # Needed for joint limits
             {
                 "use_sim_time": use_sim_time,
-                "use_corridor_constraint": use_corridor_constraint.perform(context).lower() == "true",
-                "constrain_corridor_orientation": constrain_corridor_orientation.perform(context).lower() == "true",
+                "corridor_constraint": corridor_constraint.perform(context).lower() == "true",
+                "orientation_constraint": orientation_constraint.perform(context).lower() == "true",
                 "use_special_logic": use_special_logic.perform(context).lower() == "true",
+                "analytical_ik": analytical_ik.perform(context).lower() == "true",
+                "optimize_path": optimize_path.perform(context).lower() == "true",
+                "cost_w_joint": float(cost_w_joint.perform(context)),
+                "cost_w_proximity": float(cost_w_proximity.perform(context)),
+                "cost_w_area": float(cost_w_area.perform(context)),
+                "kdl_random_restart_count": int(kdl_random_restart_count.perform(context)),
+                "kdl_restart_timeout": float(kdl_restart_timeout.perform(context)),
                 "corridor_cross_section": 0.5,
                 "corridor_padding": 0.25,
             },
@@ -381,16 +395,18 @@ def generate_launch_description():
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "use_corridor_constraint",
+            "corridor_constraint",
             default_value="true",
             description="If true, constrain RRT planning to a corridor between current EE and target. Set to false for benchmark or to allow convoluted paths.",
         )
     )
     declared_arguments.append(
         DeclareLaunchArgument(
-            "constrain_corridor_orientation",
+            "orientation_constraint",
             default_value="true",
-            description="If true, also constrain end-effector orientation along the corridor path. Set to false to constrain position only.",
+            description="If true, lock the end-effector orientation to the target (+/-0.4 rad per axis). "
+            "Independent of corridor_constraint: can be enabled on its own (orientation-only) or "
+            "alongside the position corridor.",
         )
     )
     declared_arguments.append(
@@ -398,6 +414,59 @@ def generate_launch_description():
             "use_special_logic",
             default_value="false",
             description="If true, use multi-objective (MOGA-style) IK seed selection in motion planning. Set to false to use original corridor/default logic.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "analytical_ik",
+            default_value="false",
+            description="If true, generate IK seeds with the closed-form UR16e analytical solver "
+            "(ur16e_ik::solve), sweeping gantry positions and ranking by a normalized multi-objective "
+            "cost, with automatic fallback to KDL (setFromIK) if it finds nothing. If false (default), "
+            "use the original actuator-offset + KDL seed sweep unchanged.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "optimize_path",
+            default_value="false",
+            description="If true, plan with RRTstar (path-length optimized, cleaner motion) instead of "
+            "RRTConnect. Uses the full planning-time budget.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_joint",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized joint-distance cost (analytical_ik=true).",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_proximity",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized wrist-to-actuator proximity penalty.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "cost_w_area",
+            default_value="1.0",
+            description="Analytical-IK seed ranking weight for normalized arm-triangle-area (near-singularity) penalty.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "kdl_random_restart_count",
+            default_value="1",
+            description="KDL fallback restarts when analytical IK finds nothing: 1 = single current-state seed; >1 adds random-restart seeds.",
+        )
+    )
+    declared_arguments.append(
+        DeclareLaunchArgument(
+            "kdl_restart_timeout",
+            default_value="0.05",
+            description="Per-attempt setFromIK timeout (s) for KDL fallback random restarts.",
         )
     )
     # Additional xacro arguments
